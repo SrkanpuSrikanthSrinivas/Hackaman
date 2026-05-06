@@ -23,7 +23,13 @@ export const PGET   = p     => fetch(`${BASE}${p}`).then(r=>r.json());
 export const PPOST  = (p,b) => fetch(`${BASE}${p}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(r=>r.json());
 
 /* ─── UTILS ─────────────────────────────────────────────────────────────── */
-export const fmtDate = d => d ? new Date(d+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
+export const fmtDate = d => {
+  if (!d) return "—";
+  // Postgres returns full ISO timestamps; only append T12:00:00 for bare date strings
+  const s = (typeof d === "string" && d.length <= 10) ? d + "T12:00:00" : d;
+  const dt = new Date(s);
+  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
+};
 export const fmtDt   = d => d ? new Date(d).toLocaleString("en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
 export const initials= n => (n||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
 
