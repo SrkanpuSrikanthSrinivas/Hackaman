@@ -6,9 +6,11 @@ import { useState, useEffect, useCallback } from "react";
    When deployed: https://your-api.railway.app (or wherever you host it)
 ═══════════════════════════════════════════════════════════════ */
 
-// In production (Vercel) this is the same origin — no URL needed.
-// In local dev it proxies through Vite to localhost:3001.
-const DEFAULT_API_URL = import.meta.env.VITE_API_URL || "";
+// On Vercel the API is same-origin — baseUrl is ""
+// In local dev the API runs on port 3001
+const IS_LOCAL = typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+const DEFAULT_API_URL = IS_LOCAL ? "http://localhost:3001" : "";
 
 async function apiFetch(baseUrl, path, options = {}) {
   const res = await fetch(`${baseUrl}${path}`, {
@@ -1124,10 +1126,12 @@ const PAGES = [
 ];
 
 export default function App() {
-  const [apiUrl, setApiUrl]             = useState(null);
-  const [page, setPage]                 = useState("dashboard");
-  const [activeHackathon, setActive]    = useState("");
-  const [toasts, setToasts]             = useState([]);
+  // On Vercel: same-origin, auto-connect immediately with ""
+  // On localhost: show setup screen so dev can point to local API
+  const [apiUrl, setApiUrl]          = useState(IS_LOCAL ? null : DEFAULT_API_URL);
+  const [page, setPage]              = useState("dashboard");
+  const [activeHackathon, setActive] = useState("");
+  const [toasts, setToasts]          = useState([]);
 
   const toast = useCallback((msg, type="success") => {
     const id = Date.now().toString(36);
@@ -1135,14 +1139,14 @@ export default function App() {
     setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3500);
   }, []);
 
-  const api = apiUrl ? makeApi(apiUrl) : null;
-  const { db, loading, error, reload } = useData(api || makeApi("__NONE__"));
+  const api = makeApi(apiUrl ?? "");
+  const { db, loading, error, reload } = useData(api);
 
   useEffect(() => {
     if (!activeHackathon && db.hackathons.length) setActive(db.hackathons[0].id);
   }, [db.hackathons]);
 
-  if (!apiUrl) return <SetupScreen onConnect={url => { setApiUrl(url); }} />;
+  if (apiUrl === null) return <SetupScreen onConnect={url => { setApiUrl(url); }} />;
 
   const hack = db.hackathons.find(h => h.id === activeHackathon);
   const props = { db, api, reload, toast, activeHackathon };
@@ -1169,7 +1173,7 @@ export default function App() {
           <div style={{ fontSize:14, fontWeight:600, color:"#fafafa", letterSpacing:"-0.01em" }}>HackFest Hub</div>
           <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:3 }}>
             <div style={{ width:5, height:5, borderRadius:"50%", background:"#16a34a", flexShrink:0 }} />
-            <span style={{ fontSize:11, color:"#52525b" }}>{apiUrl.replace(/https?:\/\//, "")}</span>
+            <span style={{ fontSize:11, color:"#52525b" }}>{apiUrl ? apiUrl.replace(/https?:\/\//, "") : window.location.host}</span>
           </div>
         </div>
         <div style={{ padding:"10px 12px 11px", borderBottom:"1px solid #27272a" }}>
