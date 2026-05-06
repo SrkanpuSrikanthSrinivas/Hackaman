@@ -12,9 +12,17 @@ const IS_LOCAL = typeof window !== "undefined" &&
   (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 const DEFAULT_API_URL = IS_LOCAL ? "http://localhost:3001" : "";
 
+function getToken() {
+  try { return localStorage.getItem("hf_token") || ""; } catch { return ""; }
+}
+
 async function apiFetch(baseUrl, path, options = {}) {
+  const token = getToken();
   const res = await fetch(`${baseUrl}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
     ...options,
   });
   if (!res.ok) {
@@ -57,6 +65,17 @@ function makeApi(baseUrl) {
     createFeedback: (d)     => post("/api/feedbacks", d),
     updateFeedback: (id,d)  => put(`/api/feedbacks/${id}`, d),
     deleteFeedback: (id)    => del(`/api/feedbacks/${id}`),
+    // Users
+    getUsers:    ()         => get("/api/users"),
+    createUser:  (d)        => post("/api/users", d),
+    updateUser:  (id,d)     => put(`/api/users/${id}`, d),
+    deleteUser:  (id)       => del(`/api/users/${id}`),
+    // Assignments
+    addAssignment:    (d)          => post("/api/assignments", d),
+    removeAssignment: (hid,uid)    => del(`/api/assignments/${hid}/${uid}`),
+    // Permissions
+    addPermission:    (d)          => post("/api/permissions", d),
+    removePermission: (id)         => del(`/api/permissions/${id}`),
   };
 }
 
@@ -1125,11 +1144,357 @@ const PAGES = [
   {id:"reports",label:"Reports"},
 ];
 
+
+/* ═══════════════════════════════════════════════════════════════
+   LOGIN PAGE
+═══════════════════════════════════════════════════════════════ */
+function LoginPage({ apiUrl, onLogin, toast }) {
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [err, setErr]           = useState("");
+
+  const submit = async e => {
+    e.preventDefault();
+    setLoading(true); setErr("");
+    try {
+      const res  = await fetch(`${apiUrl}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setErr(data.error || "Login failed"); setLoading(false); return; }
+      localStorage.setItem("hf_token", data.token);
+      onLogin(data.user);
+    } catch (e) { setErr("Cannot reach API. Is the server running?"); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ fontFamily:"'IBM Plex Sans',sans-serif", minHeight:"100vh", background:"#f4f4f5",
+      display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap'); *{box-sizing:border-box;margin:0;padding:0;}`}</style>
+      <div style={{ width:"100%", maxWidth:380 }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:28, fontWeight:600,
+            color:"#18181b", letterSpacing:"-0.02em", marginBottom:4 }}>HackFest Hub</div>
+          <div style={{ fontSize:13, color:"#71717a" }}>Sign in to your account</div>
+        </div>
+        <div style={{ background:"#fff", border:"1px solid #e4e4e7", borderRadius:10,
+          padding:"28px 28px 24px", boxShadow:"0 4px 20px rgba(0,0,0,0.06)" }}>
+          {err && (
+            <div style={{ background:"#fef2f2", border:"1px solid #fecaca", borderRadius:6,
+              padding:"9px 12px", fontSize:12, color:"#dc2626", marginBottom:16 }}>⚠ {err}</div>
+          )}
+          <form onSubmit={submit}>
+            <Field label="Email">
+              <input style={I} type="email" value={email} onChange={e=>setEmail(e.target.value)}
+                placeholder="you@hackfest.com" autoFocus required />
+            </Field>
+            <Field label="Password">
+              <input style={I} type="password" value={password} onChange={e=>setPassword(e.target.value)}
+                placeholder="••••••••" required />
+            </Field>
+            <button type="submit" disabled={loading}
+              style={{ width:"100%", background:"#18181b", color:"#fff", border:"none",
+                borderRadius:6, padding:"10px", fontSize:13, fontWeight:600, cursor:"pointer",
+                fontFamily:"'IBM Plex Sans',sans-serif", marginTop:4,
+                display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              {loading && <Spinner />}
+              {loading ? "Signing in..." : "Sign in"}
+            </button>
+          </form>
+          <div style={{ marginTop:18, padding:"12px 0 0", borderTop:"1px solid #f4f4f5",
+            fontSize:11, color:"#a1a1aa", lineHeight:2 }}>
+            <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:11 }}>
+              <span style={{ color:"#3f3f46" }}>Admin</span>&nbsp; admin@hackfest.com / admin123<br/>
+              <span style={{ color:"#3f3f46" }}>Judge</span>&nbsp; srikanth@hackfest.com / judge123
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   USER MANAGEMENT PAGE (admin only)
+═══════════════════════════════════════════════════════════════ */
+const PAGES_LIST = [
+  { id:"dashboard",    label:"Dashboard" },
+  { id:"reports",      label:"Reports" },
+  { id:"all-feedback", label:"All Feedback" },
+  { id:"criteria",     label:"Criteria" },
+];
+
+function UserManagementPage({ db, api, reload, toast }) {
+  const [users, setUsers]           = useState([]);
+  const [selectedUser, setSelected] = useState(null);
+  const [modal, setModal]           = useState(null);
+  const [form, setForm]             = useState({});
+  const [saving, setSaving]         = useState(false);
+  const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  const loadUsers = async () => {
+    try { const u = await api.getUsers(); setUsers(u); } catch {}
+  };
+  useEffect(() => { loadUsers(); }, []);
+
+  const sel = users.find(u => u.id === selectedUser) || null;
+
+  const openModal = u => { setForm(u ? { ...u, password:"" } : { role:"judge" }); setModal(u||"new"); };
+  const closeModal = () => setModal(null);
+
+  const saveUser = async () => {
+    if (!form.name?.trim()||!form.email?.trim()) return toast("Name and email required","error");
+    if (modal==="new" && !form.password?.trim()) return toast("Password required for new users","error");
+    setSaving(true);
+    try {
+      if (modal==="new") await api.createUser(form);
+      else await api.updateUser(modal.id, form);
+      await loadUsers(); toast(modal==="new"?"User created":"User updated"); closeModal();
+    } catch(e) { toast(e.message,"error"); }
+    setSaving(false);
+  };
+
+  const deleteUser = async id => {
+    if (!confirm("Delete this user?")) return;
+    try { await api.deleteUser(id); await loadUsers(); setSelected(null); toast("User deleted"); }
+    catch(e) { toast(e.message,"error"); }
+  };
+
+  const toggleAssignment = async (hackathonId, assigned) => {
+    try {
+      if (assigned) await api.removeAssignment(hackathonId, sel.id);
+      else          await api.addAssignment(hackathonId, sel.id);
+      await loadUsers();
+      setSelected(sel.id);
+    } catch(e) { toast(e.message,"error"); }
+  };
+
+  const togglePermission = async (hackathonId, page, existing) => {
+    try {
+      if (existing) await api.removePermission(existing.id);
+      else          await api.addPermission({ userId: sel.id, hackathonId, page });
+      await loadUsers();
+    } catch(e) { toast(e.message,"error"); }
+  };
+
+  return (
+    <div>
+      <PageHeader title="User Management" subtitle={`${users.length} users`}
+        action={<Btn onClick={() => openModal(null)}>+ Add User</Btn>} />
+      <div style={{ display:"grid", gridTemplateColumns:"300px 1fr", gap:16, alignItems:"start" }}>
+
+        {/* User list */}
+        <div style={{ background:"#fff", border:"1px solid #e4e4e7", borderRadius:8, overflow:"hidden" }}>
+          <div style={{ padding:"10px 14px", borderBottom:"1px solid #f4f4f5", fontSize:11,
+            fontWeight:600, color:"#71717a", letterSpacing:"0.06em" }}>ALL USERS</div>
+          {users.length === 0
+            ? <div style={{ padding:24, textAlign:"center", color:"#a1a1aa", fontSize:13 }}>No users yet.</div>
+            : users.map(u => (
+              <div key={u.id} onClick={() => setSelected(u.id)}
+                style={{ padding:"11px 14px", cursor:"pointer", borderBottom:"1px solid #f4f4f5",
+                  background: selectedUser===u.id ? "#eff6ff" : "transparent",
+                  transition:"background 0.1s" }}
+                onMouseEnter={e => { if(selectedUser!==u.id) e.currentTarget.style.background="#fafafa"; }}
+                onMouseLeave={e => { if(selectedUser!==u.id) e.currentTarget.style.background="transparent"; }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:500, color:"#18181b" }}>{u.name}</div>
+                    <div style={{ fontSize:11, color:"#71717a", marginTop:1 }}>{u.email}</div>
+                  </div>
+                  <Badge label={u.role} color={u.role==="admin"?"blue":"zinc"} />
+                </div>
+                {u.role==="judge" && (
+                  <div style={{ marginTop:5, display:"flex", gap:4, flexWrap:"wrap" }}>
+                    {(u.assignedHackathons||[]).map(hid => {
+                      const h = db.hackathons.find(h=>h.id===hid);
+                      return h ? <span key={hid} style={{ fontSize:10, background:"#f0fdf4",
+                        border:"1px solid #bbf7d0", color:"#16a34a", padding:"1px 6px", borderRadius:4 }}>{h.name}</span> : null;
+                    })}
+                  </div>
+                )}
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Detail panel */}
+        {sel ? (
+          <div>
+            {/* Header */}
+            <div style={{ background:"#fff", border:"1px solid #e4e4e7", borderRadius:8, padding:18, marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                    <span style={{ fontSize:16, fontWeight:600, color:"#18181b" }}>{sel.name}</span>
+                    <Badge label={sel.role} color={sel.role==="admin"?"blue":"zinc"} />
+                  </div>
+                  <div style={{ fontSize:13, color:"#71717a" }}>{sel.email}</div>
+                  {sel.judgeId && <div style={{ fontSize:12, color:"#a1a1aa", marginTop:2 }}>Linked judge: {db.judges?.find(j=>j.id===sel.judgeId)?.name||sel.judgeId}</div>}
+                </div>
+                <div style={{ display:"flex", gap:6 }}>
+                  <Btn size="sm" variant="secondary" onClick={() => openModal(sel)}>Edit</Btn>
+                  <Btn size="sm" variant="danger"    onClick={() => deleteUser(sel.id)}>Delete</Btn>
+                </div>
+              </div>
+            </div>
+
+            {/* Hackathon assignments (judges only) */}
+            {sel.role === "judge" && (
+              <div style={{ background:"#fff", border:"1px solid #e4e4e7", borderRadius:8, padding:18, marginBottom:12 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:"#18181b", marginBottom:14 }}>Hackathon Assignments</div>
+                <p style={{ fontSize:12, color:"#71717a", marginBottom:12 }}>
+                  Judges can only see and score teams in assigned hackathons.
+                </p>
+                {db.hackathons.length === 0
+                  ? <div style={{ fontSize:12, color:"#a1a1aa", fontStyle:"italic" }}>No hackathons exist yet.</div>
+                  : db.hackathons.map(h => {
+                    const assigned = (sel.assignedHackathons||[]).includes(h.id);
+                    return (
+                      <div key={h.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                        padding:"10px 12px", borderRadius:7, marginBottom:6,
+                        background: assigned ? "#f0fdf4" : "#fafafa",
+                        border: `1px solid ${assigned ? "#bbf7d0" : "#e4e4e7"}` }}>
+                        <div>
+                          <div style={{ fontSize:13, fontWeight:500, color:"#18181b" }}>{h.name}</div>
+                          <div style={{ display:"flex", gap:6, marginTop:3 }}>
+                            <Badge label={h.status} color={STATUS_COLOR[h.status]||"zinc"} />
+                            <span style={{ fontSize:11, color:"#71717a" }}>{h.location}</span>
+                          </div>
+                        </div>
+                        <button onClick={() => toggleAssignment(h.id, assigned)}
+                          style={{ fontSize:12, fontWeight:500, padding:"5px 12px", borderRadius:6, cursor:"pointer",
+                            fontFamily:"'IBM Plex Sans',sans-serif", transition:"all 0.1s",
+                            background: assigned ? "#fff" : "#18181b",
+                            color:      assigned ? "#dc2626" : "#fff",
+                            border:     assigned ? "1px solid #fecaca" : "none" }}>
+                          {assigned ? "Remove" : "Assign"}
+                        </button>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            )}
+
+            {/* Extra page permissions (judges only) */}
+            {sel.role === "judge" && (
+              <div style={{ background:"#fff", border:"1px solid #e4e4e7", borderRadius:8, padding:18 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:"#18181b", marginBottom:4 }}>Additional Page Access</div>
+                <p style={{ fontSize:12, color:"#71717a", marginBottom:14 }}>
+                  By default judges only see <strong>Submit Feedback</strong>. Grant access to additional pages per hackathon or globally.
+                </p>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  {db.hackathons.filter(h => (sel.assignedHackathons||[]).includes(h.id)).map(h => (
+                    <div key={h.id} style={{ border:"1px solid #e4e4e7", borderRadius:8, overflow:"hidden" }}>
+                      <div style={{ background:"#fafafa", borderBottom:"1px solid #f4f4f5",
+                        padding:"8px 12px", fontSize:11, fontWeight:600, color:"#71717a", letterSpacing:"0.06em" }}>
+                        {h.name.toUpperCase()}
+                      </div>
+                      {PAGES_LIST.map(p => {
+                        const existing = (sel.permissions||[]).find(x => x.hackathonId===h.id && x.page===p.id);
+                        return (
+                          <div key={p.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                            padding:"8px 12px", borderBottom:"1px solid #f9f9f9" }}>
+                            <span style={{ fontSize:12, color:"#18181b" }}>{p.label}</span>
+                            <label style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer" }}>
+                              <input type="checkbox" checked={!!existing}
+                                onChange={() => togglePermission(h.id, p.id, existing)}
+                                style={{ accentColor:"#2563eb", cursor:"pointer" }} />
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                {(sel.assignedHackathons||[]).length === 0 && (
+                  <div style={{ fontSize:12, color:"#a1a1aa", fontStyle:"italic" }}>Assign this judge to a hackathon first.</div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ background:"#fff", border:"1px solid #e4e4e7", borderRadius:8,
+            padding:"44px 24px", textAlign:"center", color:"#a1a1aa", fontSize:13, fontStyle:"italic" }}>
+            Select a user on the left to manage their access.
+          </div>
+        )}
+      </div>
+
+      {/* Modal */}
+      {modal && (
+        <Modal title={modal==="new"?"Add User":"Edit User"} onClose={closeModal}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Full Name"><input style={I} value={form.name||""} onChange={f("name")} /></Field>
+            <Field label="Role">
+              <select style={I} value={form.role||"judge"} onChange={f("role")}>
+                <option value="judge">Judge</option>
+                <option value="admin">Admin</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Email"><input style={I} type="email" value={form.email||""} onChange={f("email")} /></Field>
+          <Field label={modal==="new"?"Password":"New Password (leave blank to keep current)"}>
+            <input style={I} type="password" value={form.password||""} onChange={f("password")}
+              placeholder={modal==="new"?"required":"leave blank to keep current"} />
+          </Field>
+          {form.role === "judge" && (
+            <Field label="Link to Judge Record" hint="Optional — connects this login to a judge profile for feedback attribution">
+              <select style={I} value={form.judgeId||""} onChange={f("judgeId")}>
+                <option value="">None</option>
+                {(db.judges||[]).map(j => <option key={j.id} value={j.id}>{j.name} — {j.org}</option>)}
+              </select>
+            </Field>
+          )}
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:4 }}>
+            <Btn variant="secondary" onClick={closeModal}>Cancel</Btn>
+            <Btn onClick={saveUser} disabled={saving}>{saving?<Spinner/>:null} Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// Pages visible to each role
+const ADMIN_PAGES = [
+  {id:"dashboard",    label:"Dashboard"},
+  {id:"hackathons",   label:"Hackathons"},
+  {id:"teams",        label:"Teams"},
+  {id:"judges",       label:"Judges"},
+  {id:"criteria",     label:"Criteria"},
+  {id:"---"},
+  {id:"feedback",     label:"Submit Feedback"},
+  {id:"all-feedback", label:"All Feedback"},
+  {id:"reports",      label:"Reports"},
+  {id:"---2"},
+  {id:"users",        label:"User Management"},
+];
+
+function getJudgePages(user) {
+  const base = [{id:"feedback", label:"Submit Feedback"}];
+  const extra = user.permissions || [];
+  const extraPages = PAGES_LIST.filter(p => extra.some(e => e.page === p.id));
+  if (extraPages.length) base.push({id:"---"}, ...extraPages.map(p => ({id:p.id, label:p.label})));
+  return base;
+}
+
 export default function App() {
-  // On Vercel: same-origin, auto-connect immediately with ""
-  // On localhost: show setup screen so dev can point to local API
   const [apiUrl, setApiUrl]          = useState(IS_LOCAL ? null : DEFAULT_API_URL);
-  const [page, setPage]              = useState("dashboard");
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const token = localStorage.getItem("hf_token");
+      if (!token) return null;
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (payload.exp * 1000 < Date.now()) { localStorage.removeItem("hf_token"); return null; }
+      return payload;
+    } catch { return null; }
+  });
+  const [page, setPage]              = useState("feedback");
   const [activeHackathon, setActive] = useState("");
   const [toasts, setToasts]          = useState([]);
 
@@ -1139,17 +1504,44 @@ export default function App() {
     setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3500);
   }, []);
 
+  const handleLogin = user => {
+    setCurrentUser(user);
+    setPage(user.role === "admin" ? "dashboard" : "feedback");
+  };
+
+  const logout = () => {
+    localStorage.removeItem("hf_token");
+    setCurrentUser(null);
+    setPage("feedback");
+  };
+
   const api = makeApi(apiUrl ?? "");
   const { db, loading, error, reload } = useData(api);
 
   useEffect(() => {
-    if (!activeHackathon && db.hackathons.length) setActive(db.hackathons[0].id);
+    if (!activeHackathon && db.hackathons.length) {
+      // Judge sees only their assigned hackathons
+      if (currentUser?.role === "judge") {
+        const first = db.hackathons.find(h => (currentUser.assignedHackathons||[]).includes(h.id));
+        if (first) setActive(first.id);
+      } else {
+        setActive(db.hackathons[0].id);
+      }
+    }
   }, [db.hackathons]);
 
   if (apiUrl === null) return <SetupScreen onConnect={url => { setApiUrl(url); }} />;
+  if (!currentUser)    return <LoginPage apiUrl={apiUrl??""} onLogin={handleLogin} toast={toast} />;
 
-  const hack = db.hackathons.find(h => h.id === activeHackathon);
+  const isAdmin   = currentUser.role === "admin";
+  const navPages  = isAdmin ? ADMIN_PAGES : getJudgePages(currentUser);
+
+  const hack  = db.hackathons.find(h => h.id === activeHackathon);
   const props = { db, api, reload, toast, activeHackathon };
+  // Judges only see their assigned hackathons in the dropdown
+  const visibleHackathons = isAdmin
+    ? db.hackathons
+    : db.hackathons.filter(h => (currentUser.assignedHackathons||[]).includes(h.id));
 
   return (
     <div style={{ fontFamily:"'IBM Plex Sans',-apple-system,sans-serif", display:"flex", height:"100vh", background:"#f4f4f5", color:"#18181b" }}>
@@ -1180,7 +1572,7 @@ export default function App() {
           <div style={{ fontSize:10, fontWeight:500, color:"#52525b", letterSpacing:"0.08em", marginBottom:6, paddingLeft:4 }}>ACTIVE EVENT</div>
           <select style={{ width:"100%", background:"#27272a", border:"1px solid #3f3f46", borderRadius:5, padding:"6px 9px", fontSize:12, color:"#e4e4e7", cursor:"pointer", outline:"none" }}
             value={activeHackathon} onChange={e => setActive(e.target.value)}>
-            {db.hackathons.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            {visibleHackathons.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
           {hack && (
             <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:5, paddingLeft:2 }}>
@@ -1190,8 +1582,8 @@ export default function App() {
           )}
         </div>
         <nav style={{ flex:1, overflowY:"auto", padding:"6px 9px" }}>
-          {PAGES.map((item, i) => {
-            if (item.id==="---") return <div key={i} style={{ height:1, background:"#27272a", margin:"5px 0" }} />;
+          {navPages.map((item, i) => {
+            if (item.id.startsWith("---")) return <div key={i} style={{ height:1, background:"#27272a", margin:"5px 0" }} />;
             const active = page===item.id;
             return (
               <button key={item.id} onClick={()=>setPage(item.id)}
@@ -1201,10 +1593,14 @@ export default function App() {
             );
           })}
         </nav>
-        <div style={{ padding:"10px 16px", borderTop:"1px solid #27272a" }}>
-          <button onClick={()=>setApiUrl(null)} style={{ fontSize:11, color:"#3f3f46", background:"none", border:"none", cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif" }}>
-            ← Change API URL
-          </button>
+        <div style={{ padding:"10px 14px", borderTop:"1px solid #27272a" }}>
+          <div style={{ fontSize:12, fontWeight:500, color:"#a1a1aa", marginBottom:2 }}>{currentUser.name}</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <Badge label={currentUser.role} color={currentUser.role==="admin"?"blue":"zinc"} />
+            <button onClick={logout} style={{ fontSize:11, color:"#52525b", background:"none", border:"none", cursor:"pointer", fontFamily:"'IBM Plex Sans',sans-serif" }}>
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -1230,6 +1626,7 @@ export default function App() {
         {page==="feedback"     && <FeedbackPage     {...props} />}
         {page==="all-feedback" && <AllFeedbackPage  {...props} />}
         {page==="reports"      && <ReportPage       {...props} />}
+        {page==="users"        && isAdmin && <UserManagementPage {...props} />}
       </main>
 
       {/* Toasts */}
