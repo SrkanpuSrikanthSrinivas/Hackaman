@@ -826,10 +826,10 @@ export function UserManagementPage({ db, reload, toast }) {
 }
 
 /* ─── PUBLIC PAGES ADMIN ───────────────────────────────────────────────── */
-export function PublicPagesAdmin({ db, reload, toast }) {
-  const [selH,setSelH]=useState(db.hackathons[0]?.id||"");
+export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
+  const [selH,setSelH]=useState(activeHackathon||db.hackathons[0]?.id||"");
   const [regs,setRegs]=useState([]);const [tab,setTab]=useState("overview");
-  useEffect(()=>{ if(!selH)return; GET(`/api/registrations?hackathonId=${selH}`).then(setRegs).catch(()=>{}); },[selH,db.feedbacks]);
+  useEffect(()=>{ if(!selH)return; GET(`/api/registrations?hackathonId=${selH}`).then(setRegs).catch(()=>{}); },[selH]);
   const hack=db.hackathons.find(h=>h.id===selH);
   const pubUrl=`${window.location.origin}/register/${selH}`;
   const publish=async val=>{try{await PUT(`/api/hackathons/${hack.id}`,{...hack,published:val});await reload();toast(val?"Published! Share the link.":"Unpublished");}catch(e){toast(e.message,"error");}};

@@ -333,7 +333,7 @@ export default function App() {
         {page==="all-feedback" && <AllFeedbackPage  {...props} />}
         {page==="reports"      && <ReportPage       {...props} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
-        {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} />}
+        {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
       </main>
 
       {/* ── Toasts ── */}
