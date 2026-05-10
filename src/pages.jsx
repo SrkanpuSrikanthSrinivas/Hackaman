@@ -301,14 +301,14 @@ export function TeamsPage({ db, reload, toast, activeHackathon }) {
 export function JudgesPage({ db, reload, toast }) {
   const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [uploading,setUploading]=useState(false);
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
-  const fileRef=useRef?useRef():{ current:null };
+  const fileRef=useRef(null);
 
   const open=j=>{setForm(j?{...j}:{});setModal(j||"new");};
   const close=()=>setModal(null);
 
   const handlePhotoUpload=async(e)=>{
     const file=e.target.files?.[0]; if(!file) return;
-    if(file.size>5*1024*1024){toast("Photo must be under 5MB","error");return;}
+    if(file.size>2*1024*1024){toast("Photo must be under 2MB. Try compressing it first.","error");return;}
     setUploading(true);
     const reader=new FileReader();
     reader.onload=ev=>{ setForm(p=>({...p,avatarUrl:ev.target.result})); setUploading(false); };
@@ -348,27 +348,49 @@ export function JudgesPage({ db, reload, toast }) {
         ]} rows={db.judges} empty="No judges." />
       }
       {modal&&(
-        <Modal title={modal==="new"?"Add Judge":"Edit Judge"} onClose={close}>
-          {/* Photo upload section */}
-          <div style={{marginBottom:18,padding:16,background:C.bg2,borderRadius:R.md,border:`1px solid ${C.border}`}}>
-            <div style={{...FONT,fontSize:12,fontWeight:500,color:C.text2,marginBottom:12}}>Judge Photo</div>
-            <div style={{display:"flex",alignItems:"center",gap:16}}>
-              <div style={{flexShrink:0}}>
+        <Modal title={modal==="new"?"Add Judge":"Edit Judge"} onClose={close} width={560}>
+          {/* ── Photo Upload ── */}
+          <div style={{marginBottom:20}}>
+            <div style={{...FONT,fontSize:12,fontWeight:600,color:C.text,marginBottom:10}}>Judge Photo</div>
+            <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+              {/* Preview */}
+              <div style={{flexShrink:0,width:80,height:80,borderRadius:"50%",overflow:"hidden",
+                border:`2px dashed ${form.avatarUrl?C.bdGreen:C.border2}`,
+                background:form.avatarUrl?"transparent":C.bg3,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
                 {form.avatarUrl
-                  ?<img src={form.avatarUrl} style={{width:72,height:72,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.border}`}} />
-                  :<div style={{width:72,height:72,borderRadius:"50%",background:C.bg3,border:`2px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>👤</div>
+                  ?<img src={form.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}} />
+                  :<span style={{fontSize:28,opacity:0.35}}>👤</span>
                 }
               </div>
+              {/* Controls */}
               <div style={{flex:1}}>
-                <div style={{display:"flex",gap:8,marginBottom:8}}>
-                  <label style={{...FONT,fontSize:12,fontWeight:500,padding:"6px 12px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",background:C.bg,color:C.text2,display:"inline-flex",alignItems:"center",gap:5}}>
-                    {uploading?"Uploading...":"📁 Upload Photo"}
-                    <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{display:"none"}} />
-                  </label>
-                  {form.avatarUrl&&<Btn size="sm" variant="danger" onClick={()=>setForm(p=>({...p,avatarUrl:""}))}>Remove</Btn>}
-                </div>
-                <div style={{...FONT,fontSize:11,color:C.text3}}>Or paste an image URL:</div>
-                <input style={{...IN,marginTop:4,fontSize:12}} value={form.avatarUrl&&!form.avatarUrl.startsWith("data:")?form.avatarUrl:""} onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))} placeholder="https://example.com/photo.jpg" />
+                {/* Upload button */}
+                <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 14px",
+                  borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",
+                  background:C.bg,color:C.text2,...FONT,fontSize:13,fontWeight:500,
+                  marginBottom:10,userSelect:"none",
+                  opacity:uploading?0.6:1}}>
+                  {uploading
+                    ? <><Spinner size={12}/> Uploading...</>
+                    : <><span>📷</span> {form.avatarUrl ? "Change Photo" : "Upload Photo"}</>
+                  }
+                  <input type="file" ref={fileRef} accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={handlePhotoUpload} style={{display:"none"}} disabled={uploading} />
+                </label>
+                {/* URL input */}
+                <div style={{...FONT,fontSize:11,color:C.text3,marginBottom:5}}>Or paste a photo URL:</div>
+                <input style={{...IN,fontSize:12}}
+                  value={form.avatarUrl && !form.avatarUrl.startsWith("data:") ? form.avatarUrl : ""}
+                  onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))}
+                  placeholder="https://linkedin.com/... or any image URL" />
+                {form.avatarUrl && (
+                  <button onClick={()=>setForm(p=>({...p,avatarUrl:""}))}
+                    style={{...FONT,fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginTop:5,padding:0}}>
+                    ✕ Remove photo
+                  </button>
+                )}
+                <div style={{...FONT,fontSize:11,color:C.text3,marginTop:6}}>Accepts JPG, PNG, WebP · Max 2MB · Shown on public event page</div>
               </div>
             </div>
           </div>
@@ -423,7 +445,13 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
   const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
   const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
   const [teamId,setTeamId]=useState(teams[0]?.id||"");
-  const [judgeId,setJudgeId]=useState(currentUser?.judgeId||db.judges[0]?.id||"");
+  // For judges: use their linked judgeId. If not linked, use first available.
+  const defaultJudgeId = currentUser?.role==="judge"
+    ? (currentUser?.judgeId || "")
+    : (db.judges[0]?.id || "");
+  const [judgeId,setJudgeId]=useState(defaultJudgeId);
+  // Re-sync if db loads after state init
+  useEffect(()=>{ if(!judgeId && db.judges.length) setJudgeId(currentUser?.judgeId||db.judges[0]?.id||""); },[db.judges.length]);
   const [scores,setScores]=useState({});
   const [comments,setComments]=useState({});
   const [overall,setOverall]=useState("");
@@ -444,6 +472,7 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
   const fm=k=>e=>setMeta(p=>({...p,[k]:e.target.value}));
 
   const submit=async()=>{
+    if(isJudge && !judgeId) return toast("Your account is not linked to a judge record. Contact an admin.","error");
     if(!criteria.every(c=>scores[c.id]!=null))return toast("Please score all criteria before submitting","error");
     setSaving(true);
     try{
@@ -472,9 +501,13 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
           </Field>
           <Field label="Judge">
             {isJudge
-              ? <div style={{...IN,background:C.bg2,color:C.text2,cursor:"default",display:"flex",alignItems:"center",gap:8}}>
-                  <Avatar name={judge?.name} size={20}/>{judge?.name}
-                </div>
+              ? judgeId
+                ? <div style={{...IN,background:C.bg2,color:C.text2,cursor:"default",display:"flex",alignItems:"center",gap:8}}>
+                    <Avatar name={judge?.name} size={20}/>&nbsp;{judge?.name}
+                  </div>
+                : <div style={{...IN,background:"#fffbeb",color:C.amber,cursor:"default",fontSize:12}}>
+                    ⚠ Your account is not linked to a judge record. Ask an admin to link you in User Management.
+                  </div>
               : <select style={IN} value={judgeId} onChange={e=>setJudgeId(e.target.value)}>
                   {db.judges.map(j=><option key={j.id} value={j.id}>{j.name} ({j.org})</option>)}
                 </select>
@@ -592,12 +625,18 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
 }
 
 /* ─── ALL FEEDBACK ─────────────────────────────────────────────────────── */
-export function AllFeedbackPage({ db, reload, toast, activeHackathon }) {
-  const [ft,setFt]=useState("all");const [fj,setFj]=useState("all");
+export function AllFeedbackPage({ db, reload, toast, activeHackathon, currentUser }) {
+  const isJudge = currentUser?.role === "judge";
+  const [ft,setFt]=useState("all");
+  const [fj,setFj]=useState(isJudge ? (currentUser?.judgeId||"all") : "all");
   const hack=db.hackathons.find(h=>h.id===activeHackathon);
   const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
   const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
-  const fbs=db.feedbacks.filter(f=>f.hackathonId===activeHackathon&&(ft==="all"||f.teamId===ft)&&(fj==="all"||f.judgeId===fj));
+  const fbs=db.feedbacks.filter(f=>
+    f.hackathonId===activeHackathon&&
+    (ft==="all"||f.teamId===ft)&&
+    (fj==="all"||f.judgeId===fj)
+  );
   const del=async id=>{try{await DEL(`/api/feedbacks/${id}`);await reload();toast("Deleted");}catch(e){toast(e.message,"error");}};
   if(!activeHackathon) return <Empty icon="📊" title="Select a hackathon" />;
   return (
@@ -605,7 +644,7 @@ export function AllFeedbackPage({ db, reload, toast, activeHackathon }) {
       <SectionHeader title="All Feedback" count={`${fbs.length} submissions · ${hack?.name||""}`} />
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         <select style={{...IN,width:"auto"}} value={ft} onChange={e=>setFt(e.target.value)}><option value="all">All Teams</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
-        <select style={{...IN,width:"auto"}} value={fj} onChange={e=>setFj(e.target.value)}><option value="all">All Judges</option>{db.judges.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}</select>
+        {!isJudge && <select style={{...IN,width:"auto"}} value={fj} onChange={e=>setFj(e.target.value)}><option value="all">All Judges</option>{db.judges.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}</select>}
       </div>
       {fbs.length===0?<Empty icon="📝" title="No feedback" sub="No submissions match the current filters." />
         :fbs.map((fb,i)=>{

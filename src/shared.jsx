@@ -215,9 +215,9 @@ export function Empty({ icon="📂", title, sub, action }) {
   );
 }
 
-export function useData() {
+export function useData(enabled = true) {
   const [db,setDb]=useState({hackathons:[],teams:[],judges:[],criteria:[],feedbacks:[]});
-  const [busy,setBusy]=useState(true);
+  const [busy,setBusy]=useState(false);
   const [err,setErr]=useState(null);
   const load=useCallback(async()=>{
     setBusy(true);setErr(null);
@@ -229,6 +229,6 @@ export function useData() {
     } catch(e){setErr(e.message);}
     setBusy(false);
   },[]);
-  useEffect(()=>{load();},[load]);
+  useEffect(()=>{ if(enabled) load(); },[load,enabled]);
   return {db,busy,err,reload:load};
 }

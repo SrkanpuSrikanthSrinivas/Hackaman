@@ -213,7 +213,7 @@ export default function App() {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
   }, []);
 
-  const { db, busy, err, reload } = useData();
+  const { db, busy, err, reload } = useData(!!currentUser);
 
   useEffect(() => {
     if (!activeHackathon && db.hackathons.length) {
@@ -225,6 +225,9 @@ export default function App() {
   }, [db.hackathons]);
 
   const logout = () => { localStorage.removeItem("hf_token"); setCurrentUser(null); };
+
+  // Reload data whenever user logs in
+  useEffect(() => { if (currentUser) reload(); }, [currentUser]);
 
   if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setPage(u.role==="admin"?"dashboard":"feedback"); }} oauthError={urlError?"OAuth sign-in failed. Please try again.":""} />;
 
@@ -331,7 +334,7 @@ export default function App() {
         {page==="judges"       && <JudgesPage       {...props} />}
         {page==="criteria"     && <CriteriaPage     {...props} />}
         {page==="feedback"     && <FeedbackPage     {...props} currentUser={currentUser} />}
-        {page==="all-feedback" && <AllFeedbackPage  {...props} />}
+        {page==="all-feedback" && <AllFeedbackPage  {...props} currentUser={currentUser} />}
         {page==="reports"      && <ReportPage       {...props} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
