@@ -946,6 +946,374 @@ export function UserManagementPage({ db, reload, toast }) {
   );
 }
 
+
+/* ─── PEOPLE EDITOR (reusable for keynotes, chairs, judges panel) ──────── */
+function PeopleEditor({ title, type, hackathonId, toast, accent="#2563eb" }) {
+  const [items,setItems]=useState([]);const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [uploading,setUploading]=useState(false);
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+
+  const load=useCallback(async()=>{
+    if(!hackathonId)return;
+    try{ const d=await GET(`/api/speakers?hackathonId=${hackathonId}&type=${type}`); setItems(d); }catch{}
+  },[hackathonId,type]);
+  useEffect(()=>{load();},[load]);
+
+  const open=item=>{setForm(item?{...item}:{hackathonId,type});setModal(item||"new");};
+  const close=()=>setModal(null);
+  const save=async()=>{
+    if(!form.name?.trim())return toast("Name required","error");setSaving(true);
+    try{
+      if(modal==="new")await POST("/api/speakers",form);
+      else await PUT(`/api/speakers/${modal.id}`,form);
+      await load();toast(modal==="new"?"Added":"Updated");close();
+    }catch(e){toast(e.message,"error");}setSaving(false);
+  };
+  const del=async id=>{try{await DEL(`/api/speakers/${id}`);await load();toast("Removed");}catch(e){toast(e.message,"error");}};
+
+  const handleImg=async(e,field="avatarUrl")=>{
+    const file=e.target.files?.[0]; if(!file)return;
+    if(file.size>2*1024*1024){toast("Image must be under 2MB","error");return;}
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=ev=>{setForm(p=>({...p,[field]:ev.target.result}));setUploading(false);};
+    reader.readAsDataURL(file);
+  };
+
+  return(
+    <div style={{marginBottom:32}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{title} <span style={{color:C.text3,fontWeight:400}}>({items.length})</span></div>
+        <Btn size="sm" onClick={()=>open(null)}>+ Add</Btn>
+      </div>
+      {items.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic",padding:"10px 0"}}>No {title.toLowerCase()} added yet.</div>
+        :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+          {items.map(item=>(
+            <div key={item.id} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.md,padding:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {item.avatarUrl
+                    ?<img src={item.avatarUrl} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover"}} />
+                    :<Avatar name={item.name} size={36}/>
+                  }
+                  <div>
+                    <div style={{...FONT,fontSize:12,fontWeight:600,color:C.text}}>{item.name}</div>
+                    <div style={{...FONT,fontSize:11,color:C.text3}}>{item.org}</div>
+                  </div>
+                </div>
+              </div>
+              {item.title&&<div style={{...FONT,fontSize:11,color:C.text2,marginBottom:6}}>{item.title}</div>}
+              <div style={{display:"flex",gap:5}}>
+                <Btn size="sm" variant="secondary" onClick={()=>open(item)}>Edit</Btn>
+                <Btn size="sm" variant="danger" onClick={()=>del(item.id)}>✕</Btn>
+              </div>
+            </div>
+          ))}
+        </div>
+      }
+      {modal&&(
+        <Modal title={modal==="new"?`Add to ${title}`:`Edit ${title.slice(0,-1)}`} onClose={close} width={540}>
+          {/* Photo */}
+          <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:16,padding:14,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+            <div style={{width:68,height:68,borderRadius:"50%",overflow:"hidden",flexShrink:0,
+              background:form.avatarUrl?"transparent":C.bg3,border:`2px dashed ${form.avatarUrl?C.bdGreen:C.border2}`,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {form.avatarUrl?<img src={form.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} />:<span style={{fontSize:24,opacity:0.3}}>👤</span>}
+            </div>
+            <div style={{flex:1}}>
+              <label style={{...FONT,display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,
+                padding:"6px 12px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",
+                background:C.bg,color:C.text2,marginBottom:6,opacity:uploading?0.6:1}}>
+                {uploading?<><Spinner size={10}/> Uploading…</>:<>📷 {form.avatarUrl?"Change":"Upload"} Photo</>}
+                <input type="file" accept="image/*" onChange={handleImg} style={{display:"none"}} disabled={uploading}/>
+              </label>
+              <input style={{...IN,fontSize:12,display:"block"}} value={form.avatarUrl&&!form.avatarUrl.startsWith("data:")?form.avatarUrl:""} onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))} placeholder="Or paste image URL…" />
+            </div>
+          </div>
+          <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Title / Position"><input style={IN} value={form.title||""} onChange={f("title")} placeholder="CEO, Professor, Director…" /></Field>
+            <Field label="Organization"><input style={IN} value={form.org||""} onChange={f("org")} /></Field>
+          </div>
+          <Field label="Bio" hint="Brief 1-2 sentence bio shown on the public page">
+            <textarea style={{...TA,minHeight:64}} value={form.bio||""} onChange={f("bio")} />
+          </Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="LinkedIn URL"><input style={IN} value={form.linkedinUrl||""} onChange={f("linkedinUrl")} placeholder="https://linkedin.com/in/…" /></Field>
+            <Field label="Twitter / X URL"><input style={IN} value={form.twitterUrl||""} onChange={f("twitterUrl")} placeholder="https://twitter.com/…" /></Field>
+          </div>
+          <Field label="Sort Order" hint="Lower number appears first">
+            <input type="number" style={IN} value={form.sortOrder||0} onChange={f("sortOrder")} />
+          </Field>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+            <Btn variant="secondary" onClick={close}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─── PUBLIC PAGE CMS ───────────────────────────────────────────────────── */
+export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
+  const [tab,setTab]=useState("content");
+  const [partners,setPartners]=useState([]);
+  const [team,setTeam]=useState([]);
+  const [pModal,setPModal]=useState(null);const [pForm,setPForm]=useState({});const [pSaving,setPSaving]=useState(false);
+  const [tModal,setTModal]=useState(null);const [tForm,setTForm]=useState({});const [tSaving,setTSaving]=useState(false);
+  const [hackForm,setHackForm]=useState({});const [hSaving,setHSaving]=useState(false);
+  const [uploading,setUploading]=useState(false);
+
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  const selH=activeHackathon;
+
+  useEffect(()=>{ if(hack) setHackForm({...hack}); },[hack?.id]);
+
+  const loadPartners=useCallback(async()=>{ if(!selH)return; try{setPartners(await GET(`/api/partners?hackathonId=${selH}`));}catch{} },[selH]);
+  const loadTeam    =useCallback(async()=>{ if(!selH)return; try{setTeam(    await GET(`/api/team?hackathonId=${selH}`)    );}catch{} },[selH]);
+  useEffect(()=>{ loadPartners(); loadTeam(); },[loadPartners,loadTeam]);
+
+  const pf=k=>e=>setPForm(p=>({...p,[k]:e.target.value}));
+  const tf=k=>e=>setTForm(p=>({...p,[k]:e.target.value}));
+  const hf=k=>e=>setHackForm(p=>({...p,[k]:e.target?.value??e}));
+
+  const handleImg=async(e,setter,field="avatarUrl")=>{
+    const file=e.target.files?.[0]; if(!file)return;
+    if(file.size>2*1024*1024){toast("Image must be under 2MB","error");return;}
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=ev=>{setter(p=>({...p,[field]:ev.target.result}));setUploading(false);};
+    reader.readAsDataURL(file);
+  };
+
+  const saveHack=async()=>{
+    setHSaving(true);
+    try{ await PUT(`/api/hackathons/${selH}`,hackForm); await reload(); toast("Page settings saved"); }
+    catch(e){toast(e.message,"error");}setHSaving(false);
+  };
+
+  // Partners CRUD
+  const savePartner=async()=>{
+    if(!pForm.name?.trim())return toast("Name required","error");setPSaving(true);
+    try{
+      if(pModal==="new")await POST("/api/partners",{...pForm,hackathonId:selH});
+      else await PUT(`/api/partners/${pModal.id}`,pForm);
+      await loadPartners();toast(pModal==="new"?"Partner added":"Updated");setPModal(null);
+    }catch(e){toast(e.message,"error");}setPSaving(false);
+  };
+  const delPartner=async id=>{try{await DEL(`/api/partners/${id}`);await loadPartners();toast("Removed");}catch(e){toast(e.message,"error");}};
+
+  // Team CRUD
+  const saveTeamMember=async()=>{
+    if(!tForm.name?.trim())return toast("Name required","error");setTSaving(true);
+    try{
+      if(tModal==="new")await POST("/api/team",{...tForm,hackathonId:selH});
+      else await PUT(`/api/team/${tModal.id}`,tForm);
+      await loadTeam();toast(tModal==="new"?"Member added":"Updated");setTModal(null);
+    }catch(e){toast(e.message,"error");}setTSaving(false);
+  };
+  const delTeamMember=async id=>{try{await DEL(`/api/team/${id}`);await loadTeam();toast("Removed");}catch(e){toast(e.message,"error");}};
+
+  if(!selH) return <Empty icon="🌐" title="Select a hackathon from the sidebar" />;
+  if(!hack) return <Empty icon="🌐" title="Hackathon not found" />;
+
+  const pubUrl=`${window.location.origin}/register/${selH}`;
+
+  const TABS=[
+    {id:"content",label:"Content & Settings"},
+    {id:"keynotes",label:"KeyNotes"},
+    {id:"chairs",label:"Session Chairs"},
+    {id:"team",label:"Org Team"},
+    {id:"partners",label:"Partners"},
+  ];
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+        <div>
+          <h1 style={{...FONT,fontSize:18,fontWeight:600,color:C.text,marginBottom:2}}>Public Page CMS</h1>
+          <p style={{...FONT,fontSize:12,color:C.text3}}>{hack.name}</p>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <Chip label={hack.published?"Live":"Draft"} color={hack.published?"green":"neutral"} />
+          <Btn variant={hack.published?"secondary":"success"} size="sm"
+            onClick={async()=>{try{await PUT(`/api/hackathons/${selH}`,{...hack,published:!hack.published});await reload();toast(hack.published?"Unpublished":"Published — now live!");}catch(e){toast(e.message,"error");}}}>
+            {hack.published?"Unpublish":"Publish"}
+          </Btn>
+          {hack.published&&<>
+            <Btn size="sm" variant="secondary" onClick={()=>{navigator.clipboard?.writeText(pubUrl);toast("URL copied!");}}>Copy URL</Btn>
+            <Btn size="sm" variant="blue" onClick={()=>window.open(pubUrl,"_blank")}>Preview →</Btn>
+          </>}
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{display:"flex",gap:1,marginBottom:20,background:C.bg2,borderRadius:R.sm,padding:3,border:`1px solid ${C.border}`,overflowX:"auto"}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{...FONT,padding:"6px 14px",fontSize:12,fontWeight:500,
+            borderRadius:R.sm,border:"none",cursor:"pointer",background:tab===t.id?C.bg:C.bg2,
+            color:tab===t.id?C.text:C.text3,transition:"all 0.1s",whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content & Settings ── */}
+      {tab==="content"&&(
+        <Card>
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16}}>Page Settings</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Event Tagline"><input style={IN} value={hackForm.tagline||""} onChange={hf("tagline")} placeholder="Build the future in 48 hours" /></Field>
+            <Field label="Prize Pool"><input style={IN} value={hackForm.prizePool||""} onChange={hf("prizePool")} placeholder="$25,000 in prizes" /></Field>
+          </div>
+          <Field label="Accent / Banner Color" hint="Controls hero gradient and highlights on the public page">
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <input type="color" value={hackForm.bannerColor||"#6366f1"} onChange={hf("bannerColor")} style={{width:44,height:36,borderRadius:R.sm,border:`1px solid ${C.border}`,cursor:"pointer",padding:2}} />
+              <input style={{...IN,flex:1}} value={hackForm.bannerColor||"#6366f1"} onChange={hf("bannerColor")} placeholder="#6366f1" />
+              <div style={{width:44,height:36,borderRadius:R.sm,background:hackForm.bannerColor||"#6366f1",border:`1px solid ${C.border}`}} />
+            </div>
+          </Field>
+          <Field label="Tracks" hint="Comma-separated: AI/ML, Sustainability, Security, ...">
+            <input style={IN} value={hackForm.tracks||""} onChange={hf("tracks")} placeholder="AI/ML, Sustainability, Security, Social Impact" />
+          </Field>
+          <Field label="About (long form)" hint="Full description shown in the About section">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.websiteAbout||hackForm.description||""} onChange={hf("websiteAbout")} placeholder="Write a compelling event description..." />
+          </Field>
+          <Field label="Prizes" hint={'One per line: "1st Place | $10,000 + Cloud Credits" — up to 5 prizes'}>
+            <textarea style={{...TA,minHeight:90}} value={hackForm.websitePrizes||""} onChange={hf("websitePrizes")} placeholder={"1st Place | $10,000 + AWS Credits\n2nd Place | $5,000\n3rd Place | $2,500"} />
+          </Field>
+          <Field label="FAQ" hint="Separate Q&A blocks with a blank line. Q: on one line, A: on next">
+            <textarea style={{...TA,minHeight:90}} value={hackForm.faq||""} onChange={hf("faq")} placeholder={"Q: Who can participate?\nA: Anyone 18+ with a laptop.\n\nQ: Is it free?\nA: Yes, completely free."} />
+          </Field>
+          <div style={{display:"flex",justifyContent:"flex-end"}}>
+            <Btn onClick={saveHack} disabled={hSaving}>{hSaving&&<Spinner/>} Save Settings</Btn>
+          </div>
+        </Card>
+      )}
+
+      {/* ── KeyNotes ── */}
+      {tab==="keynotes"&&(
+        <Card>
+          <PeopleEditor title="Keynote Speakers" type="keynote" hackathonId={selH} toast={toast} accent={hackForm.bannerColor||C.blue} />
+        </Card>
+      )}
+
+      {/* ── Session Chairs ── */}
+      {tab==="chairs"&&(
+        <Card>
+          <PeopleEditor title="Session Chairs" type="session_chair" hackathonId={selH} toast={toast} accent={hackForm.bannerColor||C.blue} />
+        </Card>
+      )}
+
+      {/* ── Org Team ── */}
+      {tab==="team"&&(
+        <Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>Organizing Team <span style={{color:C.text3,fontWeight:400}}>({team.length})</span></div>
+            <Btn size="sm" onClick={()=>{setTForm({hackathonId:selH});setTModal("new");}}>+ Add Member</Btn>
+          </div>
+          {team.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>No team members added yet.</div>
+            :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+              {team.map(m=>(
+                <div key={m.id} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.sm,padding:14}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                    {m.avatarUrl?<img src={m.avatarUrl} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover"}} />:<Avatar name={m.name} size={36}/>}
+                    <div><div style={{...FONT,fontSize:12,fontWeight:600,color:C.text}}>{m.name}</div><div style={{...FONT,fontSize:11,color:C.text3}}>{m.role}</div></div>
+                  </div>
+                  <div style={{display:"flex",gap:5}}>
+                    <Btn size="sm" variant="secondary" onClick={()=>{setTForm({...m});setTModal(m);}}>Edit</Btn>
+                    <Btn size="sm" variant="danger" onClick={()=>delTeamMember(m.id)}>✕</Btn>
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
+          {tModal&&<Modal title={tModal==="new"?"Add Team Member":"Edit Member"} onClose={()=>setTModal(null)}>
+            <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:14,padding:12,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+              <div style={{width:60,height:60,borderRadius:"50%",overflow:"hidden",flexShrink:0,background:tForm.avatarUrl?"transparent":C.bg3,border:`2px dashed ${tForm.avatarUrl?C.bdGreen:C.border2}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {tForm.avatarUrl?<img src={tForm.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} />:<span style={{fontSize:22,opacity:0.3}}>👤</span>}
+              </div>
+              <div style={{flex:1}}>
+                <label style={{...FONT,display:"inline-flex",alignItems:"center",gap:5,fontSize:12,fontWeight:500,padding:"5px 10px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",background:C.bg,color:C.text2,marginBottom:5}}>
+                  {uploading?<><Spinner size={10}/> Uploading…</>:<>📷 {tForm.avatarUrl?"Change":"Upload"}</>}
+                  <input type="file" accept="image/*" onChange={e=>handleImg(e,setTForm)} style={{display:"none"}} disabled={uploading}/>
+                </label>
+                <input style={{...IN,fontSize:12}} value={tForm.avatarUrl&&!tForm.avatarUrl.startsWith("data:")?tForm.avatarUrl:""} onChange={e=>setTForm(p=>({...p,avatarUrl:e.target.value}))} placeholder="Or paste image URL" />
+              </div>
+            </div>
+            <Field label="Full Name" required><input style={IN} value={tForm.name||""} onChange={tf("name")} /></Field>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Role"><input style={IN} value={tForm.role||""} onChange={tf("role")} placeholder="Lead Organizer" /></Field>
+              <Field label="Organization"><input style={IN} value={tForm.org||""} onChange={tf("org")} /></Field>
+            </div>
+            <Field label="LinkedIn URL"><input style={IN} value={tForm.linkedinUrl||""} onChange={tf("linkedinUrl")} placeholder="https://linkedin.com/in/…" /></Field>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn variant="secondary" onClick={()=>setTModal(null)}>Cancel</Btn>
+              <Btn onClick={saveTeamMember} disabled={tSaving}>{tSaving&&<Spinner/>} Save</Btn>
+            </div>
+          </Modal>}
+        </Card>
+      )}
+
+      {/* ── Partners ── */}
+      {tab==="partners"&&(
+        <Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>Partners & Sponsors <span style={{color:C.text3,fontWeight:400}}>({partners.length})</span></div>
+            <Btn size="sm" onClick={()=>{setPForm({hackathonId:selH,tier:"general"});setPModal("new");}}>+ Add Partner</Btn>
+          </div>
+          <div style={{...FONT,fontSize:12,color:C.text3,marginBottom:14}}>
+            Tier display order: <strong>Platinum → Gold → Silver → Bronze → Media → General</strong>
+          </div>
+          {partners.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>No partners added yet.</div>
+            :<DataTable cols={[
+              {key:"name",label:"Partner",render:(v,r)=>(
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  {r.logoUrl?<img src={r.logoUrl} style={{height:28,maxWidth:60,objectFit:"contain"}} />:<div style={{width:28,height:28,background:C.bg3,borderRadius:4}} />}
+                  <div><div style={{fontWeight:500}}>{v}</div>{r.websiteUrl&&<a href={r.websiteUrl} target="_blank" style={{fontSize:11,color:C.blue,textDecoration:"none"}}>{r.websiteUrl.slice(0,30)}…</a>}</div>
+                </div>
+              )},
+              {key:"tier",label:"Tier",render:v=><Chip label={v} color={v==="platinum"?"amber":v==="gold"?"amber":v==="silver"?"neutral":"neutral"} />},
+              {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+                <Btn size="sm" variant="secondary" onClick={()=>{setPForm({...r});setPModal(r);}}>Edit</Btn>
+                <Btn size="sm" variant="danger" onClick={()=>delPartner(r.id)}>✕</Btn>
+              </div>},
+            ]} rows={partners} />
+          }
+          {pModal&&<Modal title={pModal==="new"?"Add Partner":"Edit Partner"} onClose={()=>setPModal(null)}>
+            <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:14,padding:12,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+              <div style={{width:80,height:56,borderRadius:R.sm,overflow:"hidden",flexShrink:0,background:pForm.logoUrl?"transparent":C.bg3,border:`2px dashed ${pForm.logoUrl?C.bdGreen:C.border2}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {pForm.logoUrl?<img src={pForm.logoUrl} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}} />:<span style={{fontSize:20,opacity:0.3}}>🖼</span>}
+              </div>
+              <div style={{flex:1}}>
+                <label style={{...FONT,display:"inline-flex",alignItems:"center",gap:5,fontSize:12,fontWeight:500,padding:"5px 10px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",background:C.bg,color:C.text2,marginBottom:5}}>
+                  {uploading?<><Spinner size={10}/> Uploading…</>:<>📷 {pForm.logoUrl?"Change":"Upload"} Logo</>}
+                  <input type="file" accept="image/*" onChange={e=>handleImg(e,setPForm,"logoUrl")} style={{display:"none"}} disabled={uploading}/>
+                </label>
+                <input style={{...IN,fontSize:12}} value={pForm.logoUrl&&!pForm.logoUrl.startsWith("data:")?pForm.logoUrl:""} onChange={e=>setPForm(p=>({...p,logoUrl:e.target.value}))} placeholder="Or paste logo URL" />
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Partner Name" required><input style={IN} value={pForm.name||""} onChange={pf("name")} /></Field>
+              <Field label="Tier">
+                <select style={IN} value={pForm.tier||"general"} onChange={pf("tier")}>
+                  {["platinum","gold","silver","bronze","media","general"].map(t=><option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Website URL"><input style={IN} value={pForm.websiteUrl||""} onChange={pf("websiteUrl")} placeholder="https://…" /></Field>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn variant="secondary" onClick={()=>setPModal(null)}>Cancel</Btn>
+              <Btn onClick={savePartner} disabled={pSaving}>{pSaving&&<Spinner/>} Save</Btn>
+            </div>
+          </Modal>}
+        </Card>
+      )}
+    </div>
+  );
+}
+
 /* ─── PUBLIC PAGES ADMIN ───────────────────────────────────────────────── */
 export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
   const [selH,setSelH]=useState(activeHackathon||db.hackathons[0]?.id||"");

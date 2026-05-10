@@ -9,7 +9,7 @@ import {
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
-  UserManagementPage, PublicPagesAdmin,
+  UserManagementPage, PublicPagesAdmin, PublicPageCMS,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -178,7 +178,8 @@ const ADMIN_NAV=[
   {id:"all-feedback",label:"All Feedback",   section:"judging"},
   {id:"reports",    label:"Reports",         section:"judging"},
   {id:"users",      label:"User Management", section:"admin"},
-  {id:"public",     label:"Public Pages",    section:"admin"},
+  {id:"public-cms", label:"Page CMS",         section:"admin"},
+  {id:"public",     label:"Registrations",   section:"admin"},
 ];
 const JUDGE_EXTRA=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"},{id:"criteria",label:"Criteria"}];
 function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",section:"judging"}]; const extras=(user.permissions||[]).map(p=>({id:p.page,label:JUDGE_EXTRA.find(x=>x.id===p.page)?.label||p.page,section:"judging"}));return[...base,...extras.filter(e=>!base.find(b=>b.id===e.id))]; }
@@ -337,6 +338,7 @@ export default function App() {
         {page==="all-feedback" && <AllFeedbackPage  {...props} currentUser={currentUser} />}
         {page==="reports"      && <ReportPage       {...props} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
+        {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
       </main>
 
