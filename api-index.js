@@ -466,7 +466,7 @@ app.delete("/api/registrations/:id", admin, async (req, res) => {
 
 
 // ─── SPEAKERS (keynotes + session chairs) ─────────────────────────────────────
-app.get("/api/speakers", auth, async (req, res) => {
+app.get("/api/cms/speakers", auth, async (req, res) => {
   try {
     const { hackathonId, type } = req.query;
     let sql = "SELECT * FROM page_speakers WHERE 1=1";
@@ -478,7 +478,7 @@ app.get("/api/speakers", auth, async (req, res) => {
     res.json(rows.map(camel));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/speakers", admin, async (req, res) => {
+app.post("/api/cms/speakers", admin, async (req, res) => {
   const { hackathonId, type, name, title, org, bio, avatarUrl, linkedinUrl, twitterUrl, sortOrder } = req.body;
   if (!hackathonId || !name?.trim() || !type) return res.status(400).json({ error: "hackathonId, type, name required" });
   try {
@@ -489,7 +489,7 @@ app.post("/api/speakers", admin, async (req, res) => {
     res.status(201).json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put("/api/speakers/:id", admin, async (req, res) => {
+app.put("/api/cms/speakers/:id", admin, async (req, res) => {
   const { name, title, org, bio, avatarUrl, linkedinUrl, twitterUrl, sortOrder } = req.body;
   try {
     const { rows } = await q(
@@ -500,13 +500,13 @@ app.put("/api/speakers/:id", admin, async (req, res) => {
     res.json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/speakers/:id", admin, async (req, res) => {
+app.delete("/api/cms/speakers/:id", admin, async (req, res) => {
   try { await q("DELETE FROM page_speakers WHERE id=$1",[req.params.id]); res.json({ deleted:true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── PARTNERS ─────────────────────────────────────────────────────────────────
-app.get("/api/partners", auth, async (req, res) => {
+app.get("/api/cms/partners", auth, async (req, res) => {
   try {
     const { hackathonId } = req.query;
     const { rows } = hackathonId
@@ -515,7 +515,7 @@ app.get("/api/partners", auth, async (req, res) => {
     res.json(rows.map(camel));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/partners", admin, async (req, res) => {
+app.post("/api/cms/partners", admin, async (req, res) => {
   const { hackathonId, name, tier, logoUrl, websiteUrl, sortOrder } = req.body;
   if (!hackathonId || !name?.trim()) return res.status(400).json({ error: "hackathonId and name required" });
   try {
@@ -526,7 +526,7 @@ app.post("/api/partners", admin, async (req, res) => {
     res.status(201).json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put("/api/partners/:id", admin, async (req, res) => {
+app.put("/api/cms/partners/:id", admin, async (req, res) => {
   const { name, tier, logoUrl, websiteUrl, sortOrder } = req.body;
   try {
     const { rows } = await q(
@@ -537,13 +537,13 @@ app.put("/api/partners/:id", admin, async (req, res) => {
     res.json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/partners/:id", admin, async (req, res) => {
+app.delete("/api/cms/partners/:id", admin, async (req, res) => {
   try { await q("DELETE FROM page_partners WHERE id=$1",[req.params.id]); res.json({ deleted:true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── TEAM ─────────────────────────────────────────────────────────────────────
-app.get("/api/team", auth, async (req, res) => {
+app.get("/api/cms/orgteam", auth, async (req, res) => {
   try {
     const { hackathonId } = req.query;
     const { rows } = hackathonId
@@ -552,7 +552,7 @@ app.get("/api/team", auth, async (req, res) => {
     res.json(rows.map(camel));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/team", admin, async (req, res) => {
+app.post("/api/cms/orgteam", admin, async (req, res) => {
   const { hackathonId, name, role, org, avatarUrl, linkedinUrl, sortOrder } = req.body;
   if (!hackathonId || !name?.trim()) return res.status(400).json({ error: "hackathonId and name required" });
   try {
@@ -563,7 +563,7 @@ app.post("/api/team", admin, async (req, res) => {
     res.status(201).json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put("/api/team/:id", admin, async (req, res) => {
+app.put("/api/cms/orgteam/:id", admin, async (req, res) => {
   const { name, role, org, avatarUrl, linkedinUrl, sortOrder } = req.body;
   try {
     const { rows } = await q(
@@ -574,13 +574,13 @@ app.put("/api/team/:id", admin, async (req, res) => {
     res.json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/team/:id", admin, async (req, res) => {
+app.delete("/api/cms/orgteam/:id", admin, async (req, res) => {
   try { await q("DELETE FROM page_team WHERE id=$1",[req.params.id]); res.json({ deleted:true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── PUBLIC: full page data for a hackathon ────────────────────────────────────
-app.get("/api/public/page/:id", async (req, res) => {
+app.get("/api/cms/page/:id", async (req, res) => {
   try {
     const { rows: hRows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true",[req.params.id]);
     if (!hRows.length) return res.status(404).json({ error: "Page not found or not published" });
