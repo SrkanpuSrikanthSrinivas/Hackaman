@@ -310,23 +310,23 @@ app.get("/api/hackathons", auth, async (req, res) => {
 });
 
 app.post("/api/hackathons", admin, async (req, res) => {
-  const { name, startDate, endDate, location, status = "upcoming", description, tagline, prizePool, maxTeams, tracks, published = false } = req.body;
+  const { name, startDate, endDate, location, status = "upcoming", description, tagline, prizePool, maxTeams, tracks, published = false, bannerColor, sponsors, schedule, faq } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "name required" });
   try {
     const { rows } = await q(
-      "INSERT INTO hackathons (id,name,start_date,end_date,location,status,description,tagline,prize_pool,max_teams,tracks,published) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",
-      [uid(), name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published)]
+      "INSERT INTO hackathons (id,name,start_date,end_date,location,status,description,tagline,prize_pool,max_teams,tracks,published,banner_color,sponsors,schedule,faq) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *",
+      [uid(), name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null]
     );
     res.status(201).json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put("/api/hackathons/:id", admin, async (req, res) => {
-  const { name, startDate, endDate, location, status, description, tagline, prizePool, maxTeams, tracks, published } = req.body;
+  const { name, startDate, endDate, location, status, description, tagline, prizePool, maxTeams, tracks, published, bannerColor, sponsors, schedule, faq } = req.body;
   try {
     const { rows } = await q(
-      "UPDATE hackathons SET name=$1,start_date=$2,end_date=$3,location=$4,status=$5,description=$6,tagline=$7,prize_pool=$8,max_teams=$9,tracks=$10,published=$11 WHERE id=$12 RETURNING *",
-      [name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), req.params.id]
+      "UPDATE hackathons SET name=$1,start_date=$2,end_date=$3,location=$4,status=$5,description=$6,tagline=$7,prize_pool=$8,max_teams=$9,tracks=$10,published=$11,banner_color=$12,sponsors=$13,schedule=$14,faq=$15 WHERE id=$16 RETURNING *",
+      [name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Not found" });
     res.json(camel(rows[0]));
@@ -343,13 +343,13 @@ app.get("/api/judges", auth, async (_req, res) => {
   try { const { rows } = await q("SELECT * FROM judges ORDER BY name"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/judges", admin, async (req, res) => {
-  const { name, org, role } = req.body;
+  const { name, org, role, avatarUrl } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "name required" });
-  try { const { rows } = await q("INSERT INTO judges (id,name,org,role) VALUES ($1,$2,$3,$4) RETURNING *", [uid(), name, org, role]); res.status(201).json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
+  try { const { rows } = await q("INSERT INTO judges (id,name,org,role,avatar_url) VALUES ($1,$2,$3,$4,$5) RETURNING *", [uid(), name, org, role, avatarUrl||null]); res.status(201).json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/judges/:id", admin, async (req, res) => {
-  const { name, org, role } = req.body;
-  try { const { rows } = await q("UPDATE judges SET name=$1,org=$2,role=$3 WHERE id=$4 RETURNING *", [name, org, role, req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
+  const { name, org, role, avatarUrl } = req.body;
+  try { const { rows } = await q("UPDATE judges SET name=$1,org=$2,role=$3,avatar_url=$4 WHERE id=$5 RETURNING *", [name, org, role, avatarUrl||null, req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete("/api/judges/:id", admin, async (req, res) => {
   try { await q("DELETE FROM judges WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
@@ -426,6 +426,15 @@ app.get("/api/public/hackathons", async (_req, res) => {
 });
 app.get("/api/public/hackathons/:id", async (req, res) => {
   try { const { rows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true", [req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/public/hackathons/:id/judges", async (req, res) => {
+  try {
+    const { rows } = await q(
+      "SELECT j.* FROM judges j JOIN hackathon_judges hj ON hj.user_id IN (SELECT id FROM users WHERE judge_id=j.id) WHERE hj.hackathon_id=$1 UNION SELECT j.* FROM judges j WHERE j.id IN (SELECT DISTINCT judge_id FROM feedbacks WHERE hackathon_id=$1) ORDER BY name",
+      [req.params.id]
+    );
+    res.json(rows.map(camel));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/public/register", async (req, res) => {
   const { hackathonId, name, email, org, type, teamName, teamSize, message } = req.body;

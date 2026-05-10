@@ -11,6 +11,7 @@ import {
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin,
 } from "./pages.jsx";
+import PublicPage from "./PublicPage.jsx";
 
 /* ─── PUBLIC REGISTRATION PAGE ─────────────────────────────────────────── */
 function PublicRegisterPage({ hackathonId }) {
@@ -185,7 +186,7 @@ function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",s
 export default function App() {
   // Public register route
   const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
-  if (regMatch) return <PublicRegisterPage hackathonId={regMatch[1]} />;
+  if (regMatch) return <PublicPage hackathonId={regMatch[1]} />;
 
   // Handle OAuth token in URL
   const urlParams = new URLSearchParams(window.location.search);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   GET, POST, PUT, DEL, PGET, PPOST,
   fmtDate, fmtDt, calcScore, avgOf,
@@ -217,6 +217,28 @@ export function HackathonsPage({ db, reload, toast, setActive, setPage }) {
           </div>
           <Field label="Tracks" hint="Comma-separated"><input style={IN} value={form.tracks||""} onChange={f("tracks")} placeholder="AI/ML, Sustainability, Security" /></Field>
           <Field label="Description"><textarea style={TA} value={form.description||""} onChange={f("description")} /></Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Banner Color" hint="Accent color for the public page hero">
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input type="color" value={form.bannerColor||"#1e3a8a"} onChange={f("bannerColor")} style={{width:40,height:34,borderRadius:R.sm,border:`1px solid ${C.border}`,cursor:"pointer",padding:2}} />
+                <input style={{...IN,flex:1}} value={form.bannerColor||"#1e3a8a"} onChange={f("bannerColor")} placeholder="#1e3a8a" />
+              </div>
+            </Field>
+            <div />
+          </div>
+          <Field label="Schedule" hint={'One item per line. Format: "9:00 AM | Opening Ceremony" or just the event name'}>
+            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.schedule||""} onChange={f("schedule")} placeholder={"9:00 AM | Registration & Check-in
+10:00 AM | Kickoff & Announcements
+11:00 AM | Hacking Begins
+..."} />
+          </Field>
+          <Field label="FAQ" hint={'Separate each Q&A with a blank line. Start with Q: and A: on the next line'}>
+            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.faq||""} onChange={f("faq")} placeholder={"Q: Who can participate?
+A: Anyone 18+ with a laptop and ideas.
+
+Q: Is it free?
+A: Yes, completely free to enter."} />
+          </Field>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,padding:"10px 12px",background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
             <input type="checkbox" id="pub" checked={!!form.published} onChange={e=>setForm(p=>({...p,published:e.target.checked}))} style={{accentColor:C.blue,cursor:"pointer",width:14,height:14}} />
             <label htmlFor="pub" style={{...FONT,fontSize:13,color:C.text,cursor:"pointer"}}>Publish — make visible publicly and accept registrations</label>
@@ -284,25 +306,92 @@ export function TeamsPage({ db, reload, toast, activeHackathon }) {
 }
 
 export function JudgesPage({ db, reload, toast }) {
-  return <CrudPage title="Judges" icon="👨‍⚖️" items={db.judges} emptyMsg="No judges registered"
-    saveItem={async(id,form)=>{try{id?await PUT(`/api/judges/${id}`,form):await POST("/api/judges",form);await reload();toast(id?"Updated":"Added");}catch(e){toast(e.message,"error");throw e;}}}
-    delItem={async id=>{try{await DEL(`/api/judges/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}}}
-    renderRow={(_,open,del)=>[
-      {key:"name",label:"Name",render:(v,r)=><div style={{display:"flex",alignItems:"center",gap:10}}><Avatar name={v} size={30}/><div><div style={{fontWeight:500}}>{v}</div><div style={{fontSize:11,color:C.text3}}>{r.org}</div></div></div>},
-      {key:"role",label:"Role"},
-      {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
-        <Btn size="sm" variant="secondary" onClick={()=>open(r)}>Edit</Btn>
-        <Btn size="sm" variant="danger" onClick={()=>del(r.id)}>Remove</Btn>
-      </div>},
-    ]}
-    modalBody={(form,f)=><>
-      <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        <Field label="Organization"><input style={IN} value={form.org||""} onChange={f("org")} /></Field>
-        <Field label="Role / Title"><input style={IN} value={form.role||""} onChange={f("role")} /></Field>
-      </div>
-    </>}
-  />;
+  const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [uploading,setUploading]=useState(false);
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const fileRef=useRef?useRef():{ current:null };
+
+  const open=j=>{setForm(j?{...j}:{});setModal(j||"new");};
+  const close=()=>setModal(null);
+
+  const handlePhotoUpload=async(e)=>{
+    const file=e.target.files?.[0]; if(!file) return;
+    if(file.size>5*1024*1024){toast("Photo must be under 5MB","error");return;}
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=ev=>{ setForm(p=>({...p,avatarUrl:ev.target.result})); setUploading(false); };
+    reader.readAsDataURL(file);
+  };
+
+  const save=async()=>{
+    if(!form.name?.trim())return toast("Name required","error");setSaving(true);
+    try{
+      if(modal==="new")await POST("/api/judges",form);
+      else await PUT(`/api/judges/${modal.id}`,form);
+      await reload();toast(modal==="new"?"Judge added":"Updated");close();
+    }catch(e){toast(e.message,"error");}setSaving(false);
+  };
+  const del=async id=>{try{await DEL(`/api/judges/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}};
+
+  return (
+    <div>
+      <SectionHeader title="Judges" count={`${db.judges.length} registered`} action={<Btn onClick={()=>open(null)}>+ Add Judge</Btn>} />
+      {db.judges.length===0?<Empty icon="👨‍⚖️" title="No judges registered" sub="Add judges who will evaluate teams." action={<Btn onClick={()=>open(null)}>Add Judge</Btn>} />
+        :<DataTable cols={[
+          {key:"name",label:"Name",render:(v,r)=>(
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              {r.avatarUrl
+                ?<img src={r.avatarUrl} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.border}`,flexShrink:0}} />
+                :<Avatar name={v} size={36}/>
+              }
+              <div><div style={{fontWeight:500,color:C.text}}>{v}</div><div style={{fontSize:11,color:C.text3}}>{r.org}</div></div>
+            </div>
+          )},
+          {key:"role",label:"Role"},
+          {key:"avatarUrl",label:"Photo",render:v=><Chip label={v?"✓ Set":"No photo"} color={v?"green":"neutral"} />},
+          {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+            <Btn size="sm" variant="secondary" onClick={()=>open(r)}>Edit</Btn>
+            <Btn size="sm" variant="danger" onClick={()=>del(r.id)}>Remove</Btn>
+          </div>},
+        ]} rows={db.judges} empty="No judges." />
+      }
+      {modal&&(
+        <Modal title={modal==="new"?"Add Judge":"Edit Judge"} onClose={close}>
+          {/* Photo upload section */}
+          <div style={{marginBottom:18,padding:16,background:C.bg2,borderRadius:R.md,border:`1px solid ${C.border}`}}>
+            <div style={{...FONT,fontSize:12,fontWeight:500,color:C.text2,marginBottom:12}}>Judge Photo</div>
+            <div style={{display:"flex",alignItems:"center",gap:16}}>
+              <div style={{flexShrink:0}}>
+                {form.avatarUrl
+                  ?<img src={form.avatarUrl} style={{width:72,height:72,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.border}`}} />
+                  :<div style={{width:72,height:72,borderRadius:"50%",background:C.bg3,border:`2px dashed ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>👤</div>
+                }
+              </div>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",gap:8,marginBottom:8}}>
+                  <label style={{...FONT,fontSize:12,fontWeight:500,padding:"6px 12px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",background:C.bg,color:C.text2,display:"inline-flex",alignItems:"center",gap:5}}>
+                    {uploading?"Uploading...":"📁 Upload Photo"}
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{display:"none"}} />
+                  </label>
+                  {form.avatarUrl&&<Btn size="sm" variant="danger" onClick={()=>setForm(p=>({...p,avatarUrl:""}))}>Remove</Btn>}
+                </div>
+                <div style={{...FONT,fontSize:11,color:C.text3}}>Or paste an image URL:</div>
+                <input style={{...IN,marginTop:4,fontSize:12}} value={form.avatarUrl&&!form.avatarUrl.startsWith("data:")?form.avatarUrl:""} onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))} placeholder="https://example.com/photo.jpg" />
+              </div>
+            </div>
+          </div>
+          <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Organization"><input style={IN} value={form.org||""} onChange={f("org")} /></Field>
+            <Field label="Role / Title"><input style={IN} value={form.role||""} onChange={f("role")} /></Field>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+            <Btn variant="secondary" onClick={close}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
 }
 
 export function CriteriaPage({ db, reload, toast, activeHackathon }) {
