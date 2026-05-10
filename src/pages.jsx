@@ -226,18 +226,11 @@ export function HackathonsPage({ db, reload, toast, setActive, setPage }) {
             </Field>
             <div />
           </div>
-          <Field label="Schedule" hint={'One item per line. Format: "9:00 AM | Opening Ceremony" or just the event name'}>
-            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.schedule||""} onChange={f("schedule")} placeholder={"9:00 AM | Registration & Check-in
-10:00 AM | Kickoff & Announcements
-11:00 AM | Hacking Begins
-..."} />
+                    <Field label="Schedule" hint="One item per line. Format: 9:00 AM | Opening Ceremony">
+            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.schedule||""} onChange={f("schedule")} placeholder="9:00 AM | Registration & Check-in&#10;10:00 AM | Kickoff & Announcements&#10;11:00 AM | Hacking Begins" />
           </Field>
-          <Field label="FAQ" hint={'Separate each Q&A with a blank line. Start with Q: and A: on the next line'}>
-            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.faq||""} onChange={f("faq")} placeholder={"Q: Who can participate?
-A: Anyone 18+ with a laptop and ideas.
-
-Q: Is it free?
-A: Yes, completely free to enter."} />
+          <Field label="FAQ" hint="Separate Q&amp;A blocks with a blank line. Use Q: and A: prefixes">
+            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.faq||""} onChange={f("faq")} placeholder="Q: Who can participate?&#10;A: Anyone 18+ with a laptop.&#10;&#10;Q: Is it free?&#10;A: Yes, completely free." />
           </Field>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,padding:"10px 12px",background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
             <input type="checkbox" id="pub" checked={!!form.published} onChange={e=>setForm(p=>({...p,published:e.target.checked}))} style={{accentColor:C.blue,cursor:"pointer",width:14,height:14}} />
