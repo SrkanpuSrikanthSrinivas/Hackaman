@@ -1317,92 +1317,203 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
 /* ─── PUBLIC PAGES ADMIN ───────────────────────────────────────────────── */
 export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
   const [selH,setSelH]=useState(activeHackathon||db.hackathons[0]?.id||"");
-  const [regs,setRegs]=useState([]);const [tab,setTab]=useState("overview");
-  useEffect(()=>{ if(!selH)return; GET(`/api/registrations?hackathonId=${selH}`).then(setRegs).catch(()=>{}); },[selH]);
+  const [regs,setRegs]=useState([]);
+  const [tab,setTab]=useState("all");
+  const [converting,setConverting]=useState({});
+
+  const loadRegs=useCallback(async()=>{
+    if(!selH)return;
+    try{ const d=await GET(`/api/registrations?hackathonId=${selH}`); setRegs(d); }catch{}
+  },[selH]);
+  useEffect(()=>{ loadRegs(); },[loadRegs]);
+
   const hack=db.hackathons.find(h=>h.id===selH);
   const pubUrl=`${window.location.origin}/register/${selH}`;
-  const publish=async val=>{try{await PUT(`/api/hackathons/${hack.id}`,{...hack,published:val});await reload();toast(val?"Published! Share the link.":"Unpublished");}catch(e){toast(e.message,"error");}};
-  const updateReg=async(id,status)=>{try{await PUT(`/api/registrations/${id}`,{status});setRegs(r=>r.map(x=>x.id===id?{...x,status}:x));toast(`Registration ${status}`);}catch(e){toast(e.message,"error");}};
-  const delReg=async id=>{try{await DEL(`/api/registrations/${id}`);setRegs(r=>r.filter(x=>x.id!==id));}catch(e){toast(e.message,"error");}};
+
+  const publish=async val=>{
+    try{await PUT(`/api/hackathons/${hack.id}`,{...hack,published:val});await reload();toast(val?"Published!":"Unpublished");}
+    catch(e){toast(e.message,"error");}
+  };
+  const updateReg=async(id,status)=>{
+    try{await PUT(`/api/registrations/${id}`,{status});setRegs(r=>r.map(x=>x.id===id?{...x,status}:x));toast(`Registration ${status}`);}
+    catch(e){toast(e.message,"error");}
+  };
+  const delReg=async id=>{
+    try{await DEL(`/api/registrations/${id}`);setRegs(r=>r.filter(x=>x.id!==id));}
+    catch(e){toast(e.message,"error");}
+  };
+
+  // Convert approved registration → actual Team or Judge record
+  const convertReg=async(reg)=>{
+    setConverting(p=>({...p,[reg.id]:true}));
+    try{
+      if(reg.type==="team"){
+        const teamName=reg.teamName||reg.name;
+        const exists=db.teams.some(t=>t.hackathonId===selH&&t.name.toLowerCase()===teamName.toLowerCase());
+        if(exists){toast(`Team "${teamName}" already exists in this hackathon`,"error");return;}
+        await POST("/api/teams",{
+          hackathonId:selH,
+          name:teamName,
+          project:"",
+          category:"",
+          members:reg.name+(reg.teamSize>1?` + ${reg.teamSize-1} more`:""),
+        });
+        await reload();
+        toast(`✓ Team "${teamName}" added — go to Teams to fill in project details`);
+      } else {
+        const exists=db.judges.some(j=>j.name.toLowerCase()===reg.name.toLowerCase());
+        if(exists){toast(`Judge "${reg.name}" already exists`,"error");return;}
+        await POST("/api/judges",{name:reg.name,org:reg.org||"",role:""});
+        await reload();
+        toast(`✓ Judge "${reg.name}" added — go to User Management to create their login`);
+      }
+    }catch(e){toast(e.message,"error");}
+    setConverting(p=>({...p,[reg.id]:false}));
+  };
+
+  const pending  =regs.filter(r=>r.status==="pending");
+  const approved =regs.filter(r=>r.status==="approved");
+  const rejected =regs.filter(r=>r.status==="rejected");
+  const filtered =tab==="pending"?pending:tab==="approved"?approved:tab==="rejected"?rejected:regs;
+
+  const RegCard=({r})=>{
+    const busy=!!converting[r.id];
+    const alreadyAdded=r.type==="team"
+      ?db.teams.some(t=>t.hackathonId===selH&&t.name.toLowerCase()===(r.teamName||r.name).toLowerCase())
+      :db.judges.some(j=>j.name.toLowerCase()===r.name.toLowerCase());
+    return(
+      <Card style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+          <div style={{display:"flex",gap:10,alignItems:"flex-start",flex:1,minWidth:0}}>
+            <Avatar name={r.name} size={38}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
+                <span style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{r.name}</span>
+                <Chip label={r.type} color={r.type==="judge"?"blue":"neutral"} />
+                <Chip label={r.status} color={r.status==="approved"?"green":r.status==="rejected"?"red":"amber"} />
+                {alreadyAdded&&r.status==="approved"&&(
+                  <Chip label={r.type==="judge"?"✓ In Judges":"✓ In Teams"} color="green" />
+                )}
+              </div>
+              <div style={{...FONT,fontSize:12,color:C.text3,marginBottom:3}}>{r.email}{r.org?` · ${r.org}`:""}</div>
+              {r.type==="team"&&r.teamName&&(
+                <div style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>
+                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""}
+                </div>
+              )}
+              {r.message&&(
+                <div style={{...FONT,fontSize:11,color:C.text3,fontStyle:"italic",
+                  borderLeft:`3px solid ${C.border2}`,paddingLeft:8,lineHeight:1.5,marginTop:4}}>
+                  "{r.message.slice(0,140)}{r.message.length>140?"…":""}"
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0,alignItems:"flex-end"}}>
+            <div style={{display:"flex",gap:5}}>
+              {r.status!=="approved"&&<Btn size="sm" variant="success" onClick={()=>updateReg(r.id,"approved")}>Approve</Btn>}
+              {r.status!=="rejected"&&<Btn size="sm" variant="danger"  onClick={()=>updateReg(r.id,"rejected")}>Reject</Btn>}
+              <Btn size="sm" variant="ghost" onClick={()=>delReg(r.id)}>✕</Btn>
+            </div>
+            {r.status==="approved"&&!alreadyAdded&&(
+              <button onClick={()=>convertReg(r)} disabled={busy}
+                style={{...FONT,fontSize:12,fontWeight:600,padding:"6px 13px",borderRadius:R.sm,
+                  cursor:busy?"wait":"pointer",border:"none",display:"flex",alignItems:"center",gap:5,
+                  background:r.type==="judge"?C.bgBlue:C.bgGreen,
+                  color:r.type==="judge"?C.blue:C.green,
+                  opacity:busy?0.6:1}}>
+                {busy?<><Spinner size={11}/> Adding…</>
+                  :r.type==="judge"?"＋ Add to Judges":"＋ Add to Teams"}
+              </button>
+            )}
+            {r.status==="approved"&&alreadyAdded&&(
+              <div style={{...FONT,fontSize:11,color:C.green}}>✓ Added to {r.type==="judge"?"Judges":"Teams"}</div>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
+  };
+
   return(
     <div>
-      <SectionHeader title="Public Pages" count="Manage hackathon visibility and incoming registrations" />
-      <div style={{display:"grid",gridTemplateColumns:"230px 1fr",gap:14,alignItems:"start"}}>
+      <SectionHeader title="Registrations" count="Review applications and onboard approved participants" />
+      <div style={{display:"grid",gridTemplateColumns:"210px 1fr",gap:14,alignItems:"start"}}>
         <Card pad={0} style={{overflow:"hidden"}}>
-          <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,letterSpacing:"0.05em",textTransform:"uppercase",padding:"8px 14px",background:C.bg2,borderBottom:`1px solid ${C.border}`}}>Hackathons</div>
+          <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,letterSpacing:"0.05em",textTransform:"uppercase",
+            padding:"8px 14px",background:C.bg2,borderBottom:`1px solid ${C.border}`}}>Hackathons</div>
           {db.hackathons.map(h=>(
             <div key={h.id} onClick={()=>setSelH(h.id)}
-              style={{padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,background:selH===h.id?"#eff6ff":"transparent",transition:"background 0.1s"}}
+              style={{padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,
+                background:selH===h.id?"#eff6ff":"transparent",transition:"background 0.1s"}}
               onMouseEnter={e=>{if(selH!==h.id)e.currentTarget.style.background=C.bg2;}}
               onMouseLeave={e=>{if(selH!==h.id)e.currentTarget.style.background="transparent";}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <span style={{...FONT,fontSize:13,fontWeight:500,color:C.text}}>{h.name}</span>
                 <Chip label={h.published?"live":"draft"} color={h.published?"green":"neutral"} />
               </div>
-              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:2}}>{h.status}</div>
+              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:2}}>{h.status} · {regs.filter(r=>r.hackathonId===h.id||selH===h.id).length} regs</div>
             </div>
           ))}
         </Card>
+
         {hack?(
           <div>
             <Card style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-                <div><h2 style={{...FONT,fontSize:16,fontWeight:600,color:C.text,marginBottom:4}}>{hack.name}</h2>
-                  <div style={{...FONT,fontSize:12,color:C.text3}}>{hack.tagline||"No tagline"}</div></div>
-                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{...FONT,fontSize:14,fontWeight:600,color:C.text,marginBottom:2}}>{hack.name}</div>
+                  <div style={{...FONT,fontSize:12,color:C.text3}}>{hack.tagline||"No tagline"}</div>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
                   <Chip label={hack.published?"Published":"Draft"} color={hack.published?"green":"neutral"} />
-                  <Btn variant={hack.published?"secondary":"success"} size="sm" onClick={()=>publish(!hack.published)}>{hack.published?"Unpublish":"Publish Now"}</Btn>
+                  <Btn variant={hack.published?"secondary":"success"} size="sm" onClick={()=>publish(!hack.published)}>
+                    {hack.published?"Unpublish":"Publish"}
+                  </Btn>
+                  {hack.published&&<>
+                    <Btn size="sm" variant="blue" onClick={()=>{navigator.clipboard?.writeText(pubUrl);toast("URL copied!");}}>Copy URL</Btn>
+                    <Btn size="sm" variant="secondary" onClick={()=>window.open(pubUrl,"_blank")}>Preview →</Btn>
+                  </>}
                 </div>
               </div>
-              {hack.published&&(
-                <div style={{display:"flex",alignItems:"center",gap:10,background:C.bg2,borderRadius:R.sm,padding:"9px 12px"}}>
-                  <span style={{...MONO,fontSize:11,color:C.text2,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pubUrl}</span>
-                  <Btn size="sm" variant="blue" onClick={()=>{navigator.clipboard?.writeText(pubUrl);toast("URL copied!");}}>Copy</Btn>
-                  <Btn size="sm" variant="secondary" onClick={()=>window.open(pubUrl,"_blank")}>Preview</Btn>
-                </div>
-              )}
             </Card>
-            <div style={{display:"flex",gap:1,marginBottom:14,background:C.bg2,borderRadius:R.sm,padding:3,border:`1px solid ${C.border}`}}>
-              {["overview","registrations"].map(t=>(
-                <button key={t} onClick={()=>setTab(t)} style={{...FONT,flex:1,padding:"6px 12px",fontSize:12,fontWeight:500,borderRadius:R.sm,border:"none",cursor:"pointer",background:tab===t?C.bg:C.bg2,color:tab===t?C.text:C.text3,transition:"all 0.1s",textTransform:"capitalize"}}>
-                  {t}{t==="registrations"&&` (${regs.length})`}
-                </button>
-              ))}
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+              <Stat label="Total" value={regs.length} />
+              <Stat label="Pending"  value={pending.length}  color={pending.length>0?C.amber:C.text} />
+              <Stat label="Approved" value={approved.length} color={C.green} />
+              <Stat label="Rejected" value={rejected.length} color={rejected.length>0?C.red:C.text} />
             </div>
-            {tab==="overview"&&(
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
-                <Stat label="Total Registrations" value={regs.length} />
-                <Stat label="Pending" value={regs.filter(r=>r.status==="pending").length} color={C.amber} />
-                <Stat label="Approved" value={regs.filter(r=>r.status==="approved").length} color={C.green} />
+
+            {approved.length>0&&(
+              <div style={{...FONT,fontSize:12,background:C.bgBlue,border:`1px solid ${C.bdBlue}`,
+                borderRadius:R.sm,padding:"10px 14px",marginBottom:14,color:C.blue,lineHeight:1.6}}>
+                💡 <strong>How to onboard:</strong> Approve a registration, then click
+                <strong> "＋ Add to Teams"</strong> or <strong>"＋ Add to Judges"</strong>.
+                That creates the record — then go to Teams/Judges to fill in details,
+                and User Management to create a login for judges.
               </div>
             )}
-            {tab==="registrations"&&(
-              regs.length===0?<Empty icon="📬" title="No registrations yet" sub={hack.published?"Share the link to receive registrations.":"Publish this hackathon first."} />
-                :regs.map(r=>(
-                  <Card key={r.id} style={{marginBottom:8}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                      <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                        <Avatar name={r.name} size={36}/>
-                        <div>
-                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
-                            <span style={{...FONT,fontSize:13,fontWeight:500,color:C.text}}>{r.name}</span>
-                            <Chip label={r.type} color={r.type==="judge"?"blue":"neutral"} />
-                            <Chip label={r.status} color={r.status==="approved"?"green":r.status==="rejected"?"red":"amber"} />
-                          </div>
-                          <div style={{...FONT,fontSize:12,color:C.text3}}>{r.email}{r.org?` · ${r.org}`:""}</div>
-                          {r.teamName&&<div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>Team: {r.teamName} ({r.teamSize} members)</div>}
-                          {r.message&&<div style={{...FONT,fontSize:12,color:C.text2,marginTop:5,fontStyle:"italic"}}>"{r.message}"</div>}
-                        </div>
-                      </div>
-                      <div style={{display:"flex",gap:5,flexShrink:0}}>
-                        {r.status!=="approved"&&<Btn size="sm" variant="success" onClick={()=>updateReg(r.id,"approved")}>Approve</Btn>}
-                        {r.status!=="rejected"&&<Btn size="sm" variant="danger" onClick={()=>updateReg(r.id,"rejected")}>Reject</Btn>}
-                        <Btn size="sm" variant="ghost" onClick={()=>delReg(r.id)}>✕</Btn>
-                      </div>
-                    </div>
-                  </Card>
+
+            <div style={{display:"flex",gap:1,marginBottom:14,background:C.bg2,borderRadius:R.sm,padding:3,border:`1px solid ${C.border}`}}>
+              {[{id:"all",l:`All (${regs.length})`},{id:"pending",l:`Pending (${pending.length})`},
+                {id:"approved",l:`Approved (${approved.length})`},{id:"rejected",l:`Rejected (${rejected.length})`}]
+                .map(t=>(
+                  <button key={t.id} onClick={()=>setTab(t.id)}
+                    style={{...FONT,flex:1,padding:"6px 10px",fontSize:12,fontWeight:500,borderRadius:R.sm,
+                      border:"none",cursor:"pointer",background:tab===t.id?C.bg:C.bg2,
+                      color:tab===t.id?C.text:C.text3,transition:"all 0.1s",whiteSpace:"nowrap"}}>
+                    {t.l}
+                  </button>
                 ))
-            )}
+              }
+            </div>
+
+            {filtered.length===0
+              ?<Empty icon="📬" title={regs.length===0?"No registrations yet":"None in this category"}
+                  sub={regs.length===0?(hack.published?"Share the public link to get registrations.":"Publish this hackathon first."):"Try a different filter."} />
+              :filtered.map(r=><RegCard key={r.id} r={r} />)
+            }
           </div>
         ):<Empty icon="🌐" title="Select a hackathon" />}
       </div>
