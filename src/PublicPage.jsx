@@ -659,5 +659,4 @@ const StatBadge=({icon,val,label})=>(
   </div>
 );
 
-// expose TIER_ORDER for partner section
-const TIER_ORDER=["platinum","gold","silver","bronze","media","general"];
+
