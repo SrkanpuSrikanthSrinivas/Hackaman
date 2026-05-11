@@ -621,14 +621,30 @@ app.get("/api/pubpage/:id", async (req, res) => {
 // ── Serve Vite build (React app) ─────────────────────────────────────────────
 // In production on Vercel, dist/ is built by vite build and colocated here
 const path = require("path");
-const distPath = path.join(__dirname, "../dist");
-const fs = require("fs");
+const fs   = require("fs");
 
-if (fs.existsSync(distPath)) {
+// Vercel bundles dist/ alongside api/ via includeFiles
+// Try both relative paths — works locally and on Vercel
+const distCandidates = [
+  path.join(__dirname, "../dist"),   // local dev: api/../dist
+  path.join(__dirname, "dist"),       // vercel bundle: same dir
+  path.join(process.cwd(), "dist"),   // fallback: cwd/dist
+];
+const distPath = distCandidates.find(p => fs.existsSync(p));
+
+if (distPath) {
   app.use(express.static(distPath));
-  // SPA fallback — any non-API route returns index.html
   app.get("*", (_req, res) => {
-    res.sendFile(path.join(distPath, "index.html"));
+    const indexPath = path.join(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send("App not built. Run: npm run build");
+    }
+  });
+} else {
+  app.get("*", (_req, res) => {
+    res.status(503).send("Static files not found. dist/ missing.");
   });
 }
 
