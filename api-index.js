@@ -58,6 +58,15 @@ app.get("/api/health", async (_req, res) => {
   catch (e) { res.status(503).json({ status: "error", message: e.message }); }
 });
 
+// Diagnostic — lists all registered routes (helps verify deployment)
+app.get("/api/debug/routes", (_req, res) => {
+  const routes = [];
+  app._router.stack.forEach(r => {
+    if (r.route) routes.push(`${Object.keys(r.route.methods)[0].toUpperCase()} ${r.route.path}`);
+  });
+  res.json({ version: "v5", routeCount: routes.length, routes });
+});
+
 // ─── AUTH: EMAIL ─────────────────────────────────────────────────────────────
 app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
