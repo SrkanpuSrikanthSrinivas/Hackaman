@@ -344,7 +344,7 @@ export default function PublicPage({ hackathonId }) {
   const [activeTab,setActiveTab]=useState("about");
 
   useEffect(()=>{
-    pget(`/api/cms/page/${hackathonId}`)
+    pget(`/api/pubpage/${hackathonId}`)
       .then(d=>{ if(d.error){setErr(d.error);}else{setData(d);} setLoading(false); })
       .catch(()=>{ setErr("Could not load event."); setLoading(false); });
   },[hackathonId]);

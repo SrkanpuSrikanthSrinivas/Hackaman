@@ -955,7 +955,7 @@ function PeopleEditor({ title, type, hackathonId, toast, accent="#2563eb" }) {
 
   const load=useCallback(async()=>{
     if(!hackathonId)return;
-    try{ const d=await GET(`/api/cms/speakers?hackathonId=${hackathonId}&type=${type}`); setItems(d); }catch{}
+    try{ const d=await GET(`/api/speakers?hackathonId=${hackathonId}&type=${type}`); setItems(d); }catch{}
   },[hackathonId,type]);
   useEffect(()=>{load();},[load]);
 
@@ -964,12 +964,12 @@ function PeopleEditor({ title, type, hackathonId, toast, accent="#2563eb" }) {
   const save=async()=>{
     if(!form.name?.trim())return toast("Name required","error");setSaving(true);
     try{
-      if(modal==="new")await POST("/api/cms/speakers",form);
-      else await PUT(`/api/cms/speakers/${modal.id}`,form);
+      if(modal==="new")await POST("/api/speakers",form);
+      else await PUT(`/api/speakers/${modal.id}`,form);
       await load();toast(modal==="new"?"Added":"Updated");close();
     }catch(e){toast(e.message,"error");}setSaving(false);
   };
-  const del=async id=>{try{await DEL(`/api/cms/speakers/${id}`);await load();toast("Removed");}catch(e){toast(e.message,"error");}};
+  const del=async id=>{try{await DEL(`/api/speakers/${id}`);await load();toast("Removed");}catch(e){toast(e.message,"error");}};
 
   const handleImg=async(e,field="avatarUrl")=>{
     const file=e.target.files?.[0]; if(!file)return;
@@ -1070,8 +1070,8 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
 
   useEffect(()=>{ if(hack) setHackForm({...hack}); },[hack?.id]);
 
-  const loadPartners=useCallback(async()=>{ if(!selH)return; try{setPartners(await GET(`/api/cms/partners?hackathonId=${selH}`));}catch{} },[selH]);
-  const loadTeam    =useCallback(async()=>{ if(!selH)return; try{setTeam(    await GET(`/api/cms/orgteam?hackathonId=${selH}`)    );}catch{} },[selH]);
+  const loadPartners=useCallback(async()=>{ if(!selH)return; try{setPartners(await GET(`/api/partners?hackathonId=${selH}`));}catch{} },[selH]);
+  const loadTeam    =useCallback(async()=>{ if(!selH)return; try{setTeam(    await GET(`/api/orgteam?hackathonId=${selH}`)    );}catch{} },[selH]);
   useEffect(()=>{ loadPartners(); loadTeam(); },[loadPartners,loadTeam]);
 
   const pf=k=>e=>setPForm(p=>({...p,[k]:e.target.value}));
@@ -1097,23 +1097,23 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
   const savePartner=async()=>{
     if(!pForm.name?.trim())return toast("Name required","error");setPSaving(true);
     try{
-      if(pModal==="new")await POST("/api/cms/partners",{...pForm,hackathonId:selH});
-      else await PUT(`/api/cms/partners/${pModal.id}`,pForm);
+      if(pModal==="new")await POST("/api/partners",{...pForm,hackathonId:selH});
+      else await PUT(`/api/partners/${pModal.id}`,pForm);
       await loadPartners();toast(pModal==="new"?"Partner added":"Updated");setPModal(null);
     }catch(e){toast(e.message,"error");}setPSaving(false);
   };
-  const delPartner=async id=>{try{await DEL(`/api/cms/partners/${id}`);await loadPartners();toast("Removed");}catch(e){toast(e.message,"error");}};
+  const delPartner=async id=>{try{await DEL(`/api/partners/${id}`);await loadPartners();toast("Removed");}catch(e){toast(e.message,"error");}};
 
   // Team CRUD
   const saveTeamMember=async()=>{
     if(!tForm.name?.trim())return toast("Name required","error");setTSaving(true);
     try{
-      if(tModal==="new")await POST("/api/cms/orgteam",{...tForm,hackathonId:selH});
-      else await PUT(`/api/cms/orgteam/${tModal.id}`,tForm);
+      if(tModal==="new")await POST("/api/orgteam",{...tForm,hackathonId:selH});
+      else await PUT(`/api/orgteam/${tModal.id}`,tForm);
       await loadTeam();toast(tModal==="new"?"Member added":"Updated");setTModal(null);
     }catch(e){toast(e.message,"error");}setTSaving(false);
   };
-  const delTeamMember=async id=>{try{await DEL(`/api/cms/orgteam/${id}`);await loadTeam();toast("Removed");}catch(e){toast(e.message,"error");}};
+  const delTeamMember=async id=>{try{await DEL(`/api/orgteam/${id}`);await loadTeam();toast("Removed");}catch(e){toast(e.message,"error");}};
 
   if(!selH) return <Empty icon="🌐" title="Select a hackathon from the sidebar" />;
   if(!hack) return <Empty icon="🌐" title="Hackathon not found" />;
