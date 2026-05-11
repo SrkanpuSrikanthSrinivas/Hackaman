@@ -618,6 +618,20 @@ app.get("/api/pubpage/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Serve Vite build (React app) ─────────────────────────────────────────────
+// In production on Vercel, dist/ is built by vite build and colocated here
+const path = require("path");
+const distPath = path.join(__dirname, "../dist");
+const fs = require("fs");
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  // SPA fallback — any non-API route returns index.html
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
+}
+
 app.use((_req, res) => res.status(404).json({ error: "Route not found" }));
 app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: "Internal server error" }); });
 
