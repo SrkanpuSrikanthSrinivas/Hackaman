@@ -184,12 +184,16 @@ const ADMIN_NAV=[
 const JUDGE_EXTRA=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"},{id:"criteria",label:"Criteria"}];
 function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",section:"judging"}]; const extras=(user.permissions||[]).map(p=>({id:p.page,label:JUDGE_EXTRA.find(x=>x.id===p.page)?.label||p.page,section:"judging"}));return[...base,...extras.filter(e=>!base.find(b=>b.id===e.id))]; }
 
+// Wrapper that decides which top-level component to render
+// Must be outside AppShell so hooks are never called conditionally
 export default function App() {
-  // Public register route
   const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
   if (regMatch) return <PublicPage hackathonId={regMatch[1]} />;
+  return <AppShell />;
+}
 
-  // Handle OAuth token in URL
+function AppShell() {
+  // Handle OAuth token in URL — do this before reading localStorage
   const urlParams = new URLSearchParams(window.location.search);
   const urlToken = urlParams.get("token");
   const urlError = urlParams.get("error");
