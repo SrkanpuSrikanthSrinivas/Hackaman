@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 
-const BASE = typeof window !== "undefined" &&
-  ["localhost","127.0.0.1"].includes(window.location.hostname)
-  ? "http://localhost:3001" : "";
+const BASE = ["localhost","127.0.0.1"].includes(window.location.hostname) ? "http://localhost:3001" : "";
 
 const pget = p => fetch(`${BASE}${p}`).then(r=>r.json());
 const ppost= (p,b)=>fetch(`${BASE}${p}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)}).then(r=>r.json());

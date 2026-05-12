@@ -38,14 +38,6 @@ const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || "*", credentials: true }));
 app.use(express.json());
 
-// Vercel strips the /api prefix when rewriting to api/index.js
-// This middleware normalises ALL paths so Express always sees /api/...
-app.use((req, _res, next) => {
-  if (!req.path.startsWith("/api/") && req.path !== "/api") {
-    req.url = "/api" + req.url;
-  }
-  next();
-});
 
 // ─── MIDDLEWARE ──────────────────────────────────────────────────────────────
 function auth(req, res, next) {
@@ -67,13 +59,15 @@ app.get("/api/health", async (_req, res) => {
   catch (e) { res.status(503).json({ status: "error", message: e.message }); }
 });
 
-// Diagnostic — lists all registered routes (helps verify deployment)
-app.get("/api/debug/routes", (_req, res) => {
+// Diagnostic — call /api/debug/routes to see registered routes + what path Vercel sends
+app.get("/api/debug/routes", (req, res) => {
   const routes = [];
   app._router.stack.forEach(r => {
     if (r.route) routes.push(`${Object.keys(r.route.methods)[0].toUpperCase()} ${r.route.path}`);
   });
-  res.json({ version: "v5", routeCount: routes.length, routes });
+  res.json({ version: "v6", routeCount: routes.length,
+    receivedUrl: req.url, receivedPath: req.path,
+    receivedOriginalUrl: req.originalUrl, routes });
 });
 
 // ─── AUTH: EMAIL ─────────────────────────────────────────────────────────────

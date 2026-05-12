@@ -3,7 +3,10 @@ import { useState, useEffect, useCallback } from "react";
 /* ─── API ────────────────────────────────────────────────────────────────── */
 const IS_LOCAL = typeof window !== "undefined" &&
   ["localhost","127.0.0.1"].includes(window.location.hostname);
-const BASE = IS_LOCAL ? "http://localhost:3001" : "";
+
+// VITE_API_URL is set in Vercel dashboard → Settings → Environment Variables
+// e.g. https://hackfest-api.onrender.com
+const BASE = ["localhost","127.0.0.1"].includes(window.location.hostname) ? "http://localhost:3001" : "";
 
 function tok() { try { return localStorage.getItem("hf_token")||""; } catch { return ""; } }
 async function apiFetch(path, opts={}) {
