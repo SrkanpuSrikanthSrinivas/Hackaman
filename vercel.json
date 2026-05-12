@@ -2,8 +2,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/:slug1/:slug2/:slug3", "destination": "/api/index.js" },
-    { "source": "/api/:slug1/:slug2",        "destination": "/api/index.js" },
-    { "source": "/api/:slug1",               "destination": "/api/index.js" }
+    { "source": "/api/:path*", "destination": "/api/index.js" }
   ]
 }

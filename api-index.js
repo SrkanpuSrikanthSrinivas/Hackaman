@@ -38,6 +38,15 @@ const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || "*", credentials: true }));
 app.use(express.json());
 
+// Vercel strips the /api prefix when rewriting to api/index.js
+// This middleware normalises ALL paths so Express always sees /api/...
+app.use((req, _res, next) => {
+  if (!req.path.startsWith("/api/") && req.path !== "/api") {
+    req.url = "/api" + req.url;
+  }
+  next();
+});
+
 // ─── MIDDLEWARE ──────────────────────────────────────────────────────────────
 function auth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
