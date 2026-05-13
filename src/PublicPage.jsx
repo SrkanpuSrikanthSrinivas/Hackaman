@@ -342,9 +342,14 @@ export default function PublicPage({ hackathonId }) {
   const [activeTab,setActiveTab]=useState("about");
 
   useEffect(()=>{
-    pget(`/api/pubpage/${hackathonId}`)
-      .then(d=>{ if(d.error){setErr(d.error);}else{setData(d);} setLoading(false); })
-      .catch(()=>{ setErr("Could not load event."); setLoading(false); });
+    fetch(`${BASE}/api/pubpage/${hackathonId}`)
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok || d.error) setErr(d.error || `Server error ${r.status}`);
+        else setData(d);
+        setLoading(false);
+      })
+      .catch(e => { setErr("Could not reach server: " + e.message); setLoading(false); });
   },[hackathonId]);
 
   if(loading) return(
@@ -354,10 +359,13 @@ export default function PublicPage({ hackathonId }) {
     </div>
   );
   if(err) return(
-    <div style={{minHeight:"100vh",background:"#0a0a18",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#fff",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"#0a0a18",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#fff",fontFamily:"'Inter',sans-serif",padding:24,textAlign:"center"}}>
       <div style={{fontSize:48,marginBottom:16}}>🔒</div>
       <div style={{fontSize:18,fontWeight:600,marginBottom:8}}>Page Not Available</div>
-      <div style={{fontSize:14,color:"rgba(255,255,255,0.4)"}}>{err}</div>
+      <div style={{fontSize:14,color:"rgba(255,255,255,0.45)",maxWidth:400,lineHeight:1.6}}>{err}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.2)",marginTop:16}}>
+        URL: {window.location.href}
+      </div>
     </div>
   );
 

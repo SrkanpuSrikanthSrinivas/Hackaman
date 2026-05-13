@@ -488,7 +488,10 @@ app.get("/api/speakers", auth, async (req, res) => {
     sql += " ORDER BY sort_order, name";
     const { rows } = await q(sql, params);
     res.json(rows.map(camel));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    if (e.message.includes("does not exist")) return res.status(503).json({ error: "Run migration_v5.sql in Neon first — table 'page_speakers' missing", migration: true });
+    res.status(500).json({ error: e.message });
+  }
 });
 app.post("/api/speakers", admin, async (req, res) => {
   const { hackathonId, type, name, title, org, bio, avatarUrl, linkedinUrl, twitterUrl, sortOrder } = req.body;
@@ -597,11 +600,19 @@ app.get("/api/pubpage/:id", async (req, res) => {
     const { rows: hRows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true",[req.params.id]);
     if (!hRows.length) return res.status(404).json({ error: "Page not found or not published" });
     const hack = camel(hRows[0]);
+
+    // Each CMS table query is wrapped individually — if migration hasn't been run
+    // the table won't exist; return empty arrays rather than crashing the page
+    const safeQuery = async (sql, params) => {
+      try { const r = await q(sql, params); return r.rows; }
+      catch (_) { return []; }
+    };
+
     const [speakers, partners, team, judges] = await Promise.all([
-      q("SELECT * FROM page_speakers WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
-      q("SELECT * FROM page_partners  WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
-      q("SELECT * FROM page_team      WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
-      q(`SELECT j.* FROM judges j
+      safeQuery("SELECT * FROM page_speakers WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQuery("SELECT * FROM page_partners  WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQuery("SELECT * FROM page_team      WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQuery(`SELECT j.* FROM judges j
          WHERE j.id IN (
            SELECT DISTINCT f.judge_id FROM feedbacks f WHERE f.hackathon_id=$1
            UNION
@@ -610,13 +621,14 @@ app.get("/api/pubpage/:id", async (req, res) => {
            WHERE hj.hackathon_id=$1 AND u.judge_id IS NOT NULL
          ) ORDER BY j.name`,[hack.id]),
     ]);
+
     res.json({
       ...hack,
-      keynotes:      speakers.rows.filter(s=>s.type==="keynote").map(camel),
-      sessionChairs: speakers.rows.filter(s=>s.type==="session_chair").map(camel),
-      partners:      partners.rows.map(camel),
-      team:          team.rows.map(camel),
-      judges:        judges.rows.map(camel),
+      keynotes:      speakers.filter(s=>s.type==="keynote").map(camel),
+      sessionChairs: speakers.filter(s=>s.type==="session_chair").map(camel),
+      partners:      partners.map(camel),
+      team:          team.map(camel),
+      judges:        judges.map(camel),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
