@@ -955,7 +955,11 @@ function PeopleEditor({ title, type, hackathonId, toast, accent="#2563eb" }) {
 
   const load=useCallback(async()=>{
     if(!hackathonId)return;
-    try{ const d=await GET(`/api/speakers?hackathonId=${hackathonId}&type=${type}`); setItems(d); }catch{}
+    try{
+      const d=await GET(`/api/speakers?hackathonId=${hackathonId}&type=${type}`);
+      if(d.migration) { toast("Run migration_v5.sql in Neon first — tables are missing","error"); return; }
+      setItems(Array.isArray(d)?d:[]);
+    }catch(e){ toast(e.message,"error"); }
   },[hackathonId,type]);
   useEffect(()=>{load();},[load]);
 
@@ -1070,8 +1074,22 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
 
   useEffect(()=>{ if(hack) setHackForm({...hack}); },[hack?.id]);
 
-  const loadPartners=useCallback(async()=>{ if(!selH)return; try{setPartners(await GET(`/api/partners?hackathonId=${selH}`));}catch{} },[selH]);
-  const loadTeam    =useCallback(async()=>{ if(!selH)return; try{setTeam(    await GET(`/api/orgteam?hackathonId=${selH}`)    );}catch{} },[selH]);
+  const loadPartners=useCallback(async()=>{
+    if(!selH)return;
+    try{
+      const d=await GET(`/api/partners?hackathonId=${selH}`);
+      if(d.migration){toast("Run migration_v5.sql in Neon — table missing","error");return;}
+      setPartners(Array.isArray(d)?d:[]);
+    }catch(e){toast(e.message,"error");}
+  },[selH]);
+  const loadTeam=useCallback(async()=>{
+    if(!selH)return;
+    try{
+      const d=await GET(`/api/orgteam?hackathonId=${selH}`);
+      if(d.migration){toast("Run migration_v5.sql in Neon — table missing","error");return;}
+      setTeam(Array.isArray(d)?d:[]);
+    }catch(e){toast(e.message,"error");}
+  },[selH]);
   useEffect(()=>{ loadPartners(); loadTeam(); },[loadPartners,loadTeam]);
 
   const pf=k=>e=>setPForm(p=>({...p,[k]:e.target.value}));
