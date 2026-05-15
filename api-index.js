@@ -38,6 +38,16 @@ const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || "*", credentials: true }));
 app.use(express.json());
 
+// Vercel strips /api prefix when routing to this function.
+// e.g. request to /api/partners arrives here as /partners
+// This middleware restores it so all app.get("/api/...") routes match correctly.
+app.use((req, _res, next) => {
+  if (!req.path.startsWith("/api")) {
+    req.url = "/api" + (req.url === "/" ? "" : req.url);
+  }
+  next();
+});
+
 
 // ─── MIDDLEWARE ──────────────────────────────────────────────────────────────
 function auth(req, res, next) {
