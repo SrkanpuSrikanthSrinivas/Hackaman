@@ -38,6 +38,8 @@ const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || "*", credentials: true }));
 app.use(express.json());
 
+
+
 // ─── MIDDLEWARE ──────────────────────────────────────────────────────────────
 function auth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
@@ -53,13 +55,24 @@ function admin(req, res, next) {
 }
 
 // ─── HEALTH ──────────────────────────────────────────────────────────────────
-app.get("/api/health", async (_req, res) => {
+app.get(["/api/health", "/health"], async (_req, res) => {
   try { const { rows } = await q("SELECT NOW() AS t"); res.json({ status: "ok", db: "connected", time: rows[0].t }); }
   catch (e) { res.status(503).json({ status: "error", message: e.message }); }
 });
 
+// Diagnostic — call /api/debug/routes to see registered routes + what path Vercel sends
+app.get(["/api/debug/routes", "/debug/routes"], (req, res) => {
+  const routes = [];
+  app._router.stack.forEach(r => {
+    if (r.route) routes.push(`${Object.keys(r.route.methods)[0].toUpperCase()} ${r.route.path}`);
+  });
+  res.json({ version: "v6", routeCount: routes.length,
+    receivedUrl: req.url, receivedPath: req.path,
+    receivedOriginalUrl: req.originalUrl, routes });
+});
+
 // ─── AUTH: EMAIL ─────────────────────────────────────────────────────────────
-app.post("/api/auth/login", async (req, res) => {
+app.post(["/api/auth/login", "/auth/login"], async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: "Email and password required" });
   try {
@@ -74,7 +87,7 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get("/api/auth/me", auth, async (req, res) => {
+app.get(["/api/auth/me", "/auth/me"], auth, async (req, res) => {
   try {
     const { rows } = await q("SELECT * FROM users WHERE id=$1", [req.user.id]);
     if (!rows.length) return res.status(404).json({ error: "User not found" });
@@ -116,14 +129,14 @@ function oauthCallback(token) {
 }
 
 // ─── GITHUB OAUTH ─────────────────────────────────────────────────────────────
-app.get("/api/auth/github", (req, res) => {
+app.get(["/api/auth/github", "/auth/github"], (req, res) => {
   if (!process.env.GITHUB_CLIENT_ID) return res.status(503).json({ error: "GitHub OAuth not configured. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET env vars." });
   const state = jwt.sign({ n: uid() }, JWT_SECRET, { expiresIn: "10m" });
   const u = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&scope=user:email&state=${encodeURIComponent(state)}`;
   res.redirect(u);
 });
 
-app.get("/api/auth/github/callback", async (req, res) => {
+app.get(["/api/auth/github/callback", "/auth/github/callback"], async (req, res) => {
   try {
     jwt.verify(req.query.state, JWT_SECRET);
     const tr = await fetch("https://github.com/login/oauth/access_token", {
@@ -146,7 +159,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
 });
 
 // ─── GOOGLE OAUTH ─────────────────────────────────────────────────────────────
-app.get("/api/auth/google", (req, res) => {
+app.get(["/api/auth/google", "/auth/google"], (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: "Google OAuth not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET env vars." });
   const state = jwt.sign({ n: uid() }, JWT_SECRET, { expiresIn: "10m" });
   const cb = `${FRONTEND_URL}/api/auth/google/callback`;
@@ -154,7 +167,7 @@ app.get("/api/auth/google", (req, res) => {
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
 });
 
-app.get("/api/auth/google/callback", async (req, res) => {
+app.get(["/api/auth/google/callback", "/auth/google/callback"], async (req, res) => {
   try {
     jwt.verify(req.query.state, JWT_SECRET);
     const cb = `${FRONTEND_URL}/api/auth/google/callback`;
@@ -173,7 +186,7 @@ app.get("/api/auth/google/callback", async (req, res) => {
 });
 
 // ─── GITLAB OAUTH ─────────────────────────────────────────────────────────────
-app.get("/api/auth/gitlab", (req, res) => {
+app.get(["/api/auth/gitlab", "/auth/gitlab"], (req, res) => {
   if (!process.env.GITLAB_CLIENT_ID) return res.status(503).json({ error: "GitLab OAuth not configured. Add GITLAB_CLIENT_ID and GITLAB_CLIENT_SECRET env vars." });
   const state = jwt.sign({ n: uid() }, JWT_SECRET, { expiresIn: "10m" });
   const cb = `${FRONTEND_URL}/api/auth/gitlab/callback`;
@@ -181,7 +194,7 @@ app.get("/api/auth/gitlab", (req, res) => {
   res.redirect(`https://gitlab.com/oauth/authorize?${p}`);
 });
 
-app.get("/api/auth/gitlab/callback", async (req, res) => {
+app.get(["/api/auth/gitlab/callback", "/auth/gitlab/callback"], async (req, res) => {
   try {
     jwt.verify(req.query.state, JWT_SECRET);
     const cb = `${FRONTEND_URL}/api/auth/gitlab/callback`;
@@ -200,7 +213,7 @@ app.get("/api/auth/gitlab/callback", async (req, res) => {
 });
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
-app.get("/api/users", admin, async (_req, res) => {
+app.get(["/api/users", "/users"], admin, async (_req, res) => {
   try {
     const { rows: users } = await q("SELECT id,name,email,role,judge_id,avatar_url,oauth_provider,created_at FROM users ORDER BY role,name");
     const { rows: hj }    = await q("SELECT user_id,hackathon_id FROM hackathon_judges");
@@ -213,7 +226,7 @@ app.get("/api/users", admin, async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/users", admin, async (req, res) => {
+app.post(["/api/users", "/users"], admin, async (req, res) => {
   const { name, email, password, role = "judge", judgeId } = req.body;
   if (!name?.trim() || !email?.trim() || !password?.trim()) return res.status(400).json({ error: "name, email, and password required" });
   try {
@@ -229,29 +242,29 @@ app.post("/api/users", admin, async (req, res) => {
   }
 });
 
-app.put("/api/users/:id", admin, async (req, res) => {
+app.put(["/api/users/:id", "/users/:id"], admin, async (req, res) => {
   const { name, email, password, role, judgeId } = req.body;
   try {
     const params = password
-      ? [name, email.toLowerCase(), await bcrypt.hash(password, 10), role, judgeId || null, req.params.id]
-      : [name, email.toLowerCase(), role, judgeId || null, req.params.id];
+    ? [name, email.toLowerCase(), await bcrypt.hash(password, 10), role, judgeId || null, req.params.id]
+    : [name, email.toLowerCase(), role, judgeId || null, req.params.id];
     const sql = password
-      ? "UPDATE users SET name=$1,email=$2,password_hash=$3,role=$4,judge_id=$5 WHERE id=$6 RETURNING id,name,email,role,judge_id"
-      : "UPDATE users SET name=$1,email=$2,role=$3,judge_id=$4 WHERE id=$5 RETURNING id,name,email,role,judge_id";
+    ? "UPDATE users SET name=$1,email=$2,password_hash=$3,role=$4,judge_id=$5 WHERE id=$6 RETURNING id,name,email,role,judge_id"
+    : "UPDATE users SET name=$1,email=$2,role=$3,judge_id=$4 WHERE id=$5 RETURNING id,name,email,role,judge_id";
     const { rows } = await q(sql, params);
     if (!rows.length) return res.status(404).json({ error: "Not found" });
     res.json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete("/api/users/:id", admin, async (req, res) => {
+app.delete(["/api/users/:id", "/users/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM users WHERE id=$1", [req.params.id]); res.json({ deleted: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── ASSIGNMENTS ──────────────────────────────────────────────────────────────
 // FIX: explicit validation + clear error messages so the root cause is visible
-app.post("/api/assignments", admin, async (req, res) => {
+app.post(["/api/assignments", "/assignments"], admin, async (req, res) => {
   const { hackathonId, userId } = req.body;
   if (!hackathonId || !userId) return res.status(400).json({ error: "hackathonId and userId are both required" });
   try {
@@ -271,7 +284,7 @@ app.post("/api/assignments", admin, async (req, res) => {
   }
 });
 
-app.delete("/api/assignments/:hackathonId/:userId", admin, async (req, res) => {
+app.delete(["/api/assignments/:hackathonId/:userId", "/assignments/:hackathonId/:userId"], admin, async (req, res) => {
   try {
     await q("DELETE FROM hackathon_judges WHERE hackathon_id=$1 AND user_id=$2", [req.params.hackathonId, req.params.userId]);
     res.json({ deleted: true });
@@ -279,7 +292,7 @@ app.delete("/api/assignments/:hackathonId/:userId", admin, async (req, res) => {
 });
 
 // ─── PERMISSIONS ──────────────────────────────────────────────────────────────
-app.post("/api/permissions", admin, async (req, res) => {
+app.post(["/api/permissions", "/permissions"], admin, async (req, res) => {
   const { userId, hackathonId, page } = req.body;
   if (!userId || !page) return res.status(400).json({ error: "userId and page required" });
   try {
@@ -291,13 +304,13 @@ app.post("/api/permissions", admin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete("/api/permissions/:id", admin, async (req, res) => {
+app.delete(["/api/permissions/:id", "/permissions/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM user_permissions WHERE id=$1", [req.params.id]); res.json({ deleted: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── HACKATHONS ───────────────────────────────────────────────────────────────
-app.get("/api/hackathons", auth, async (req, res) => {
+app.get(["/api/hackathons", "/hackathons"], auth, async (req, res) => {
   try {
     const { rows } = await q("SELECT * FROM hackathons ORDER BY start_date DESC");
     const all = rows.map(camel);
@@ -309,7 +322,7 @@ app.get("/api/hackathons", auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/hackathons", admin, async (req, res) => {
+app.post(["/api/hackathons", "/hackathons"], admin, async (req, res) => {
   const { name, startDate, endDate, location, status = "upcoming", description, tagline, prizePool, maxTeams, tracks, published = false, bannerColor, sponsors, schedule, faq } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "name required" });
   try {
@@ -321,7 +334,7 @@ app.post("/api/hackathons", admin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put("/api/hackathons/:id", admin, async (req, res) => {
+app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
   const { name, startDate, endDate, location, status, description, tagline, prizePool, maxTeams, tracks, published, bannerColor, sponsors, schedule, faq } = req.body;
   try {
     const { rows } = await q(
@@ -333,70 +346,70 @@ app.put("/api/hackathons/:id", admin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete("/api/hackathons/:id", admin, async (req, res) => {
+app.delete(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM hackathons WHERE id=$1", [req.params.id]); res.json({ deleted: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── JUDGES / TEAMS / CRITERIA (standard CRUD) ───────────────────────────────
-app.get("/api/judges", auth, async (_req, res) => {
+app.get(["/api/judges", "/judges"], auth, async (_req, res) => {
   try { const { rows } = await q("SELECT * FROM judges ORDER BY name"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/judges", admin, async (req, res) => {
+app.post(["/api/judges", "/judges"], admin, async (req, res) => {
   const { name, org, role, avatarUrl } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "name required" });
   try { const { rows } = await q("INSERT INTO judges (id,name,org,role,avatar_url) VALUES ($1,$2,$3,$4,$5) RETURNING *", [uid(), name, org, role, avatarUrl||null]); res.status(201).json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put("/api/judges/:id", admin, async (req, res) => {
+app.put(["/api/judges/:id", "/judges/:id"], admin, async (req, res) => {
   const { name, org, role, avatarUrl } = req.body;
   try { const { rows } = await q("UPDATE judges SET name=$1,org=$2,role=$3,avatar_url=$4 WHERE id=$5 RETURNING *", [name, org, role, avatarUrl||null, req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/judges/:id", admin, async (req, res) => {
+app.delete(["/api/judges/:id", "/judges/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM judges WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get("/api/teams", auth, async (req, res) => {
+app.get(["/api/teams", "/teams"], auth, async (req, res) => {
   try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM teams WHERE hackathon_id=$1 ORDER BY name", [hackathonId]) : await q("SELECT * FROM teams ORDER BY name"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/teams", admin, async (req, res) => {
+app.post(["/api/teams", "/teams"], admin, async (req, res) => {
   const { hackathonId, name, project, category, members } = req.body;
   if (!name?.trim() || !hackathonId?.trim()) return res.status(400).json({ error: "name and hackathonId required" });
   try { const { rows } = await q("INSERT INTO teams (id,hackathon_id,name,project,category,members) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *", [uid(), hackathonId, name, project, category, members]); res.status(201).json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put("/api/teams/:id", admin, async (req, res) => {
+app.put(["/api/teams/:id", "/teams/:id"], admin, async (req, res) => {
   const { name, project, category, members } = req.body;
   try { const { rows } = await q("UPDATE teams SET name=$1,project=$2,category=$3,members=$4 WHERE id=$5 RETURNING *", [name, project, category, members, req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/teams/:id", admin, async (req, res) => {
+app.delete(["/api/teams/:id", "/teams/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM teams WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get("/api/criteria", auth, async (req, res) => {
+app.get(["/api/criteria", "/criteria"], auth, async (req, res) => {
   try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM criteria WHERE hackathon_id=$1 ORDER BY weight DESC", [hackathonId]) : await q("SELECT * FROM criteria ORDER BY weight DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/criteria", admin, async (req, res) => {
+app.post(["/api/criteria", "/criteria"], admin, async (req, res) => {
   const { hackathonId, name, description, maxScore = 10, weight = 20 } = req.body;
   if (!name?.trim() || !hackathonId?.trim()) return res.status(400).json({ error: "name and hackathonId required" });
   try { const { rows } = await q("INSERT INTO criteria (id,hackathon_id,name,description,max_score,weight) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *", [uid(), hackathonId, name, description, Number(maxScore), Number(weight)]); res.status(201).json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put("/api/criteria/:id", admin, async (req, res) => {
+app.put(["/api/criteria/:id", "/criteria/:id"], admin, async (req, res) => {
   const { name, description, maxScore, weight } = req.body;
   try { const { rows } = await q("UPDATE criteria SET name=$1,description=$2,max_score=$3,weight=$4 WHERE id=$5 RETURNING *", [name, description, Number(maxScore), Number(weight), req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/criteria/:id", admin, async (req, res) => {
+app.delete(["/api/criteria/:id", "/criteria/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM criteria WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── FEEDBACKS (with extra metadata fields) ───────────────────────────────────
-app.get("/api/feedbacks", auth, async (req, res) => {
+app.get(["/api/feedbacks", "/feedbacks"], auth, async (req, res) => {
   try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM feedbacks WHERE hackathon_id=$1 ORDER BY submitted_at DESC", [hackathonId]) : await q("SELECT * FROM feedbacks ORDER BY submitted_at DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/feedbacks", auth, async (req, res) => {
+app.post(["/api/feedbacks", "/feedbacks"], auth, async (req, res) => {
   const { hackathonId, teamId, judgeId, scores, comments, overall,
-          submissionNumber, demoVideoLink, githubRepo, liveProjectLink, pptsPhotos } = req.body;
+    submissionNumber, demoVideoLink, githubRepo, liveProjectLink, pptsPhotos } = req.body;
   if (!hackathonId || !teamId || !judgeId) return res.status(400).json({ error: "hackathonId, teamId, judgeId required" });
   if (req.user.role === "judge" && !req.user.assignedHackathons?.includes(hackathonId))
-    return res.status(403).json({ error: "Not assigned to this hackathon" });
+  return res.status(403).json({ error: "Not assigned to this hackathon" });
   try {
     const { rows } = await q(
       `INSERT INTO feedbacks
@@ -409,25 +422,25 @@ app.post("/api/feedbacks", auth, async (req, res) => {
           live_project_link=$11,ppts_photos=$12,submitted_at=NOW()
        RETURNING *`,
       [uid(), hackathonId, teamId, judgeId,
-       JSON.stringify(scores || {}), JSON.stringify(comments || {}), overall,
-       submissionNumber || null, demoVideoLink || null, githubRepo || null,
-       liveProjectLink || null, pptsPhotos || null]
+        JSON.stringify(scores || {}), JSON.stringify(comments || {}), overall,
+        submissionNumber || null, demoVideoLink || null, githubRepo || null,
+        liveProjectLink || null, pptsPhotos || null]
     );
     res.status(201).json(camel(rows[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/feedbacks/:id", admin, async (req, res) => {
+app.delete(["/api/feedbacks/:id", "/feedbacks/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM feedbacks WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── PUBLIC ENDPOINTS ─────────────────────────────────────────────────────────
-app.get("/api/public/hackathons", async (_req, res) => {
+app.get(["/api/public/hackathons", "/public/hackathons"], async (_req, res) => {
   try { const { rows } = await q("SELECT * FROM hackathons WHERE published=true ORDER BY start_date DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.get("/api/public/hackathons/:id", async (req, res) => {
+app.get(["/api/public/hackathons/:id", "/public/hackathons/:id"], async (req, res) => {
   try { const { rows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true", [req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.get("/api/public/hackathons/:id/judges", async (req, res) => {
+app.get(["/api/public/hackathons/:id/judges", "/public/hackathons/:id/judges"], async (req, res) => {
   try {
     const { rows } = await q(
       "SELECT j.* FROM judges j JOIN hackathon_judges hj ON hj.user_id IN (SELECT id FROM users WHERE judge_id=j.id) WHERE hj.hackathon_id=$1 UNION SELECT j.* FROM judges j WHERE j.id IN (SELECT DISTINCT judge_id FROM feedbacks WHERE hackathon_id=$1) ORDER BY name",
@@ -436,7 +449,7 @@ app.get("/api/public/hackathons/:id/judges", async (req, res) => {
     res.json(rows.map(camel));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/public/register", async (req, res) => {
+app.post(["/api/public/register", "/public/register"], async (req, res) => {
   const { hackathonId, name, email, org, type, teamName, teamSize, message } = req.body;
   if (!hackathonId || !name?.trim() || !email?.trim()) return res.status(400).json({ error: "hackathonId, name, email required" });
   try {
@@ -454,17 +467,187 @@ app.post("/api/public/register", async (req, res) => {
 });
 
 // ─── REGISTRATIONS ────────────────────────────────────────────────────────────
-app.get("/api/registrations", admin, async (req, res) => {
+app.get(["/api/registrations", "/registrations"], admin, async (req, res) => {
   try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM registrations WHERE hackathon_id=$1 ORDER BY created_at DESC", [hackathonId]) : await q("SELECT * FROM registrations ORDER BY created_at DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.put("/api/registrations/:id", admin, async (req, res) => {
+app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res) => {
   try { const { rows } = await q("UPDATE registrations SET status=$1 WHERE id=$2 RETURNING *", [req.body.status, req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete("/api/registrations/:id", admin, async (req, res) => {
+app.delete(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM registrations WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.use((_req, res) => res.status(404).json({ error: "Route not found" }));
+
+// ─── SPEAKERS (keynotes + session chairs) ─────────────────────────────────────
+app.get(["/api/speakers", "/speakers"], auth, async (req, res) => {
+  try {
+    const { hackathonId, type } = req.query;
+    let sql = "SELECT * FROM page_speakers WHERE 1=1";
+    const params = [];
+    if (hackathonId) { params.push(hackathonId); sql += ` AND hackathon_id=$${params.length}`; }
+    if (type)        { params.push(type);        sql += ` AND type=$${params.length}`; }
+    sql += " ORDER BY sort_order, name";
+    const { rows } = await q(sql, params);
+    res.json(rows.map(camel));
+  } catch (e) {
+    if (e.message.includes("does not exist")) return res.status(503).json({ error: "Run migration_v5.sql in Neon first — table 'page_speakers' missing", migration: true });
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post(["/api/speakers", "/speakers"], admin, async (req, res) => {
+  const { hackathonId, type, name, title, org, bio, avatarUrl, linkedinUrl, twitterUrl, sortOrder } = req.body;
+  if (!hackathonId || !name?.trim() || !type) return res.status(400).json({ error: "hackathonId, type, name required" });
+  try {
+    const { rows } = await q(
+      "INSERT INTO page_speakers (id,hackathon_id,type,name,title,org,bio,avatar_url,linkedin_url,twitter_url,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *",
+      [uid(),hackathonId,type,name,title,org,bio,avatarUrl||null,linkedinUrl||null,twitterUrl||null,sortOrder||0]
+    );
+    res.status(201).json(camel(rows[0]));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put(["/api/speakers/:id", "/speakers/:id"], admin, async (req, res) => {
+  const { name, title, org, bio, avatarUrl, linkedinUrl, twitterUrl, sortOrder } = req.body;
+  try {
+    const { rows } = await q(
+      "UPDATE page_speakers SET name=$1,title=$2,org=$3,bio=$4,avatar_url=$5,linkedin_url=$6,twitter_url=$7,sort_order=$8 WHERE id=$9 RETURNING *",
+      [name,title,org,bio,avatarUrl||null,linkedinUrl||null,twitterUrl||null,sortOrder||0,req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Not found" });
+    res.json(camel(rows[0]));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete(["/api/speakers/:id", "/speakers/:id"], admin, async (req, res) => {
+  try { await q("DELETE FROM page_speakers WHERE id=$1",[req.params.id]); res.json({ deleted:true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── PARTNERS ─────────────────────────────────────────────────────────────────
+app.get(["/api/partners", "/partners"], auth, async (req, res) => {
+  try {
+    const { hackathonId } = req.query;
+    const { rows } = hackathonId
+    ? await q("SELECT * FROM page_partners WHERE hackathon_id=$1 ORDER BY sort_order,name",[hackathonId])
+    : await q("SELECT * FROM page_partners ORDER BY sort_order,name");
+    res.json(rows.map(camel));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post(["/api/partners", "/partners"], admin, async (req, res) => {
+  const { hackathonId, name, tier, logoUrl, websiteUrl, sortOrder } = req.body;
+  if (!hackathonId || !name?.trim()) return res.status(400).json({ error: "hackathonId and name required" });
+  try {
+    const { rows } = await q(
+      "INSERT INTO page_partners (id,hackathon_id,name,tier,logo_url,website_url,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+      [uid(),hackathonId,name,tier||"general",logoUrl||null,websiteUrl||null,sortOrder||0]
+    );
+    res.status(201).json(camel(rows[0]));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put(["/api/partners/:id", "/partners/:id"], admin, async (req, res) => {
+  const { name, tier, logoUrl, websiteUrl, sortOrder } = req.body;
+  try {
+    const { rows } = await q(
+      "UPDATE page_partners SET name=$1,tier=$2,logo_url=$3,website_url=$4,sort_order=$5 WHERE id=$6 RETURNING *",
+      [name,tier||"general",logoUrl||null,websiteUrl||null,sortOrder||0,req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Not found" });
+    res.json(camel(rows[0]));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete(["/api/partners/:id", "/partners/:id"], admin, async (req, res) => {
+  try { await q("DELETE FROM page_partners WHERE id=$1",[req.params.id]); res.json({ deleted:true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── TEAM ─────────────────────────────────────────────────────────────────────
+app.get(["/api/orgteam", "/orgteam"], auth, async (req, res) => {
+  try {
+    const { hackathonId } = req.query;
+    const { rows } = hackathonId
+    ? await q("SELECT * FROM page_team WHERE hackathon_id=$1 ORDER BY sort_order,name",[hackathonId])
+    : await q("SELECT * FROM page_team ORDER BY sort_order,name");
+    res.json(rows.map(camel));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post(["/api/orgteam", "/orgteam"], admin, async (req, res) => {
+  const { hackathonId, name, role, org, avatarUrl, linkedinUrl, sortOrder } = req.body;
+  if (!hackathonId || !name?.trim()) return res.status(400).json({ error: "hackathonId and name required" });
+  try {
+    const { rows } = await q(
+      "INSERT INTO page_team (id,hackathon_id,name,role,org,avatar_url,linkedin_url,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+      [uid(),hackathonId,name,role,org,avatarUrl||null,linkedinUrl||null,sortOrder||0]
+    );
+    res.status(201).json(camel(rows[0]));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put(["/api/orgteam/:id", "/orgteam/:id"], admin, async (req, res) => {
+  const { name, role, org, avatarUrl, linkedinUrl, sortOrder } = req.body;
+  try {
+    const { rows } = await q(
+      "UPDATE page_team SET name=$1,role=$2,org=$3,avatar_url=$4,linkedin_url=$5,sort_order=$6 WHERE id=$7 RETURNING *",
+      [name,role,org,avatarUrl||null,linkedinUrl||null,sortOrder||0,req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Not found" });
+    res.json(camel(rows[0]));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete(["/api/orgteam/:id", "/orgteam/:id"], admin, async (req, res) => {
+  try { await q("DELETE FROM page_team WHERE id=$1",[req.params.id]); res.json({ deleted:true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── PUBLIC: full page data for a hackathon ────────────────────────────────────
+app.get(["/api/pubpage/:id", "/pubpage/:id"], async (req, res) => {
+  try {
+    const { rows: hRows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true",[req.params.id]);
+    if (!hRows.length) return res.status(404).json({ error: "Page not found or not published" });
+    const hack = camel(hRows[0]);
+
+    // Each CMS table query is wrapped individually — if migration hasn't been run
+    // the table won't exist; return empty arrays rather than crashing the page
+    const safeQuery = async (sql, params) => {
+      try { const r = await q(sql, params); return r.rows; }
+      catch (_) { return []; }
+    };
+
+    const [speakers, partners, team, judges] = await Promise.all([
+      safeQuery("SELECT * FROM page_speakers WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQuery("SELECT * FROM page_partners  WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQuery("SELECT * FROM page_team      WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQuery(`SELECT j.* FROM judges j
+         WHERE j.id IN (
+           SELECT DISTINCT f.judge_id FROM feedbacks f WHERE f.hackathon_id=$1
+           UNION
+           SELECT u.judge_id FROM users u
+           JOIN hackathon_judges hj ON hj.user_id=u.id
+           WHERE hj.hackathon_id=$1 AND u.judge_id IS NOT NULL
+         ) ORDER BY j.name`,[hack.id]),
+    ]);
+
+    res.json({
+      ...hack,
+      keynotes:      speakers.filter(s=>s.type==="keynote").map(camel),
+      sessionChairs: speakers.filter(s=>s.type==="session_chair").map(camel),
+      partners:      partners.map(camel),
+      team:          team.map(camel),
+      judges:        judges.map(camel),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Debug catch-all — logs what path Express actually received
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Route not found",
+    method: req.method,
+    receivedPath: req.path,
+    receivedUrl: req.url,
+    originalUrl: req.originalUrl,
+    allRoutes: app._router.stack
+      .filter(r => r.route)
+      .map(r => Object.keys(r.route.methods)[0].toUpperCase() + " " + r.route.path)
+      .filter(r => r.includes("partner") || r.includes("orgteam") || r.includes("speaker"))
+  });
+});
 app.use((err, _req, res, _next) => { console.error(err); res.status(500).json({ error: "Internal server error" }); });
 
 if (require.main === module) {
