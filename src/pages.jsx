@@ -446,7 +446,7 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
   const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
   const [teamId,setTeamId]=useState(teams[0]?.id||"");
   // For judges: use their linked judgeId. If not linked, use first available.
-  const defaultJudgeId = currentUser?.role==="judge"
+  const defaultJudgeId = currentUser?.role==="Judge"
     ? (currentUser?.judgeId || "")
     : (db.judges[0]?.id || "");
   const [judgeId,setJudgeId]=useState(defaultJudgeId);
