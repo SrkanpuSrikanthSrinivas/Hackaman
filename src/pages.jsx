@@ -445,13 +445,17 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
   const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
   const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
   const [teamId,setTeamId]=useState(teams[0]?.id||"");
-  // For judges: use their linked judgeId. If not linked, use first available.
-  const defaultJudgeId = currentUser?.role==="Judge"
-    ? (currentUser?.judgeId || "")
-    : (db.judges[0]?.id || "");
-  const [judgeId,setJudgeId]=useState(defaultJudgeId);
-  // Re-sync if db loads after state init
-  useEffect(()=>{ if(!judgeId && db.judges.length) setJudgeId(currentUser?.judgeId||db.judges[0]?.id||""); },[db.judges.length]);
+  // Judges see only their own linked record. Admins get a dropdown defaulting to first judge.
+  const defaultJudgeId = currentUser?.role === "judge"
+    ? (currentUser?.judgeId || "")          // judge: use THEIR id, never fall back
+    : (db.judges[0]?.id || "");             // admin: default to first judge
+  const [judgeId,setJudgeId] = useState(defaultJudgeId);
+  // Re-sync ONLY when db loads AND user is admin (judges must use their own id)
+  useEffect(() => {
+    if (!judgeId && db.judges.length && currentUser?.role !== "judge") {
+      setJudgeId(db.judges[0]?.id || "");
+    }
+  }, [db.judges.length]);
   const [scores,setScores]=useState({});
   const [comments,setComments]=useState({});
   const [overall,setOverall]=useState("");
@@ -501,12 +505,14 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
           </Field>
           <Field label="Judge">
             {isJudge
-              ? judgeId
-                ? <div style={{...IN,background:C.bg2,color:C.text2,cursor:"default",display:"flex",alignItems:"center",gap:8}}>
-                    <Avatar name={judge?.name} size={20}/>&nbsp;{judge?.name}
+              ? judgeId && judge
+                ? <div style={{...IN,background:C.bg2,color:C.text,cursor:"default",display:"flex",alignItems:"center",gap:8,fontWeight:500}}>
+                    <Avatar name={judge.name} src={judge.avatarUrl} size={22}/>{judge.name}
+                    <span style={{...FONT,fontSize:11,color:C.text3,fontWeight:400}}>· {judge.org}</span>
                   </div>
-                : <div style={{...IN,background:"#fffbeb",color:C.amber,cursor:"default",fontSize:12}}>
-                    ⚠ Your account is not linked to a judge record. Ask an admin to link you in User Management.
+                : <div style={{...IN,background:"#fffbeb",border:"1px solid #fde68a",color:C.amber,cursor:"default",fontSize:12,lineHeight:1.5}}>
+                    ⚠ Your account is not linked to a judge profile.<br/>
+                    Ask an admin: User Management → select your user → Link to Judge Record.
                   </div>
               : <select style={IN} value={judgeId} onChange={e=>setJudgeId(e.target.value)}>
                   {db.judges.map(j=><option key={j.id} value={j.id}>{j.name} ({j.org})</option>)}
