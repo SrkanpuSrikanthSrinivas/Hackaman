@@ -181,7 +181,7 @@ const ADMIN_NAV=[
   {id:"public-cms", label:"Page CMS",         section:"admin"},
   {id:"public",     label:"Registrations",   section:"admin"},
 ];
-const JUDGE_EXTRA=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"},{id:"criteria",label:"Criteria"}];
+const JUDGE_EXTRA=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"}];
 function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",section:"judging"}]; const extras=(user.permissions||[]).map(p=>({id:p.page,label:JUDGE_EXTRA.find(x=>x.id===p.page)?.label||p.page,section:"judging"}));return[...base,...extras.filter(e=>!base.find(b=>b.id===e.id))]; }
 
 // Wrapper that decides which top-level component to render
@@ -337,7 +337,7 @@ function AppShell() {
         {page==="hackathons"   && <HackathonsPage   {...props} setActive={setActive} setPage={setPage} />}
         {page==="teams"        && <TeamsPage        {...props} />}
         {page==="judges"       && <JudgesPage       {...props} />}
-        {page==="criteria"     && <CriteriaPage     {...props} />}
+        {page==="criteria"     && isAdmin && <CriteriaPage {...props} />}
         {page==="feedback"     && <FeedbackPage     {...props} currentUser={currentUser} />}
         {page==="all-feedback" && <AllFeedbackPage  {...props} currentUser={currentUser} />}
         {page==="reports"      && <ReportPage       {...props} />}

@@ -804,7 +804,7 @@ export function ReportPage({ db, activeHackathon }) {
 }
 
 /* ─── USER MANAGEMENT ──────────────────────────────────────────────────── */
-const EXTRA_PAGES=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"},{id:"criteria",label:"Criteria"}];
+const EXTRA_PAGES=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"}];
 
 export function UserManagementPage({ db, reload, toast }) {
   const [users,setUsers]=useState([]);const [sel,setSel]=useState(null);
@@ -1387,9 +1387,28 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
       } else {
         const exists=db.judges.some(j=>j.name.toLowerCase()===reg.name.toLowerCase());
         if(exists){toast(`Judge "${reg.name}" already exists`,"error");return;}
-        await POST("/api/judges",{name:reg.name,org:reg.org||"",role:""});
-        await reload();
-        toast(`✓ Judge "${reg.name}" added — go to User Management to create their login`);
+        // Create judge profile
+        const judgeRes = await POST("/api/judges",{name:reg.name,org:reg.org||"",role:""});
+        // Auto-create user login linked to judge profile
+        const tempPassword = Math.random().toString(36).slice(2,10);
+        try {
+          await POST("/api/users",{
+            name: reg.name,
+            email: reg.email,
+            password: tempPassword,
+            role: "judge",
+            judgeId: judgeRes.id,
+          });
+          await POST("/api/assignments",{hackathonId:selH, userId: judgeRes.id}).catch(()=>{});
+          await reload();
+          toast(`✓ Judge "${reg.name}" added with login: ${reg.email} / ${tempPassword} — share this password!`);
+          navigator.clipboard?.writeText(`Email: ${reg.email}
+Password: ${tempPassword}`).catch(()=>{});
+        } catch(userErr) {
+          // User account may already exist (OAuth signup etc.) — judge profile still created
+          await reload();
+          toast(`✓ Judge profile created. Login already exists for ${reg.email} — link in User Management.`);
+        }
       }
     }catch(e){toast(e.message,"error");}
     setConverting(p=>({...p,[reg.id]:false}));
