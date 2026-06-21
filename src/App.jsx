@@ -187,23 +187,24 @@ function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",s
 // Wrapper that decides which top-level component to render
 // Must be outside AppShell so hooks are never called conditionally
 export default function App() {
+  // Option A: path-based  →  yourdomain.com/register/h1
   const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
   if (regMatch) return <PublicPage hackathonId={regMatch[1]} />;
+
+  // Option B: subdomain-based  →  hackfest2025.yourdomain.com
+  // The hackathon ID is stored as a Vercel env var VITE_HACKATHON_ID per domain
+  const subdomainHackathonId = import.meta.env.VITE_HACKATHON_ID;
+  if (subdomainHackathonId) return <PublicPage hackathonId={subdomainHackathonId} />;
+
   return <AppShell />;
 }
 
 function AppShell() {
-  // Handle OAuth token in URL — do this before reading localStorage
-  const urlParams = new URLSearchParams(window.location.search);
-  const urlToken = urlParams.get("token");
-  const urlError = urlParams.get("error");
-  if (urlToken || urlError) window.history.replaceState({}, "", "/");
-
+  // Initialise from localStorage only — OAuth token handled in useEffect below
   const [currentUser, setCurrentUser] = useState(() => {
-    const t = urlToken || localStorage.getItem("hf_token");
-    if (!t) return null;
     try {
-      if (urlToken) localStorage.setItem("hf_token", urlToken);
+      const t = localStorage.getItem("hf_token");
+      if (!t) return null;
       const p = JSON.parse(atob(t.split(".")[1]));
       return p.exp * 1000 > Date.now() ? p : (localStorage.removeItem("hf_token"), null);
     } catch { return null; }
@@ -231,10 +232,38 @@ function AppShell() {
 
   const logout = () => { localStorage.removeItem("hf_token"); setCurrentUser(null); };
 
+  // Handle OAuth redirect — reads ?token= or ?error= from URL after Google/GitHub/GitLab login
+  useEffect(() => {
+    const params  = new URLSearchParams(window.location.search);
+    const token   = params.get("token");
+    const errMsg  = params.get("error");
+    if (!token && !errMsg) return;
+
+    // Clean the URL immediately so token isn't visible or bookmarked
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (errMsg) {
+      setToasts(t => [...t, { id: Date.now().toString(36), msg: "OAuth sign-in failed. Please try again.", type: "error" }]);
+      return;
+    }
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (payload.exp * 1000 < Date.now()) {
+        setToasts(t => [...t, { id: Date.now().toString(36), msg: "Session expired. Please sign in again.", type: "error" }]);
+        return;
+      }
+      localStorage.setItem("hf_token", token);
+      setCurrentUser(payload);
+      setPage(payload.role === "admin" ? "dashboard" : "feedback");
+    } catch {
+      setToasts(t => [...t, { id: Date.now().toString(36), msg: "Invalid login token. Please try again.", type: "error" }]);
+    }
+  }, []);
+
   // Reload data whenever user logs in
   useEffect(() => { if (currentUser) reload(); }, [currentUser]);
 
-  if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setPage(u.role==="admin"?"dashboard":"feedback"); }} oauthError={urlError?"OAuth sign-in failed. Please try again.":""} />;
+  if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setPage(u.role==="admin"?"dashboard":"feedback"); }} />;
 
   const isAdmin = currentUser.role === "admin";
   const navItems = isAdmin ? ADMIN_NAV : getJudgeNav(currentUser);
