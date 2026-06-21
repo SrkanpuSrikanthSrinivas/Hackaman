@@ -442,7 +442,12 @@ export function CriteriaPage({ db, reload, toast, activeHackathon }) {
 /* ─── SUBMIT FEEDBACK (custom form with project metadata) ──────────────── */
 export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }) {
   const hack=db.hackathons.find(h=>h.id===activeHackathon);
-  const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
+  const allTeams=db.teams.filter(t=>t.hackathonId===activeHackathon);
+  // If judge has specific team assignments, only show those teams
+  const assignedTeamIds = currentUser?.role==="judge" ? (currentUser?.assignedTeams||[]) : [];
+  const teams = assignedTeamIds.length>0
+    ? allTeams.filter(t=>assignedTeamIds.includes(t.id))
+    : allTeams;
   const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
   const [teamId,setTeamId]=useState(teams[0]?.id||"");
   // Judges see only their own linked record. Admins get a dropdown defaulting to first judge.
@@ -488,6 +493,8 @@ export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }
 
   if(!activeHackathon) return <Empty icon="✍️" title="Select a hackathon" />;
   if(!criteria.length) return <Empty icon="📋" title="No criteria defined" sub="An admin needs to add evaluation criteria first." />;
+  if(!teams.length && allTeams.length>0) return <Empty icon="👥" title="No teams assigned to you"
+    sub="An admin needs to assign specific teams to your account in User Management → Team Assignments." />;
   if(!teams.length)    return <Empty icon="👥" title="No teams registered" sub="An admin needs to add teams first." />;
 
   const judge=db.judges.find(j=>j.id===judgeId);
@@ -920,6 +927,86 @@ export function UserManagementPage({ db, reload, toast }) {
                         </div>
                       ))}
                     </div>
+                  }
+                </Card>
+
+                {/* ── Team Assignments ── */}
+                <Card>
+                  <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:4}}>Team Assignments</div>
+                  <p style={{...FONT,fontSize:12,color:C.text3,marginBottom:14}}>
+                    By default a judge sees <strong>all teams</strong> in assigned hackathons.
+                    Assign specific teams to limit what they can review.
+                  </p>
+                  {(selUser.assignedHackathons||[]).length===0
+                    ? <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>Assign a hackathon first.</div>
+                    : db.hackathons.filter(h=>(selUser.assignedHackathons||[]).includes(h.id)).map(h=>{
+                        const hackTeams = db.teams.filter(t=>t.hackathonId===h.id);
+                        const assignedTeamIds = selUser.assignedTeams||[];
+                        const hasSpecific = hackTeams.some(t=>assignedTeamIds.includes(t.id));
+                        return(
+                          <div key={h.id} style={{marginBottom:16}}>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                              padding:"8px 12px",background:C.bg2,borderRadius:R.sm,
+                              border:`1px solid ${C.border}`,marginBottom:8}}>
+                              <div style={{...FONT,fontSize:12,fontWeight:600,color:C.text}}>{h.name}</div>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                {hasSpecific
+                                  ? <Chip label={`${hackTeams.filter(t=>assignedTeamIds.includes(t.id)).length} of ${hackTeams.length} teams`} color="blue" />
+                                  : <Chip label="All teams visible" color="green" />
+                                }
+                                {hasSpecific&&(
+                                  <Btn size="sm" variant="secondary" onClick={async()=>{
+                                    for(const t of hackTeams.filter(t=>assignedTeamIds.includes(t.id))){
+                                      await DEL(`/api/judge-teams/${selUser.id}/${t.id}`).catch(()=>{});
+                                    }
+                                    await loadUsers();toast("Team restrictions cleared — judge sees all teams");
+                                  }}>Clear All</Btn>
+                                )}
+                              </div>
+                            </div>
+                            {hackTeams.length===0
+                              ? <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic",paddingLeft:4}}>No teams in this hackathon yet.</div>
+                              : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:6}}>
+                                  {hackTeams.map(t=>{
+                                    const isAssigned=assignedTeamIds.includes(t.id);
+                                    const toggleTeam=async()=>{
+                                      try{
+                                        if(isAssigned) await DEL(`/api/judge-teams/${selUser.id}/${t.id}`);
+                                        else await POST("/api/judge-teams",{userId:selUser.id,teamId:t.id,hackathonId:h.id});
+                                        await loadUsers();
+                                      }catch(e){toast(e.message,"error");}
+                                    };
+                                    return(
+                                      <label key={t.id} onClick={toggleTeam}
+                                        style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                                          borderRadius:R.sm,cursor:"pointer",userSelect:"none",
+                                          border:`1px solid ${isAssigned?C.bdBlue:C.border}`,
+                                          background:isAssigned?C.bgBlue:C.bg,transition:"all 0.15s"}}>
+                                        <div style={{width:16,height:16,borderRadius:4,flexShrink:0,
+                                          background:isAssigned?C.blue:C.bg3,
+                                          border:`2px solid ${isAssigned?C.blue:C.border2}`,
+                                          display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                          {isAssigned&&<span style={{color:"#fff",fontSize:10,fontWeight:700,lineHeight:1}}>✓</span>}
+                                        </div>
+                                        <div style={{minWidth:0}}>
+                                          <div style={{...FONT,fontSize:12,fontWeight:500,color:C.text,
+                                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div>
+                                          {t.project&&<div style={{...FONT,fontSize:11,color:C.text3,
+                                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.project}</div>}
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                            }
+                            {hackTeams.length>0&&!hasSpecific&&(
+                              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:6,paddingLeft:2}}>
+                                💡 Check specific teams to restrict this judge. Unchecked = all teams visible.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                   }
                 </Card>
               </>

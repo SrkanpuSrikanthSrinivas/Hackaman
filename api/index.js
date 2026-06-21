@@ -26,11 +26,13 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 async function buildUserPayload(user) {
   const { rows: hj }    = await q("SELECT hackathon_id FROM hackathon_judges WHERE user_id=$1", [user.id]);
   const { rows: perms } = await q("SELECT hackathon_id, page FROM user_permissions WHERE user_id=$1", [user.id]);
+  const { rows: jta }   = await q("SELECT team_id, hackathon_id FROM judge_team_assignments WHERE user_id=$1", [user.id]).catch(()=>({rows:[]}));
   return {
     id: user.id, name: user.name, email: user.email,
     role: user.role, judgeId: user.judge_id, avatarUrl: user.avatar_url,
     assignedHackathons: hj.map(r => r.hackathon_id),
     permissions: perms.map(r => ({ hackathonId: r.hackathon_id, page: r.page })),
+    assignedTeams: jta.map(r => r.team_id),
   };
 }
 
@@ -633,6 +635,46 @@ app.get(["/api/pubpage/:id", "/pubpage/:id"], async (req, res) => {
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ─── JUDGE-TEAM ASSIGNMENTS ──────────────────────────────────────────────────
+app.get(["/api/judge-teams", "/judge-teams"], admin, async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const { rows } = userId
+    ? await q("SELECT * FROM judge_team_assignments WHERE user_id=$1", [userId])
+    : await q("SELECT * FROM judge_team_assignments");
+    res.json(rows.map(camel));
+  } catch (e) {
+    if (e.message.includes("does not exist")) return res.json([]);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post(["/api/judge-teams", "/judge-teams"], admin, async (req, res) => {
+  const { userId, teamId, hackathonId } = req.body;
+  if (!userId || !teamId || !hackathonId) return res.status(400).json({ error: "userId, teamId, hackathonId required" });
+  try {
+    await q(
+      "INSERT INTO judge_team_assignments (user_id,team_id,hackathon_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+      [userId, teamId, hackathonId]
+    );
+    res.status(201).json({ assigned: true });
+  } catch (e) {
+    if (e.message.includes("does not exist")) return res.status(503).json({ error: "Run migration_v6.sql first", migration: true });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete(["/api/judge-teams/:userId/:teamId", "/judge-teams/:userId/:teamId"], admin, async (req, res) => {
+  try {
+    await q("DELETE FROM judge_team_assignments WHERE user_id=$1 AND team_id=$2", [req.params.userId, req.params.teamId]);
+    res.json({ deleted: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── GET users with team assignments included ─────────────────────────────────
+// Patch the existing /api/users GET to also include assignedTeams
+// (already included via buildUserPayload above)
 
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
