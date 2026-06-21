@@ -1334,30 +1334,18 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
             <textarea style={{...TA,minHeight:100}} value={hackForm.websiteAbout||hackForm.description||""} onChange={hf("websiteAbout")} placeholder="Write a compelling event description..." />
           </Field>
           <Field label="Stats Bar" hint="One per line — emoji | value | label">
-            <textarea style={{...TA,minHeight:80}} value={hackForm.websiteStats||""} onChange={hf("websiteStats")} placeholder={"🏆 | $25,000 | Prize Pool
-👥 | 200+ | Participants
-🎯 | 6 | Tracks
-⭐ | 15 | Judges"} />
+            <textarea style={{...TA,minHeight:80}} value={hackForm.websiteStats||""} onChange={hf("websiteStats")} placeholder={"🏆 | $25,000 | Prize Pool\n👥 | 200+ | Participants\n🎯 | 6 | Tracks\n⭐ | 15 | Judges"} />
           </Field>
           <Field label="Promo Video URL" hint="YouTube or Vimeo — embedded on the public page">
             <input style={IN} value={hackForm.promoVideoUrl||""} onChange={hf("promoVideoUrl")} placeholder="https://youtube.com/watch?v=..." />
           </Field>
           <Field label="Prizes" hint='One per line: "1st Place | $10,000 + AWS Credits"'>
-            <textarea style={{...TA,minHeight:80}} value={hackForm.websitePrizes||""} onChange={hf("websitePrizes")} placeholder={"1st Place | $10,000 + AWS Credits
-2nd Place | $5,000
-3rd Place | $2,500 + Mentorship"} />
+            <textarea style={{...TA,minHeight:80}} value={hackForm.websitePrizes||""} onChange={hf("websitePrizes")} placeholder={"1st Place | $10,000 + AWS Credits\n2nd Place | $5,000\n3rd Place | $2,500 + Mentorship"} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Schedule / Agenda</div>
           <Field label="Schedule" hint="Day headers (no |) then events: 9:00 AM | Session Name">
-            <textarea style={{...TA,minHeight:120}} value={hackForm.schedule||""} onChange={hf("schedule")} placeholder={"Day 1
-9:00 AM | Registration & Breakfast
-10:00 AM | Opening Ceremony
-11:00 AM | Hacking Begins
-
-Day 2
-9:00 AM | Morning Check-in
-6:00 PM | Submission Deadline"} />
+            <textarea style={{...TA,minHeight:120}} value={hackForm.schedule||""} onChange={hf("schedule")} placeholder={"Day 1\n9:00 AM | Registration & Breakfast\n10:00 AM | Opening Ceremony\n11:00 AM | Hacking Begins\n\nDay 2\n9:00 AM | Morning Check-in\n6:00 PM | Submission Deadline"} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Venue</div>
@@ -1366,8 +1354,7 @@ Day 2
             <Field label="Google Maps URL"><input style={IN} value={hackForm.venueMapsUrl||""} onChange={hf("venueMapsUrl")} placeholder="https://maps.google.com/..." /></Field>
           </div>
           <Field label="Venue Address">
-            <textarea style={{...TA,minHeight:56}} value={hackForm.venueAddress||""} onChange={hf("venueAddress")} placeholder={"123 Main St
-McKinney, TX 75070"} />
+            <textarea style={{...TA,minHeight:56}} value={hackForm.venueAddress||""} onChange={hf("venueAddress")} placeholder={"123 Main St\nMcKinney, TX 75070"} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Social Media</div>
@@ -1380,27 +1367,15 @@ McKinney, TX 75070"} />
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Gallery & Testimonials</div>
           <Field label="Gallery Images" hint="One image URL per line — clickable grid on public page">
-            <textarea style={{...TA,minHeight:80}} value={hackForm.galleryImages||""} onChange={hf("galleryImages")} placeholder={"https://example.com/photo1.jpg
-https://example.com/photo2.jpg
-https://example.com/photo3.jpg"} />
+            <textarea style={{...TA,minHeight:80}} value={hackForm.galleryImages||""} onChange={hf("galleryImages")} placeholder={"https://example.com/photo1.jpg\nhttps://example.com/photo2.jpg\nhttps://example.com/photo3.jpg"} />
           </Field>
           <Field label="Testimonials" hint="Blank line between each. Line 1: quote, Line 2: name, Line 3: role/org">
-            <textarea style={{...TA,minHeight:100}} value={hackForm.websiteTestimonials||""} onChange={hf("websiteTestimonials")} placeholder={"Best hackathon I have attended!
-Srikanth R.
-Senior Architect, Caesars Digital
-
-Incredible judges and mentors.
-Jane Doe
-CTO, TechStartup Inc"} />
+            <textarea style={{...TA,minHeight:100}} value={hackForm.websiteTestimonials||""} onChange={hf("websiteTestimonials")} placeholder={"Best hackathon I have attended!\nSrikanth R.\nSenior Architect, Caesars Digital\n\nIncredible judges and mentors.\nJane Doe\nCTO, TechStartup Inc"} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>FAQ</div>
           <Field label="FAQ" hint="Blank line between Q&A pairs. Q: on one line, A: on next">
-            <textarea style={{...TA,minHeight:100}} value={hackForm.faq||""} onChange={hf("faq")} placeholder={"Q: Who can participate?
-A: Anyone 18+ with a laptop and ideas.
-
-Q: Is it free?
-A: Yes, completely free to enter."} />
+            <textarea style={{...TA,minHeight:100}} value={hackForm.faq||""} onChange={hf("faq")} placeholder={"Q: Who can participate?\nA: Anyone 18+ with a laptop and ideas.\n\nQ: Is it free?\nA: Yes, completely free to enter."} />
           </Field>
 
           <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
