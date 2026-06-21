@@ -220,10 +220,14 @@ app.get(["/api/users", "/users"], admin, async (_req, res) => {
     const { rows: users } = await q("SELECT id,name,email,role,judge_id,avatar_url,oauth_provider,created_at FROM users ORDER BY role,name");
     const { rows: hj }    = await q("SELECT user_id,hackathon_id FROM hackathon_judges");
     const { rows: perms } = await q("SELECT id,user_id,hackathon_id,page FROM user_permissions");
+    // Include team assignments — graceful if migration_v6 hasn't been run yet
+    let jta = [];
+    try { const r = await q("SELECT user_id,team_id FROM judge_team_assignments"); jta = r.rows; } catch(_){}
     res.json(users.map(u => ({
       ...camel(u),
       assignedHackathons: hj.filter(r => r.user_id === u.id).map(r => r.hackathon_id),
-      permissions: perms.filter(r => r.user_id === u.id).map(r => ({ id: r.id, hackathonId: r.hackathon_id, page: r.page })),
+      permissions:        perms.filter(r => r.user_id === u.id).map(r => ({ id: r.id, hackathonId: r.hackathon_id, page: r.page })),
+      assignedTeams:      jta.filter(r => r.user_id === u.id).map(r => r.team_id),
     })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
