@@ -286,6 +286,50 @@ function AppShell() {
   if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setPage(u.role==="admin"?"dashboard":"feedback"); }} />;
 
   const isAdmin = currentUser.role === "admin";
+
+  // New OAuth judge with no assignments yet — show pending screen
+  const isNewOAuthUser = !isAdmin &&
+    (currentUser.assignedHackathons||[]).length === 0 &&
+    !currentUser.judgeId;
+
+  if (isNewOAuthUser) return (
+    <div style={{minHeight:"100vh",background:"#f9fafb",display:"flex",alignItems:"center",
+      justifyContent:"center",padding:24,fontFamily:"'Inter',sans-serif"}}>
+      <div style={{maxWidth:440,width:"100%",background:"#fff",borderRadius:12,padding:36,
+        boxShadow:"0 4px 24px rgba(0,0,0,0.07)",border:"1px solid #e5e7eb",textAlign:"center"}}>
+        <div style={{fontSize:48,marginBottom:16}}>👋</div>
+        <h2 style={{fontSize:20,fontWeight:600,color:"#111827",marginBottom:8}}>Account Created</h2>
+        <p style={{fontSize:14,color:"#6b7280",lineHeight:1.7,marginBottom:20}}>
+          Welcome, <strong style={{color:"#111827"}}>{currentUser.name}</strong>!<br/>
+          Your account has been created with the <strong>Judge</strong> role.<br/>
+          An admin needs to assign you to a hackathon before you can submit feedback.
+        </p>
+        <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,
+          padding:"12px 16px",fontSize:13,color:"#1e40af",marginBottom:24,textAlign:"left"}}>
+          <strong>What happens next:</strong>
+          <ol style={{paddingLeft:18,marginTop:6,lineHeight:2}}>
+            <li>Admin opens User Management</li>
+            <li>Finds your account: <strong>{currentUser.email}</strong></li>
+            <li>Assigns you to a hackathon and links your judge profile</li>
+            <li>You refresh this page and can start judging</li>
+          </ol>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+          <button onClick={()=>window.location.reload()}
+            style={{padding:"9px 20px",background:"#111827",color:"#fff",border:"none",
+              borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            Refresh Page
+          </button>
+          <button onClick={logout}
+            style={{padding:"9px 20px",background:"#f9fafb",color:"#374151",
+              border:"1px solid #d1d5db",borderRadius:8,fontSize:13,fontWeight:500,cursor:"pointer"}}>
+            Sign Out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const navItems = isAdmin ? ADMIN_NAV : getJudgeNav(currentUser);
   const sections = [...new Set(navItems.map(n => n.section))];
   const sectionLabels = { overview:"Overview", judging:"Judging", admin:"Administration" };

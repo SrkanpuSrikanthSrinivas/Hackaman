@@ -859,8 +859,17 @@ export function UserManagementPage({ db, reload, toast }) {
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <Avatar name={u.name} src={u.avatarUrl} size={28}/>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{...FONT,fontSize:13,fontWeight:500,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div>
-                        <div style={{...FONT,fontSize:11,color:C.text3}}>{u.oauthProvider?`via ${u.oauthProvider}`:u.email}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{...FONT,fontSize:13,fontWeight:500,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div>
+                          {u.oauthProvider&&<span style={{fontSize:10,color:C.purple}}>●</span>}
+                        </div>
+                        <div style={{...FONT,fontSize:11,color:C.text3}}>{u.email}</div>
+                        {u.role==="judge"&&!(u.assignedHackathons||[]).length&&(
+                          <div style={{...FONT,fontSize:10,color:C.amber,fontWeight:500}}>⚠ Not assigned</div>
+                        )}
+                        {u.role==="judge"&&!u.judgeId&&(u.assignedHackathons||[]).length>0&&(
+                          <div style={{...FONT,fontSize:10,color:C.amber,fontWeight:500}}>⚠ No judge profile linked</div>
+                        )}
                       </div>
                     </div>
                     {u.role==="judge"&&(u.assignedHackathons||[]).length>0&&(
@@ -883,8 +892,23 @@ export function UserManagementPage({ db, reload, toast }) {
                   <div>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
                       <span style={{...FONT,fontSize:15,fontWeight:600,color:C.text}}>{selUser.name}</span>
-                      <Chip label={selUser.role} color={selUser.role==="admin"?"blue":"neutral"} />
-                      {selUser.oauthProvider&&<Chip label={selUser.oauthProvider} color="purple" />}
+                      <button title="Click to toggle role"
+                        onClick={async()=>{
+                          const newRole=selUser.role==="admin"?"judge":"admin";
+                          if(!confirm(`Change ${selUser.name} to ${newRole}?`))return;
+                          try{await PUT(`/api/users/${selUser.id}`,{...selUser,role:newRole,judgeId:selUser.judgeId||undefined});await loadUsers();toast(`Role changed to ${newRole}`);}
+                          catch(e){toast(e.message,"error");}
+                        }}
+                        style={{...FONT,display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:500,
+                          padding:"2px 8px",borderRadius:9999,cursor:"pointer",transition:"opacity 0.15s",
+                          background:selUser.role==="admin"?C.bgBlue:C.bg3,
+                          color:selUser.role==="admin"?C.blue:C.text3,
+                          border:`1px solid ${selUser.role==="admin"?C.bdBlue:C.border}`}}
+                        onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+                        onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                        {selUser.role} ✎
+                      </button>
+                      {selUser.oauthProvider&&<Chip label={`via ${selUser.oauthProvider}`} color="purple" />}
                     </div>
                     <div style={{...FONT,fontSize:12,color:C.text3}}>{selUser.email}</div>
                     {selUser.judgeId&&<div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>Linked to: {db.judges?.find(j=>j.id===selUser.judgeId)?.name||selUser.judgeId}</div>}
