@@ -341,11 +341,39 @@ app.post(["/api/hackathons", "/hackathons"], admin, async (req, res) => {
 });
 
 app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
-  const { name, startDate, endDate, location, status, description, tagline, prizePool, maxTeams, tracks, published, bannerColor, sponsors, schedule, faq } = req.body;
+  const {
+    name, startDate, endDate, location, status, description, tagline,
+    prizePool, maxTeams, tracks, published, bannerColor, schedule, faq,
+    websiteAbout, websitePrizes,
+    contactEmail, promoVideoUrl, eventLogoUrl,
+    venueName, venueAddress, venueMapsUrl,
+    socialTwitter, socialLinkedin, socialInstagram, socialFacebook,
+    registrationDeadline, galleryImages, websiteTestimonials, websiteStats,
+    maxParticipants, websiteTheme,
+  } = req.body;
   try {
     const { rows } = await q(
-      "UPDATE hackathons SET name=$1,start_date=$2,end_date=$3,location=$4,status=$5,description=$6,tagline=$7,prize_pool=$8,max_teams=$9,tracks=$10,published=$11,banner_color=$12,sponsors=$13,schedule=$14,faq=$15 WHERE id=$16 RETURNING *",
-      [name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null, req.params.id]
+      `UPDATE hackathons SET
+        name=$1,start_date=$2,end_date=$3,location=$4,status=$5,
+        description=$6,tagline=$7,prize_pool=$8,max_teams=$9,tracks=$10,
+        published=$11,banner_color=$12,schedule=$13,faq=$14,
+        website_about=$15,website_prizes=$16,
+        contact_email=$17,promo_video_url=$18,event_logo_url=$19,
+        venue_name=$20,venue_address=$21,venue_maps_url=$22,
+        social_twitter=$23,social_linkedin=$24,social_instagram=$25,social_facebook=$26,
+        registration_deadline=$27,gallery_images=$28,website_testimonials=$29,
+        website_stats=$30,max_participants=$31,website_theme=$32
+       WHERE id=$33 RETURNING *`,
+      [name,startDate||null,endDate||null,location,status,
+        description,tagline,prizePool,maxTeams||null,tracks,
+        Boolean(published),bannerColor||'#6366f1',schedule||null,faq||null,
+        websiteAbout||null,websitePrizes||null,
+        contactEmail||null,promoVideoUrl||null,eventLogoUrl||null,
+        venueName||null,venueAddress||null,venueMapsUrl||null,
+        socialTwitter||null,socialLinkedin||null,socialInstagram||null,socialFacebook||null,
+        registrationDeadline||null,galleryImages||null,websiteTestimonials||null,
+        websiteStats||null,maxParticipants||null,websiteTheme||'dark',
+        req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Not found" });
     res.json(camel(rows[0]));

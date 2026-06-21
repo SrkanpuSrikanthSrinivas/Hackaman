@@ -1297,36 +1297,117 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
       {/* ── Content & Settings ── */}
       {tab==="content"&&(
         <Card>
-          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16}}>Page Settings</div>
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16}}>Basic Info</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Field label="Event Tagline"><input style={IN} value={hackForm.tagline||""} onChange={hf("tagline")} placeholder="Build the future in 48 hours" /></Field>
             <Field label="Prize Pool"><input style={IN} value={hackForm.prizePool||""} onChange={hf("prizePool")} placeholder="$25,000 in prizes" /></Field>
           </div>
-          <Field label="Accent / Banner Color" hint="Controls hero gradient and highlights on the public page">
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Contact Email"><input type="email" style={IN} value={hackForm.contactEmail||""} onChange={hf("contactEmail")} placeholder="contact@hackfest.com" /></Field>
+            <Field label="Registration Deadline"><input style={IN} value={hackForm.registrationDeadline||""} onChange={hf("registrationDeadline")} placeholder="June 30, 2025" /></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Max Participants"><input type="number" style={IN} value={hackForm.maxParticipants||""} onChange={hf("maxParticipants")} placeholder="200" /></Field>
+            <Field label="Max Teams"><input type="number" style={IN} value={hackForm.maxTeams||""} onChange={hf("maxTeams")} placeholder="50" /></Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Appearance</div>
+          <Field label="Event Logo URL" hint="Shows in navbar and hero — paste any image URL">
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              {hackForm.eventLogoUrl&&<img src={hackForm.eventLogoUrl} style={{height:36,maxWidth:80,objectFit:"contain",border:`1px solid ${C.border}`,borderRadius:R.sm,padding:4,background:"#111"}} />}
+              <input style={{...IN,flex:1}} value={hackForm.eventLogoUrl||""} onChange={hf("eventLogoUrl")} placeholder="https://... logo image URL" />
+            </div>
+          </Field>
+          <Field label="Accent / Banner Color" hint="Controls hero gradient and all highlights on the public page">
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
               <input type="color" value={hackForm.bannerColor||"#6366f1"} onChange={hf("bannerColor")} style={{width:44,height:36,borderRadius:R.sm,border:`1px solid ${C.border}`,cursor:"pointer",padding:2}} />
               <input style={{...IN,flex:1}} value={hackForm.bannerColor||"#6366f1"} onChange={hf("bannerColor")} placeholder="#6366f1" />
               <div style={{width:44,height:36,borderRadius:R.sm,background:hackForm.bannerColor||"#6366f1",border:`1px solid ${C.border}`}} />
             </div>
           </Field>
-          <Field label="Tracks" hint="Comma-separated: AI/ML, Sustainability, Security, ...">
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Content Sections</div>
+          <Field label="Tracks" hint="Comma-separated: AI/ML, Sustainability, Security, Social Impact, ...">
             <input style={IN} value={hackForm.tracks||""} onChange={hf("tracks")} placeholder="AI/ML, Sustainability, Security, Social Impact" />
           </Field>
           <Field label="About (long form)" hint="Full description shown in the About section">
             <textarea style={{...TA,minHeight:100}} value={hackForm.websiteAbout||hackForm.description||""} onChange={hf("websiteAbout")} placeholder="Write a compelling event description..." />
           </Field>
-          <Field label="Prizes" hint={'One per line: "1st Place | $10,000 + Cloud Credits" — up to 5 prizes'}>
-            <textarea style={{...TA,minHeight:90}} value={hackForm.websitePrizes||""} onChange={hf("websitePrizes")} placeholder={"1st Place | $10,000 + AWS Credits\n2nd Place | $5,000\n3rd Place | $2,500"} />
+          <Field label="Stats Bar" hint="One per line — emoji | value | label">
+            <textarea style={{...TA,minHeight:80}} value={hackForm.websiteStats||""} onChange={hf("websiteStats")} placeholder={"🏆 | $25,000 | Prize Pool
+👥 | 200+ | Participants
+🎯 | 6 | Tracks
+⭐ | 15 | Judges"} />
           </Field>
-          <Field label="FAQ" hint="Separate Q&A blocks with a blank line. Q: on one line, A: on next">
-            <textarea style={{...TA,minHeight:90}} value={hackForm.faq||""} onChange={hf("faq")} placeholder={"Q: Who can participate?\nA: Anyone 18+ with a laptop.\n\nQ: Is it free?\nA: Yes, completely free."} />
+          <Field label="Promo Video URL" hint="YouTube or Vimeo — embedded on the public page">
+            <input style={IN} value={hackForm.promoVideoUrl||""} onChange={hf("promoVideoUrl")} placeholder="https://youtube.com/watch?v=..." />
           </Field>
-          <div style={{display:"flex",justifyContent:"flex-end"}}>
-            <Btn onClick={saveHack} disabled={hSaving}>{hSaving&&<Spinner/>} Save Settings</Btn>
+          <Field label="Prizes" hint='One per line: "1st Place | $10,000 + AWS Credits"'>
+            <textarea style={{...TA,minHeight:80}} value={hackForm.websitePrizes||""} onChange={hf("websitePrizes")} placeholder={"1st Place | $10,000 + AWS Credits
+2nd Place | $5,000
+3rd Place | $2,500 + Mentorship"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Schedule / Agenda</div>
+          <Field label="Schedule" hint="Day headers (no |) then events: 9:00 AM | Session Name">
+            <textarea style={{...TA,minHeight:120}} value={hackForm.schedule||""} onChange={hf("schedule")} placeholder={"Day 1
+9:00 AM | Registration & Breakfast
+10:00 AM | Opening Ceremony
+11:00 AM | Hacking Begins
+
+Day 2
+9:00 AM | Morning Check-in
+6:00 PM | Submission Deadline"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Venue</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Venue Name"><input style={IN} value={hackForm.venueName||""} onChange={hf("venueName")} placeholder="Convention Center" /></Field>
+            <Field label="Google Maps URL"><input style={IN} value={hackForm.venueMapsUrl||""} onChange={hf("venueMapsUrl")} placeholder="https://maps.google.com/..." /></Field>
+          </div>
+          <Field label="Venue Address">
+            <textarea style={{...TA,minHeight:56}} value={hackForm.venueAddress||""} onChange={hf("venueAddress")} placeholder={"123 Main St
+McKinney, TX 75070"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Social Media</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Twitter / X"><input style={IN} value={hackForm.socialTwitter||""} onChange={hf("socialTwitter")} placeholder="https://twitter.com/..." /></Field>
+            <Field label="LinkedIn"><input style={IN} value={hackForm.socialLinkedin||""} onChange={hf("socialLinkedin")} placeholder="https://linkedin.com/..." /></Field>
+            <Field label="Instagram"><input style={IN} value={hackForm.socialInstagram||""} onChange={hf("socialInstagram")} placeholder="https://instagram.com/..." /></Field>
+            <Field label="Facebook"><input style={IN} value={hackForm.socialFacebook||""} onChange={hf("socialFacebook")} placeholder="https://facebook.com/..." /></Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Gallery & Testimonials</div>
+          <Field label="Gallery Images" hint="One image URL per line — clickable grid on public page">
+            <textarea style={{...TA,minHeight:80}} value={hackForm.galleryImages||""} onChange={hf("galleryImages")} placeholder={"https://example.com/photo1.jpg
+https://example.com/photo2.jpg
+https://example.com/photo3.jpg"} />
+          </Field>
+          <Field label="Testimonials" hint="Blank line between each. Line 1: quote, Line 2: name, Line 3: role/org">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.websiteTestimonials||""} onChange={hf("websiteTestimonials")} placeholder={"Best hackathon I have attended!
+Srikanth R.
+Senior Architect, Caesars Digital
+
+Incredible judges and mentors.
+Jane Doe
+CTO, TechStartup Inc"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>FAQ</div>
+          <Field label="FAQ" hint="Blank line between Q&A pairs. Q: on one line, A: on next">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.faq||""} onChange={hf("faq")} placeholder={"Q: Who can participate?
+A: Anyone 18+ with a laptop and ideas.
+
+Q: Is it free?
+A: Yes, completely free to enter."} />
+          </Field>
+
+          <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+            <Btn onClick={saveHack} disabled={hSaving} size="lg">{hSaving&&<Spinner/>} Save All Settings</Btn>
           </div>
         </Card>
       )}
-
       {/* ── KeyNotes ── */}
       {tab==="keynotes"&&(
         <Card>
