@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Component } from "react";
 import {
   GET, POST, PGET, PPOST, fmtDate,
   C, FONT, MONO, R,
@@ -186,6 +186,26 @@ function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",s
 
 // Wrapper that decides which top-level component to render
 // Must be outside AppShell so hooks are never called conditionally
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(e) { return { err: e }; }
+  render() {
+    if (this.state.err) return (
+      <div style={{padding:32,fontFamily:"monospace",background:"#fff",minHeight:"100vh"}}>
+        <h2 style={{color:"#dc2626",marginBottom:12}}>App Error — share this with the developer:</h2>
+        <pre style={{background:"#fef2f2",border:"1px solid #fca5a5",padding:16,borderRadius:8,
+          fontSize:12,whiteSpace:"pre-wrap",overflowX:"auto"}}>
+          {String(this.state.err)}{"\n\n"}{this.state.err?.stack}
+        </pre>
+        <button onClick={()=>window.location.reload()} style={{marginTop:16,padding:"8px 20px",
+          background:"#111",color:"#fff",border:"none",borderRadius:6,cursor:"pointer"}}>Reload</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
 export default function App() {
   // Option A: path-based  →  yourdomain.com/register/h1
   const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
@@ -196,7 +216,7 @@ export default function App() {
   const subdomainHackathonId = import.meta.env.VITE_HACKATHON_ID;
   if (subdomainHackathonId) return <PublicPage hackathonId={subdomainHackathonId} />;
 
-  return <AppShell />;
+  return <ErrorBoundary><AppShell /></ErrorBoundary>;
 }
 
 function AppShell() {
