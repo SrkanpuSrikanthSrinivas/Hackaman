@@ -630,6 +630,23 @@ app.delete(["/api/orgteam/:id", "/orgteam/:id"], admin, async (req, res) => {
 });
 
 // ─── PUBLIC: full page data for a hackathon ────────────────────────────────────
+// Admin preview — authenticated, works even if not published
+app.get(["/api/pubpage/preview/:id", "/pubpage/preview/:id"], auth, async (req, res) => {
+  try {
+    const { rows: hRows } = await q("SELECT * FROM hackathons WHERE id=$1", [req.params.id]);
+    if (!hRows.length) return res.status(404).json({ error: "Hackathon not found" });
+    const hack = camel(hRows[0]);
+    const safeQ = async (sql, params) => { try { const r = await q(sql, params); return r.rows; } catch(_){ return []; }};
+    const [speakers, partners, team, judges] = await Promise.all([
+      safeQ("SELECT * FROM page_speakers WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQ("SELECT * FROM page_partners  WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQ("SELECT * FROM page_team      WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
+      safeQ(`SELECT j.* FROM judges j WHERE j.id IN (SELECT DISTINCT f.judge_id FROM feedbacks f WHERE f.hackathon_id=$1 UNION SELECT u.judge_id FROM users u JOIN hackathon_judges hj ON hj.user_id=u.id WHERE hj.hackathon_id=$1 AND u.judge_id IS NOT NULL) ORDER BY j.name`,[hack.id]),
+    ]);
+    res.json({ ...hack, keynotes: speakers.filter(s=>s.type==="keynote").map(camel), sessionChairs: speakers.filter(s=>s.type==="session_chair").map(camel), partners: partners.map(camel), team: team.map(camel), judges: judges.map(camel) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get(["/api/pubpage/:id", "/pubpage/:id"], async (req, res) => {
   try {
     const { rows: hRows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true",[req.params.id]);

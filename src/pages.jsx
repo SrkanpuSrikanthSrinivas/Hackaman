@@ -1682,7 +1682,11 @@ Password: ${tempPassword}`).catch(()=>{});
                   </Btn>
                   {hack.published&&<>
                     <Btn size="sm" variant="blue" onClick={()=>{navigator.clipboard?.writeText(pubUrl);toast("URL copied!");}}>Copy URL</Btn>
-                    <Btn size="sm" variant="secondary" onClick={()=>window.open(pubUrl,"_blank")}>Preview →</Btn>
+                    <Btn size="sm" variant="secondary" onClick={()=>{
+                    // Open preview in new tab — works even if not published
+                    const previewUrl = `${window.location.origin}/register/${selH}?preview=1&token=${encodeURIComponent(localStorage.getItem("hf_token")||"")}`;
+                    window.open(previewUrl,"_blank");
+                  }}>Preview →</Btn>
                   </>}
                 </div>
               </div>

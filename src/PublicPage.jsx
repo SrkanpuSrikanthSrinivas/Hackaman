@@ -393,8 +393,15 @@ export default function PublicPage({hackathonId}){
   const[err,setErr]=useState("");
 
   useEffect(()=>{
-    fetch(`${BASE}/api/pubpage/${hackathonId}`)
-      .then(async r=>{const d=await r.json();if(!r.ok||d.error)setErr(d.error||`Error ${r.status}`);else setData(d);setLoading(false);})
+    // Admin preview: ?preview=1&token=... uses authenticated endpoint (works unpublished)
+    const params  = new URLSearchParams(window.location.search);
+    const isPreview = params.get("preview") === "1";
+    const previewToken = params.get("token");
+    const endpoint = isPreview ? `/api/pubpage/preview/${hackathonId}` : `/api/pubpage/${hackathonId}`;
+    const headers  = isPreview && previewToken ? { Authorization: `Bearer ${previewToken}` } : {};
+
+    fetch(`${BASE}${endpoint}`, { headers })
+      .then(async r=>{const d=await r.json();if(!r.ok||d.error)setErr(d.error||`Error ${r.status}`);else{setData(d);if(isPreview)window.history.replaceState({},"",window.location.pathname);}setLoading(false);})
       .catch(e=>{setErr("Could not reach server: "+e.message);setLoading(false);});
   },[hackathonId]);
 
@@ -435,8 +442,18 @@ export default function PublicPage({hackathonId}){
   ];
   const scrollReg=()=>document.getElementById("register")?.scrollIntoView({behavior:"smooth"});
 
+  // Show preview banner
+  const params2 = new URLSearchParams(window.location.search);
+  const showBanner = params2.get("preview") === "1" || data?._preview;
+
   return(
     <div style={{...F,background:"#070b14",color:"#fff",overflowX:"hidden"}}>
+      {showBanner&&(
+        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:999,background:"#d97706",color:"#fff",
+          textAlign:"center",padding:"10px 16px",...F,fontSize:13,fontWeight:600}}>
+          👁 Preview Mode — this page is not yet published publicly
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
