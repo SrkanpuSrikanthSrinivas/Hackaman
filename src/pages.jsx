@@ -1235,7 +1235,7 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
 
   const pf=k=>e=>setPForm(p=>({...p,[k]:e.target.value}));
   const tf=k=>e=>setTForm(p=>({...p,[k]:e.target.value}));
-  const hf=k=>e=>setHackForm(p=>({...p,[k]:e.target?.value??e}));
+  const hf=k=>e=>setHackForm(prev=>({...prev,[k]:e.target?.value??e}));
 
   const handleImg=async(e,setter,field="avatarUrl")=>{
     const file=e.target.files?.[0]; if(!file)return;
@@ -1295,7 +1295,7 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
   };
   const delTeamMember=async id=>{try{await DEL(`/api/orgteam/${id}`);await loadTeam();toast("Removed");}catch(e){toast(e.message,"error");}};
 
-  if(!selH) return <Empty icon="🌐" title="Select a hackathon from the sidebar" />;
+  if(!selH) return <Empty icon="🌐" title="Select a hackathon from the sidebar" sub="Use the dropdown at the top of the sidebar to choose an event." />;
   if(!hack) return <Empty icon="🌐" title="Hackathon not found" />;
 
   const pubUrl=`${window.location.origin}/register/${selH}`;
@@ -1365,7 +1365,7 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
           </Field>
           <Field label="Accent / Banner Color" hint="Controls hero gradient and all highlights on the public page">
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
-              <input type="color" value={hackForm.bannerColor||"#6366f1"} onChange={hf("bannerColor")} style={{width:44,height:36,borderRadius:R.sm,border:`1px solid ${C.border}`,cursor:"pointer",padding:2}} />
+              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(hackForm.bannerColor||"")?hackForm.bannerColor:"#6366f1"} onChange={hf("bannerColor")} style={{width:44,height:36,borderRadius:R.sm,border:`1px solid ${C.border}`,cursor:"pointer",padding:2}} />
               <input style={{...IN,flex:1}} value={hackForm.bannerColor||"#6366f1"} onChange={hf("bannerColor")} placeholder="#6366f1" />
               <div style={{width:44,height:36,borderRadius:R.sm,background:hackForm.bannerColor||"#6366f1",border:`1px solid ${C.border}`}} />
             </div>
@@ -1429,16 +1429,16 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
         </Card>
       )}
       {/* ── KeyNotes ── */}
-      {tab==="keynotes"&&(
+      {tab==="keynotes"&&selH&&(
         <Card>
-          <PeopleEditor title="Keynote Speakers" type="keynote" hackathonId={selH} toast={toast} accent={hackForm.bannerColor||C.blue} />
+          <PeopleEditor title="Keynote Speakers" type="keynote" hackathonId={selH} toast={toast} />
         </Card>
       )}
 
       {/* ── Session Chairs ── */}
-      {tab==="chairs"&&(
+      {tab==="chairs"&&selH&&(
         <Card>
-          <PeopleEditor title="Session Chairs" type="session_chair" hackathonId={selH} toast={toast} accent={hackForm.bannerColor||C.blue} />
+          <PeopleEditor title="Session Chairs" type="session_chair" hackathonId={selH} toast={toast} />
         </Card>
       )}
 

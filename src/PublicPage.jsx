@@ -428,14 +428,14 @@ export default function PublicPage({hackathonId}){
   const hasSocials=data.socialTwitter||data.socialLinkedin||data.socialInstagram||data.socialFacebook;
 
   const navTabs=[
-    {id:"about",      label:"About",          show:!!(data.websiteAbout||data.description)},
+    {id:"about",      label:"About",          show:true},
     {id:"tracks",     label:"Tracks",         show:tracks.length>0},
     {id:"schedule",   label:"Schedule",       show:!!(data.schedule)},
-    {id:"keynotes",   label:"Keynotes",       show:data.keynotes?.length>0},
-    {id:"chairs",     label:"Session Chairs", show:data.sessionChairs?.length>0},
-    {id:"judges",     label:"Judges",         show:data.judges?.length>0},
-    {id:"team",       label:"Team",           show:data.team?.length>0},
-    {id:"partners",   label:"Partners",       show:data.partners?.length>0},
+    {id:"keynotes",   label:"Keynotes",       show:(data.keynotes?.length||0)>0},
+    {id:"chairs",     label:"Session Chairs", show:(data.sessionChairs?.length||0)>0},
+    {id:"judges",     label:"Judges",         show:(data.judges?.length||0)>0},
+    {id:"team",       label:"Team",           show:(data.team?.length||0)>0},
+    {id:"partners",   label:"Partners",       show:(data.partners?.length||0)>0},
     {id:"prizes",     label:"Prizes",         show:!!(data.websitePrizes)},
     {id:"gallery",    label:"Gallery",        show:galleryImages.length>0},
     {id:"register",   label:"Register",       show:true},
