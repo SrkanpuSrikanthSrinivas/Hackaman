@@ -788,8 +788,6 @@ export default function PublicPage({hackathonId}){
 }
 
 /* ── Mini helpers ─────────────────────────────────────────────────────────── */
-const F={fontFamily:"'Inter',sans-serif"};
-const M={fontFamily:"'Space Mono',monospace"};
 const Pill=({children,style={}})=>(
   <div style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,
     background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
