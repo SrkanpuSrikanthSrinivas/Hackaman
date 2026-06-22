@@ -1064,117 +1064,145 @@ export function UserManagementPage({ db, reload, toast }) {
 }
 
 
-/* ─── PEOPLE EDITOR (reusable for keynotes, chairs, judges panel) ──────── */
-function PeopleEditor({ title, type, hackathonId, toast, accent="#2563eb" }) {
-  const [items,setItems]=useState([]);const [modal,setModal]=useState(null);
-  const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [uploading,setUploading]=useState(false);
-  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+/* ─── PEOPLE EDITOR ──────────────────────────────────────────────────────── */
+function PeopleEditor({ title, type, hackathonId, toast }) {
+  const [items,    setItems]    = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [modal,    setModal]    = useState(null);
+  const [form,     setForm]     = useState({});
+  const [saving,   setSaving]   = useState(false);
+  const [uploading,setUploading]= useState(false);
 
-  const load=useCallback(async()=>{
-    if(!hackathonId)return;
-    try{
-      const d=await GET(`/api/speakers?hackathonId=${hackathonId}&type=${type}`);
-      if(d.migration) { toast("Run migration_v5.sql in Neon first — tables are missing","error"); return; }
-      setItems(Array.isArray(d)?d:[]);
-    }catch(e){ toast(e.message,"error"); }
-  },[hackathonId,type]);
-  useEffect(()=>{load();},[load]);
-
-  const open=item=>{setForm(item?{...item}:{hackathonId,type});setModal(item||"new");};
-  const close=()=>setModal(null);
-  const save=async()=>{
-    if(!form.name?.trim())return toast("Name required","error");setSaving(true);
-    try{
-      if(modal==="new")await POST("/api/speakers",form);
-      else await PUT(`/api/speakers/${modal.id}`,form);
-      await load();toast(modal==="new"?"Added":"Updated");close();
-    }catch(e){toast(e.message,"error");}setSaving(false);
+  const loadItems = () => {
+    if (!hackathonId) return;
+    setLoading(true);
+    GET(`/api/speakers?hackathonId=${hackathonId}&type=${type}`)
+      .then(d => setItems(Array.isArray(d) ? d : []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
   };
-  const del=async id=>{try{await DEL(`/api/speakers/${id}`);await load();toast("Removed");}catch(e){toast(e.message,"error");}};
+  useEffect(() => { loadItems(); }, [hackathonId, type]);
 
-  const handleImg=async(e,field="avatarUrl")=>{
-    const file=e.target.files?.[0]; if(!file)return;
-    if(file.size>2*1024*1024){toast("Image must be under 2MB","error");return;}
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const openNew  = () => { setForm({ hackathonId, type, sortOrder: items.length }); setModal("new"); };
+  const openEdit = item => { setForm({ ...item }); setModal(item); };
+  const closeModal = () => { setModal(null); setForm({}); };
+
+  const handlePhoto = e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (file.size > 2*1024*1024) { toast("Photo must be under 2MB","error"); return; }
     setUploading(true);
-    const reader=new FileReader();
-    reader.onload=ev=>{setForm(p=>({...p,[field]:ev.target.result}));setUploading(false);};
-    reader.readAsDataURL(file);
+    const r = new FileReader();
+    r.onload = ev => { setForm(p => ({ ...p, avatarUrl: ev.target.result })); setUploading(false); };
+    r.readAsDataURL(file);
   };
 
-  return(
-    <div style={{marginBottom:32}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{title} <span style={{color:C.text3,fontWeight:400}}>({items.length})</span></div>
-        <Btn size="sm" onClick={()=>open(null)}>+ Add</Btn>
+  const save = async () => {
+    if (!form.name?.trim()) { toast("Name is required","error"); return; }
+    setSaving(true);
+    try {
+      if (modal === "new") await POST("/api/speakers", form);
+      else await PUT(`/api/speakers/${modal.id}`, form);
+      loadItems();
+      toast(modal === "new" ? "Added successfully" : "Updated successfully");
+      closeModal();
+    } catch(e) {
+      toast(e.message || "Save failed","error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async id => {
+    if (!confirm("Remove this person?")) return;
+    try { await DEL(`/api/speakers/${id}`); setItems(prev => prev.filter(x => x.id !== id)); toast("Removed"); }
+    catch(e) { toast(e.message || "Delete failed","error"); }
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>
+          {title} <span style={{...FONT,fontSize:12,fontWeight:400,color:C.text3}}>({items.length})</span>
+        </div>
+        <Btn size="sm" onClick={openNew}>+ Add</Btn>
       </div>
-      {items.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic",padding:"10px 0"}}>No {title.toLowerCase()} added yet.</div>
-        :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
-          {items.map(item=>(
+      {loading && <div style={{...FONT,fontSize:13,color:C.text3,padding:"10px 0"}}>Loading…</div>}
+      {!loading && items.length === 0 && (
+        <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic",padding:"8px 0"}}>
+          No {title.toLowerCase()} yet. Click + Add to begin.
+        </div>
+      )}
+      {!loading && items.length > 0 && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+          {items.map(item => (
             <div key={item.id} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.md,padding:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                  {item.avatarUrl
-                    ?<img src={item.avatarUrl} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover"}} />
-                    :<Avatar name={item.name} size={36}/>
-                  }
-                  <div>
-                    <div style={{...FONT,fontSize:12,fontWeight:600,color:C.text}}>{item.name}</div>
-                    <div style={{...FONT,fontSize:11,color:C.text3}}>{item.org}</div>
-                  </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+                {item.avatarUrl
+                  ? <img src={item.avatarUrl} style={{width:40,height:40,borderRadius:"50%",objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"} />
+                  : <Avatar name={item.name} size={40} />}
+                <div style={{minWidth:0}}>
+                  <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                  <div style={{...FONT,fontSize:11,color:C.text3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.org||item.title||"—"}</div>
                 </div>
               </div>
-              {item.title&&<div style={{...FONT,fontSize:11,color:C.text2,marginBottom:6}}>{item.title}</div>}
-              <div style={{display:"flex",gap:5}}>
-                <Btn size="sm" variant="secondary" onClick={()=>open(item)}>Edit</Btn>
-                <Btn size="sm" variant="danger" onClick={()=>del(item.id)}>✕</Btn>
+              <div style={{display:"flex",gap:6}}>
+                <Btn size="sm" variant="secondary" onClick={()=>openEdit(item)}>Edit</Btn>
+                <Btn size="sm" variant="danger"    onClick={()=>remove(item.id)}>Remove</Btn>
               </div>
             </div>
           ))}
         </div>
-      }
-      {modal&&(
-        <Modal title={modal==="new"?`Add to ${title}`:`Edit ${title.slice(0,-1)}`} onClose={close} width={540}>
-          {/* Photo */}
+      )}
+      {modal && (
+        <Modal title={modal==="new" ? `Add to ${title}` : `Edit`} onClose={closeModal} width={540}>
           <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:16,padding:14,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
-            <div style={{width:68,height:68,borderRadius:"50%",overflow:"hidden",flexShrink:0,
+            <div style={{width:64,height:64,borderRadius:"50%",overflow:"hidden",flexShrink:0,
               background:form.avatarUrl?"transparent":C.bg3,border:`2px dashed ${form.avatarUrl?C.bdGreen:C.border2}`,
               display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {form.avatarUrl?<img src={form.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} />:<span style={{fontSize:24,opacity:0.3}}>👤</span>}
+              {form.avatarUrl
+                ? <img src={form.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                : <span style={{fontSize:22,opacity:0.3}}>👤</span>}
             </div>
             <div style={{flex:1}}>
               <label style={{...FONT,display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,
                 padding:"6px 12px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",
-                background:C.bg,color:C.text2,marginBottom:6,opacity:uploading?0.6:1}}>
-                {uploading?<><Spinner size={10}/> Uploading…</>:<>📷 {form.avatarUrl?"Change":"Upload"} Photo</>}
-                <input type="file" accept="image/*" onChange={handleImg} style={{display:"none"}} disabled={uploading}/>
+                background:C.bg,color:C.text2,marginBottom:6,opacity:uploading?0.6:1,userSelect:"none"}}>
+                {uploading ? <><Spinner size={10}/> Uploading…</> : <>📷 {form.avatarUrl?"Change":"Upload"} Photo</>}
+                <input type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}} disabled={uploading} />
               </label>
-              <input style={{...IN,fontSize:12,display:"block"}} value={form.avatarUrl&&!form.avatarUrl.startsWith("data:")?form.avatarUrl:""} onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))} placeholder="Or paste image URL…" />
+              <input style={{...IN,fontSize:12,display:"block"}}
+                value={form.avatarUrl&&!form.avatarUrl.startsWith("data:")?form.avatarUrl:""}
+                onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))}
+                placeholder="Or paste image URL…" />
             </div>
           </div>
-          <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
+          <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={sf("name")} placeholder="Dr. Jane Smith" /></Field>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Field label="Title / Position"><input style={IN} value={form.title||""} onChange={f("title")} placeholder="CEO, Professor, Director…" /></Field>
-            <Field label="Organization"><input style={IN} value={form.org||""} onChange={f("org")} /></Field>
+            <Field label="Title / Position"><input style={IN} value={form.title||""} onChange={sf("title")} placeholder="CEO, Professor…" /></Field>
+            <Field label="Organization"><input style={IN} value={form.org||""} onChange={sf("org")} placeholder="Company / University" /></Field>
           </div>
-          <Field label="Bio" hint="Brief 1-2 sentence bio shown on the public page">
-            <textarea style={{...TA,minHeight:64}} value={form.bio||""} onChange={f("bio")} />
+          <Field label="Session Topic" hint="Optional — shown as subtitle on public page">
+            <input style={IN} value={form.sessionTopic||""} onChange={sf("sessionTopic")} placeholder="Talk title or topic" />
           </Field>
+          <Field label="Bio" hint="1-2 sentences"><textarea style={{...TA,minHeight:64}} value={form.bio||""} onChange={sf("bio")} /></Field>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Field label="LinkedIn URL"><input style={IN} value={form.linkedinUrl||""} onChange={f("linkedinUrl")} placeholder="https://linkedin.com/in/…" /></Field>
-            <Field label="Twitter / X URL"><input style={IN} value={form.twitterUrl||""} onChange={f("twitterUrl")} placeholder="https://twitter.com/…" /></Field>
+            <Field label="LinkedIn URL"><input style={IN} value={form.linkedinUrl||""} onChange={sf("linkedinUrl")} placeholder="https://linkedin.com/in/…" /></Field>
+            <Field label="Twitter / X"><input style={IN} value={form.twitterUrl||""} onChange={sf("twitterUrl")} placeholder="https://twitter.com/…" /></Field>
           </div>
-          <Field label="Sort Order" hint="Lower number appears first">
-            <input type="number" style={IN} value={form.sortOrder||0} onChange={f("sortOrder")} />
+          <Field label="Sort Order" hint="Lower number = appears first">
+            <input type="number" style={IN} value={form.sortOrder||0} onChange={sf("sortOrder")} />
           </Field>
-          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
-            <Btn variant="secondary" onClick={close}>Cancel</Btn>
-            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+            <Btn variant="secondary" onClick={closeModal}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving||uploading}>{(saving||uploading)&&<Spinner/>} Save</Btn>
           </div>
         </Modal>
       )}
     </div>
   );
 }
+
 
 /* ─── PUBLIC PAGE CMS ───────────────────────────────────────────────────── */
 export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
@@ -1189,25 +1217,21 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
   const hack=db.hackathons.find(h=>h.id===activeHackathon);
   const selH=activeHackathon;
 
-  useEffect(()=>{ if(hack) setHackForm({...hack}); },[hack?.id]);
+  useEffect(() => { if (hack) setHackForm({ ...hack }); }, [hack?.id, hack?.updatedAt]);
 
-  const loadPartners=useCallback(async()=>{
-    if(!selH)return;
-    try{
-      const d=await GET(`/api/partners?hackathonId=${selH}`);
-      if(d.migration){toast("Run migration_v5.sql in Neon — table missing","error");return;}
-      setPartners(Array.isArray(d)?d:[]);
-    }catch(e){toast(e.message,"error");}
-  },[selH]);
-  const loadTeam=useCallback(async()=>{
-    if(!selH)return;
-    try{
-      const d=await GET(`/api/orgteam?hackathonId=${selH}`);
-      if(d.migration){toast("Run migration_v5.sql in Neon — table missing","error");return;}
-      setTeam(Array.isArray(d)?d:[]);
-    }catch(e){toast(e.message,"error");}
-  },[selH]);
-  useEffect(()=>{ loadPartners(); loadTeam(); },[loadPartners,loadTeam]);
+  const loadPartners = () => {
+    if (!selH) return;
+    GET(`/api/partners?hackathonId=${selH}`)
+      .then(d => setPartners(Array.isArray(d) ? d : []))
+      .catch(() => setPartners([]));
+  };
+  const loadTeam = () => {
+    if (!selH) return;
+    GET(`/api/orgteam?hackathonId=${selH}`)
+      .then(d => setTeam(Array.isArray(d) ? d : []))
+      .catch(() => setTeam([]));
+  };
+  useEffect(() => { loadPartners(); loadTeam(); }, [selH]);
 
   const pf=k=>e=>setPForm(p=>({...p,[k]:e.target.value}));
   const tf=k=>e=>setTForm(p=>({...p,[k]:e.target.value}));
@@ -1224,29 +1248,50 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
 
   const saveHack=async()=>{
     setHSaving(true);
-    try{ await PUT(`/api/hackathons/${selH}`,hackForm); await reload(); toast("Page settings saved"); }
-    catch(e){toast(e.message,"error");}setHSaving(false);
+    try{
+      await PUT(`/api/hackathons/${selH}`,hackForm);
+      await reload();
+      toast("Page settings saved");
+    }catch(e){
+      toast(e.message||"Save failed","error");
+    }finally{
+      setHSaving(false);
+    }
   };
 
   // Partners CRUD
   const savePartner=async()=>{
-    if(!pForm.name?.trim())return toast("Name required","error");setPSaving(true);
+    if(!pForm.name?.trim())return toast("Name required","error");
+    setPSaving(true);
     try{
-      if(pModal==="new")await POST("/api/partners",{...pForm,hackathonId:selH});
+      if(pModal==="new") await POST("/api/partners",{...pForm,hackathonId:selH});
       else await PUT(`/api/partners/${pModal.id}`,pForm);
-      await loadPartners();toast(pModal==="new"?"Partner added":"Updated");setPModal(null);
-    }catch(e){toast(e.message,"error");}setPSaving(false);
+      loadPartners();
+      toast(pModal==="new"?"Partner added":"Updated");
+      setPModal(null);
+    }catch(e){
+      toast(e.message||"Save failed","error");
+    }finally{
+      setPSaving(false);
+    }
   };
   const delPartner=async id=>{try{await DEL(`/api/partners/${id}`);await loadPartners();toast("Removed");}catch(e){toast(e.message,"error");}};
 
   // Team CRUD
   const saveTeamMember=async()=>{
-    if(!tForm.name?.trim())return toast("Name required","error");setTSaving(true);
+    if(!tForm.name?.trim())return toast("Name required","error");
+    setTSaving(true);
     try{
-      if(tModal==="new")await POST("/api/orgteam",{...tForm,hackathonId:selH});
+      if(tModal==="new") await POST("/api/orgteam",{...tForm,hackathonId:selH});
       else await PUT(`/api/orgteam/${tModal.id}`,tForm);
-      await loadTeam();toast(tModal==="new"?"Member added":"Updated");setTModal(null);
-    }catch(e){toast(e.message,"error");}setTSaving(false);
+      loadTeam();
+      toast(tModal==="new"?"Member added":"Updated");
+      setTModal(null);
+    }catch(e){
+      toast(e.message||"Save failed","error");
+    }finally{
+      setTSaving(false);
+    }
   };
   const delTeamMember=async id=>{try{await DEL(`/api/orgteam/${id}`);await loadTeam();toast("Removed");}catch(e){toast(e.message,"error");}};
 
