@@ -2180,10 +2180,10 @@ Password: ${tempPassword}`).catch(()=>{});
               {r.status!=="rejected"&&<Btn size="sm" variant="danger"  onClick={()=>updateReg(r.id,"rejected")}>Reject</Btn>}
               <Btn size="sm" variant="ghost" onClick={()=>delReg(r.id)}>✕</Btn>
             </div>
+            {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
+              onApply={async(status)=>{ await PUT(`/api/registrations/${r.id}`,{status}); await loadRegs(); toast("Status updated"); }}
+            />}
             {r.status==="approved"&&!alreadyAdded&&(
-              {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
-                onApply={async(status)=>{ await PUT(`/api/registrations/${r.id}`,{status}); await loadRegs(); toast("Status updated"); }}
-              />}
               <button onClick={()=>convertReg(r)} disabled={busy}
                 style={{...FONT,fontSize:12,fontWeight:600,padding:"6px 13px",borderRadius:R.sm,
                   cursor:busy?"wait":"pointer",border:"none",display:"flex",alignItems:"center",gap:5,
