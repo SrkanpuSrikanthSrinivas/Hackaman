@@ -13,6 +13,24 @@ const vimId= url => { const m=url?.match(/vimeo\.com\/(?:video\/)?(\d+)/); retur
 const F = {fontFamily:"'Inter',sans-serif"};
 const M = {fontFamily:"'Space Mono',monospace"};
 
+/* ── Mini helpers — must be declared before PublicPage uses them ────────── */
+const Pill=({children,style={}})=>(
+  <div style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,
+    background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
+    borderRadius:9999,color:"rgba(255,255,255,0.75)",...F,...style}}>
+    {children}
+  </div>
+);
+const SocBtn=({href,label})=>(
+  <a href={href} target="_blank" rel="noopener" style={{...F,fontSize:12,fontWeight:500,
+    padding:"7px 14px",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,
+    color:"rgba(255,255,255,0.5)",textDecoration:"none",transition:"all 0.2s"}}
+    onMouseEnter={e=>{e.target.style.color="#fff";e.target.style.borderColor="rgba(255,255,255,0.3)";}}
+    onMouseLeave={e=>{e.target.style.color="rgba(255,255,255,0.5)";e.target.style.borderColor="rgba(255,255,255,0.1)";}}>
+    {label}
+  </a>
+);
+
 /* ── Countdown ──────────────────────────────────────────────────────────────── */
 function Countdown({target}){
   const[t,setT]=useState({d:0,h:0,m:0,s:0});
@@ -847,20 +865,4 @@ export default function PublicPage({hackathonId}){
   );
 }
 
-/* ── Mini helpers ─────────────────────────────────────────────────────────── */
-const Pill=({children,style={}})=>(
-  <div style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,
-    background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
-    borderRadius:9999,color:"rgba(255,255,255,0.75)",...F,...style}}>
-    {children}
-  </div>
-);
-const SocBtn=({href,label})=>(
-  <a href={href} target="_blank" rel="noopener" style={{...F,fontSize:12,fontWeight:500,
-    padding:"7px 14px",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,
-    color:"rgba(255,255,255,0.5)",textDecoration:"none",transition:"all 0.2s"}}
-    onMouseEnter={e=>{e.target.style.color="#fff";e.target.style.borderColor="rgba(255,255,255,0.3)";}}
-    onMouseLeave={e=>{e.target.style.color="rgba(255,255,255,0.5)";e.target.style.borderColor="rgba(255,255,255,0.1)";}}>
-    {label}
-  </a>
-);
+
