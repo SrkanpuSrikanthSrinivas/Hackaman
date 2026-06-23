@@ -433,7 +433,11 @@ export default function PublicPage({hackathonId}){
     <div style={{minHeight:"100vh",background:"#070b14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#fff",...F,padding:24,textAlign:"center"}}>
       <div style={{fontSize:48,marginBottom:16}}>🔒</div>
       <div style={{fontSize:18,fontWeight:600,marginBottom:8}}>Page Not Available</div>
-      <div style={{fontSize:14,color:"rgba(255,255,255,0.45)",maxWidth:400,lineHeight:1.6}}>{err}</div>
+      <div style={{fontSize:14,color:"rgba(255,255,255,0.45)",maxWidth:400,lineHeight:1.6,marginBottom:20}}>{err}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.25)"}}>
+        Hackathon ID: {hackathonId} ·{" "}
+        <a href="/" style={{color:"rgba(255,255,255,0.35)"}}>Go to admin</a>
+      </div>
     </div>
   );
 

@@ -191,16 +191,20 @@ function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",s
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { err: null }; }
   static getDerivedStateFromError(e) { return { err: e }; }
+  componentDidCatch(e, info) { console.error("HackFest ErrorBoundary caught:", e, info); }
   render() {
     if (this.state.err) return (
-      <div style={{padding:32,fontFamily:"monospace",background:"#fff",minHeight:"100vh"}}>
-        <h2 style={{color:"#dc2626",marginBottom:12}}>App Error — share this with the developer:</h2>
-        <pre style={{background:"#fef2f2",border:"1px solid #fca5a5",padding:16,borderRadius:8,
-          fontSize:12,whiteSpace:"pre-wrap",overflowX:"auto"}}>
+      <div style={{padding:32,fontFamily:"monospace",background:"#1a0000",minHeight:"100vh",color:"#fff"}}>
+        <div style={{fontSize:32,marginBottom:8}}>💥</div>
+        <h2 style={{color:"#f87171",marginBottom:12,fontSize:18}}>Render Error</h2>
+        <pre style={{background:"#2a0000",border:"1px solid #ef4444",padding:16,borderRadius:8,
+          fontSize:11,whiteSpace:"pre-wrap",overflowX:"auto",color:"#fca5a5",maxHeight:400,overflow:"auto"}}>
           {String(this.state.err)}{"\n\n"}{this.state.err?.stack}
         </pre>
-        <button onClick={()=>window.location.reload()} style={{marginTop:16,padding:"8px 20px",
-          background:"#111",color:"#fff",border:"none",borderRadius:6,cursor:"pointer"}}>Reload</button>
+        <button onClick={()=>window.location.reload()} style={{marginTop:16,padding:"10px 24px",
+          background:"#ef4444",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:14}}>
+          Reload Page
+        </button>
       </div>
     );
     return this.props.children;
