@@ -111,6 +111,12 @@ function RegForm({hackathonId,accent,deadline}){
     }catch(e){setErr(e.message);}
     setBusy(false);
   }
+  // Check if deadline has passed
+  const deadlinePassed = deadline && (() => {
+    const d = new Date(deadline);
+    return !isNaN(d) && d < new Date();
+  })();
+
   if(done)return(
     <div style={{textAlign:"center",padding:"48px 0"}}>
       <div style={{fontSize:52,marginBottom:12}}>🎉</div>
@@ -118,11 +124,27 @@ function RegForm({hackathonId,accent,deadline}){
       <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.5)"}}>We'll be in touch at <strong style={{color:"#fff"}}>{form.email}</strong> soon.</div>
     </div>
   );
+
+  if(deadlinePassed)return(
+    <div style={{textAlign:"center",padding:"40px 0"}}>
+      <div style={{fontSize:44,marginBottom:12}}>🔒</div>
+      <div style={{...FF,fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>Registration Closed</div>
+      <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.4)",lineHeight:1.6}}>
+        The registration deadline has passed.<br/>
+        Contact us at {hackathonId} for late applications.
+      </div>
+    </div>
+  );
+
   return(
     <>
-      {deadline&&<div style={{...FF,textAlign:"center",fontSize:13,color:"rgba(255,255,255,0.4)",marginBottom:16}}>
-        ⏳ Registration closes: <strong style={{color:accent}}>{deadline}</strong>
-      </div>}
+      {deadline&&(
+        <div style={{...FF,textAlign:"center",fontSize:13,marginBottom:16,
+          padding:"10px 16px",borderRadius:8,
+          background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.25)"}}>
+          ⏳ Registration closes: <strong style={{color:accent}}>{deadline}</strong>
+        </div>
+      )}
       <div style={{display:"flex",gap:2,marginBottom:20,background:"rgba(255,255,255,0.05)",
         borderRadius:10,padding:3,border:"1px solid rgba(255,255,255,0.08)"}}>
         {["team","judge"].map(t=>(
@@ -236,6 +258,16 @@ export default function PublicPage({hackathonId}){
     </div>
   );
 
+  // Derive event status from data + dates
+  const now = new Date();
+  const startDate = data.startDate ? new Date(data.startDate) : null;
+  const endDate   = data.endDate   ? new Date(data.endDate)   : null;
+  const regDeadline = data.registrationDeadline ? new Date(data.registrationDeadline) : null;
+
+  const isCompleted = data.status === "completed" || (endDate && endDate < now);
+  const isUpcoming  = data.status === "upcoming"  || (startDate && startDate > now);
+  const regClosed   = regDeadline ? regDeadline < now : isCompleted;
+
   const accent=data.bannerColor||"#6366f1";
   const tracks=(data.tracks||"").split(",").map(t=>t.trim()).filter(Boolean);
   const faqRaw=(data.faq||"").split("\n\n").filter(Boolean);
@@ -292,9 +324,10 @@ export default function PublicPage({hackathonId}){
             border:"1px solid rgba(255,255,255,0.12)",borderRadius:9999,
             padding:"5px 16px",fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.7)",
             letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:24}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:accent,
+            <span style={{width:6,height:6,borderRadius:"50%",
+              background: isCompleted?"#10b981": regClosed?"#f59e0b": accent,
               animation:"pulse 2s infinite",display:"inline-block"}}/>
-            {data.status==="active"?"Registration Open":data.status==="upcoming"?"Coming Soon":"Event Concluded"}
+            {isCompleted?"Event Concluded Successfully ✓": regClosed?"Registration Closed": isUpcoming?"Coming Soon":"Registration Open"}
           </div>
           {data.eventLogoUrl&&<div style={{marginBottom:16}}><img src={data.eventLogoUrl} alt={data.name} style={{maxHeight:72,maxWidth:280,objectFit:"contain"}} /></div>}
           <h1 style={{fontSize:"clamp(32px,6.5vw,76px)",fontWeight:800,lineHeight:1.05,
@@ -309,13 +342,36 @@ export default function PublicPage({hackathonId}){
             {data.startDate&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9999,color:"rgba(255,255,255,0.75)"}}>📅 {fmtS(data.startDate)}{data.endDate?` – ${fmtS(data.endDate)}`:""}</span>}
             {data.location&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9999,color:"rgba(255,255,255,0.75)"}}>📍 {data.location}</span>}
             {data.prizePool&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:`${accent}22`,border:`1px solid ${accent}55`,borderRadius:9999,color:accent}}>🏆 {data.prizePool}</span>}
+            {data.registrationDeadline&&!regClosed&&!isCompleted&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:9999,color:"#fbbf24"}}>⏳ Deadline: {data.registrationDeadline}</span>}
+            {regClosed&&!isCompleted&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:9999,color:"#f87171"}}>🔒 Registration Closed</span>}
           </div>
-          {data.startDate&&new Date(data.startDate)>new Date()&&(
+          {/* Countdown — adapts to event state */}
+          {isCompleted ? (
+            <div style={{marginBottom:36,padding:"20px 32px",
+              background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",
+              borderRadius:16,display:"inline-block"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🎊</div>
+              <div style={{...FF,fontSize:16,fontWeight:700,color:"#10b981",marginBottom:4}}>Event Completed Successfully!</div>
+              <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.45)"}}>
+                {startDate&&endDate?`${fmtS(startDate)} – ${fmtS(endDate)}`:startDate?`Held on ${fmt(startDate)}`:""}
+              </div>
+            </div>
+          ) : isUpcoming && startDate ? (
             <div style={{marginBottom:40}}>
               <div style={{...MM,fontSize:10,color:"rgba(255,255,255,0.25)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>Event starts in</div>
               <Countdown target={data.startDate}/>
             </div>
-          )}
+          ) : regDeadline && !regClosed ? (
+            <div style={{marginBottom:40}}>
+              <div style={{...MM,fontSize:10,color:"rgba(255,255,255,0.25)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>Registration closes in</div>
+              <Countdown target={data.registrationDeadline}/>
+            </div>
+          ) : startDate && startDate > now ? (
+            <div style={{marginBottom:40}}>
+              <div style={{...MM,fontSize:10,color:"rgba(255,255,255,0.25)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>Event starts in</div>
+              <Countdown target={data.startDate}/>
+            </div>
+          ) : null}
           <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
             <button onClick={()=>scrollTo("register")} style={{...FF,background:accent,color:"#fff",
               border:"none",borderRadius:10,padding:"13px 32px",fontSize:15,fontWeight:700,
@@ -629,17 +685,61 @@ export default function PublicPage({hackathonId}){
         </section>
       )}
 
-      {/* ── REGISTER ── */}
+      {/* ── REGISTER / COMPLETED ── */}
       <section id="register" style={{padding:"80px 24px",background:`${accent}0a`,borderTop:`1px solid ${accent}20`}}>
         <div style={{maxWidth:560,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:36}}>
-            <div style={{...MM,fontSize:10,color:accent,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:12}}>Applications Open</div>
-            <h2 style={{...FF,fontSize:"clamp(26px,4vw,44px)",fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:10}}>Ready to Build?</h2>
-            <p style={{...FF,fontSize:15,color:"rgba(255,255,255,0.45)",lineHeight:1.7}}>Applications reviewed on a rolling basis. Spots are limited.</p>
-          </div>
-          <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:18,padding:28}}>
-            <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline}/>
-          </div>
+          {isCompleted ? (
+            /* Completed state */
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:64,marginBottom:20}}>🏆</div>
+              <div style={{...MM,fontSize:10,color:"#10b981",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:14}}>Event Concluded</div>
+              <h2 style={{...FF,fontSize:"clamp(24px,4vw,40px)",fontWeight:800,color:"#fff",marginBottom:12,letterSpacing:"-0.02em"}}>
+                Thank You to Everyone Who Participated!
+              </h2>
+              <p style={{...FF,fontSize:15,color:"rgba(255,255,255,0.45)",lineHeight:1.8,marginBottom:28}}>
+                {data.name} has wrapped up successfully. We're grateful to all the teams, judges, mentors, and partners who made this event possible.
+              </p>
+              <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+                {data.contactEmail&&(
+                  <a href={`mailto:${data.contactEmail}`}
+                    style={{...FF,display:"inline-flex",alignItems:"center",gap:6,padding:"11px 22px",
+                      background:accent,color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,
+                      textDecoration:"none"}}>
+                    📩 Contact Organizers
+                  </a>
+                )}
+                {data.socialLinkedin&&(
+                  <a href={data.socialLinkedin} target="_blank" rel="noopener"
+                    style={{...FF,display:"inline-flex",alignItems:"center",gap:6,padding:"11px 22px",
+                      background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
+                      color:"rgba(255,255,255,0.8)",borderRadius:10,fontSize:14,fontWeight:600,
+                      textDecoration:"none"}}>
+                    Follow for Updates
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Registration open */
+            <>
+              <div style={{textAlign:"center",marginBottom:36}}>
+                <div style={{...MM,fontSize:10,color:accent,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:12}}>
+                  {regClosed?"Applications Closed":"Applications Open"}
+                </div>
+                <h2 style={{...FF,fontSize:"clamp(26px,4vw,44px)",fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:10}}>
+                  {regClosed?"Registration Has Closed":"Ready to Build?"}
+                </h2>
+                <p style={{...FF,fontSize:15,color:"rgba(255,255,255,0.45)",lineHeight:1.7}}>
+                  {regClosed
+                    ?"The registration window has passed. Check back for future events or contact us."
+                    :"Applications are reviewed on a rolling basis. Spots are limited."}
+                </p>
+              </div>
+              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:18,padding:28}}>
+                <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline}/>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
