@@ -1205,6 +1205,283 @@ function PeopleEditor({ title, type, hackathonId, toast }) {
 
 
 
+
+/* ─── AI COMPONENTS ──────────────────────────────────────────────────────── */
+
+// Shared AI button + result panel used across multiple pages
+function AIPanel({ title, icon, onRun, running, result, error, children }) {
+  const [open, setOpen] = useState(false);
+  const run = async () => { setOpen(true); await onRun(); };
+  return (
+    <div style={{marginTop:12}}>
+      <Btn size="sm" variant="secondary" onClick={run} disabled={running}
+        style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",
+          display:"inline-flex",alignItems:"center",gap:6}}>
+        {running ? <><Spinner size={10}/> Analysing…</> : <>{icon} {title}</>}
+      </Btn>
+      {open && (error || result) && (
+        <div style={{marginTop:10,padding:16,background:C.bg2,borderRadius:R.md,
+          border:`1px solid ${error?C.bdRed:C.bdBlue}`}}>
+          {error && <div style={{...FONT,fontSize:13,color:C.red}}>⚠ {error}</div>}
+          {result && children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── AI Team Insights ─────────────────────────────────────────────────────────
+export function AITeamInsights({ teamId, hackathonId, toast }) {
+  const [running,  setRunning]  = useState(false);
+  const [result,   setResult]   = useState(null);
+  const [error,    setError]    = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/team-insights", { teamId, hackathonId });
+      if (d.error) setError(d.error); else setResult(d.insight);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  return (
+    <AIPanel title="AI Insights" icon="✨" onRun={run} running={running} result={result} error={error}>
+      {result && typeof result === "object" && (
+        <div>
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{result.headline}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div>
+              <div style={{...FONT,fontSize:11,color:C.green,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>✓ Strengths</div>
+              {(result.strengths||[]).map((s,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>• {s}</div>)}
+            </div>
+            <div>
+              <div style={{...FONT,fontSize:11,color:C.amber,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>△ Gaps</div>
+              {(result.gaps||[]).map((g,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>• {g}</div>)}
+            </div>
+          </div>
+          <div style={{...FONT,fontSize:12,color:C.text3,background:C.bg3,borderRadius:R.sm,padding:"8px 12px",marginBottom:8}}>
+            💡 {result.recommendation}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Chip label={result.prizeWorthy?"🏆 Prize Worthy":"Not Prize Worthy"} color={result.prizeWorthy?"green":"neutral"} />
+            <Chip label={`Consensus: ${result.consensusScore}`} color="blue" />
+            {result.standoutCriterion&&<Chip label={`Best: ${result.standoutCriterion}`} color="purple" />}
+          </div>
+        </div>
+      )}
+      {result && typeof result === "string" && <div style={{...FONT,fontSize:13,color:C.text3}}>{result}</div>}
+    </AIPanel>
+  );
+}
+
+// ── AI Calibration Panel ─────────────────────────────────────────────────────
+export function AICalibration({ hackathonId, toast }) {
+  const [running, setRunning] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/calibration", { hackathonId });
+      if (d.error) setError(d.error);
+      else setResult(d);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const flagColor = { "Well-calibrated":"green","Lenient":"amber","Strict":"amber","Inconsistent":"red" };
+
+  return (
+    <AIPanel title="AI Calibration Check" icon="🎯" onRun={run} running={running} result={result} error={error}>
+      {result?.analysis && (
+        <div>
+          <div style={{...FONT,fontSize:13,color:C.text2,marginBottom:12,lineHeight:1.6}}>{result.analysis.summary}</div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <Chip label={`Panel Health: ${result.analysis.panelHealth}`}
+              color={result.analysis.panelHealth==="Excellent"?"green":result.analysis.panelHealth==="Good"?"blue":"amber"} />
+          </div>
+          {(result.analysis.judges||[]).map((j,i)=>(
+            <div key={i} style={{padding:"10px 12px",background:C.bg3,borderRadius:R.sm,
+              border:`1px solid ${j.flag?C.bdAmber:C.border}`,marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                <span style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{j.name}</span>
+                <div style={{display:"flex",gap:6}}>
+                  <Chip label={j.calibration} color={flagColor[j.calibration]||"neutral"} />
+                  <Chip label={`Comments: ${j.commentQuality}`} color="neutral" />
+                  {j.flag&&<Chip label={`⚠ ${j.flag}`} color="amber" />}
+                </div>
+              </div>
+              <div style={{...FONT,fontSize:12,color:C.text3}}>{j.insight}</div>
+            </div>
+          ))}
+          {(result.analysis.recommendations||[]).length>0&&(
+            <div style={{marginTop:10}}>
+              <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.05em"}}>Recommendations</div>
+              {result.analysis.recommendations.map((r,i)=>(
+                <div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:4}}>• {r}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </AIPanel>
+  );
+}
+
+// ── AI Registration Screen ────────────────────────────────────────────────────
+export function AIScreenReg({ registrationId, hackathonId, onApply }) {
+  const [running, setRunning] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/screen-registration", { registrationId, hackathonId });
+      if (d.error) setError(d.error); else setResult(d.screening);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const recColor = { Approve:"green", Reject:"red", Review:"amber" };
+
+  return (
+    <AIPanel title="AI Screen" icon="🤖" onRun={run} running={running} result={result} error={error}>
+      {result && (
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+            <Chip label={`${result.recommendation}`} color={recColor[result.recommendation]||"neutral"} />
+            <Chip label={`${result.confidence} Confidence`} color="neutral" />
+          </div>
+          <div style={{...FONT,fontSize:13,color:C.text2,marginBottom:10,lineHeight:1.6}}>{result.reason}</div>
+          {(result.strengths||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.green,fontWeight:600,marginBottom:4}}>✓ Strengths</div>
+              {result.strengths.map((s,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3}}>• {s}</div>)}
+            </div>
+          )}
+          {(result.concerns||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.amber,fontWeight:600,marginBottom:4}}>△ Concerns</div>
+              {result.concerns.map((c,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3}}>• {c}</div>)}
+            </div>
+          )}
+          <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>💡 {result.suggestedAction}</div>
+          {onApply&&result.recommendation==="Approve"&&(
+            <div style={{marginTop:10}}>
+              <Btn size="sm" onClick={()=>onApply("approved")} style={{background:C.green}}>✓ Apply Recommendation: Approve</Btn>
+            </div>
+          )}
+        </div>
+      )}
+    </AIPanel>
+  );
+}
+
+// ── AI Feedback Coach ─────────────────────────────────────────────────────────
+export function AIFeedbackCoach({ feedbackId }) {
+  const [running, setRunning] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/feedback-coach", { feedbackId });
+      if (d.error) setError(d.error); else setResult(d.coaching);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const qColor = { Excellent:"green",Good:"green",Adequate:"blue","Needs Improvement":"amber",Poor:"red" };
+
+  return (
+    <AIPanel title="AI Coach" icon="🎓" onRun={run} running={running} result={result} error={error}>
+      {result && (
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+            <Chip label={`Quality: ${result.qualityLabel}`} color={qColor[result.qualityLabel]||"neutral"} />
+            <Chip label={`Score: ${result.qualityScore}/10`} color="neutral" />
+          </div>
+          {(result.whatWorked||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.green,fontWeight:600,marginBottom:4}}>✓ What Worked</div>
+              {result.whatWorked.map((w,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:2}}>• {w}</div>)}
+            </div>
+          )}
+          {(result.improvements||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.amber,fontWeight:600,marginBottom:4}}>△ Improvements</div>
+              {result.improvements.map((im,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:2}}>• {im}</div>)}
+            </div>
+          )}
+          {result.improvedOverall&&(
+            <div style={{padding:"10px 12px",background:C.bgBlue,border:`1px solid ${C.bdBlue}`,borderRadius:R.sm,marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.blue,fontWeight:600,marginBottom:4}}>✨ Suggested Revision</div>
+              <div style={{...FONT,fontSize:13,color:C.text2,fontStyle:"italic",lineHeight:1.6}}>"{result.improvedOverall}"</div>
+            </div>
+          )}
+          <div style={{...FONT,fontSize:12,color:C.text3}}>💡 {result.tip}</div>
+        </div>
+      )}
+    </AIPanel>
+  );
+}
+
+// ── AI Hackathon Report Generator ─────────────────────────────────────────────
+export function AIReportGenerator({ hackathonId, hackName }) {
+  const [running, setRunning] = useState(false);
+  const [report,  setReport]  = useState("");
+  const [error,   setError]   = useState("");
+  const [open,    setOpen]    = useState(false);
+
+  const run = async () => {
+    setRunning(true); setError(""); setReport(""); setOpen(true);
+    try {
+      const d = await POST("/api/ai/hackathon-report", { hackathonId });
+      if (d.error) setError(d.error); else setReport(d.report);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const copy = () => { navigator.clipboard?.writeText(report); };
+  const download = () => {
+    const blob = new Blob([report], { type:"text/plain" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `${hackName || "hackathon"}-ai-report.md`; a.click();
+  };
+
+  return (
+    <div>
+      <Btn onClick={run} disabled={running}
+        style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",
+          display:"inline-flex",alignItems:"center",gap:6}}>
+        {running?<><Spinner size={12}/> Generating Report…</>:"📄 Generate AI Report"}
+      </Btn>
+      {open&&(
+        <div style={{marginTop:14,padding:20,background:C.bg2,borderRadius:R.md,border:`1px solid ${error?C.bdRed:C.border}`}}>
+          {error&&<div style={{...FONT,fontSize:13,color:C.red}}>⚠ {error}</div>}
+          {report&&(
+            <>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginBottom:12}}>
+                <Btn size="sm" variant="secondary" onClick={copy}>📋 Copy</Btn>
+                <Btn size="sm" variant="secondary" onClick={download}>⬇ Download .md</Btn>
+              </div>
+              <div style={{...FONT,fontSize:13,color:C.text2,lineHeight:1.8,whiteSpace:"pre-wrap",
+                maxHeight:400,overflowY:"auto",padding:"0 4px"}}>
+                {report}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 /* ─── BEST JUDGE PAGE ────────────────────────────────────────────────────── */
 export function BestJudgePage({ db, toast, activeHackathon }) {
   const [data,    setData]    = useState(null);
@@ -1904,6 +2181,9 @@ Password: ${tempPassword}`).catch(()=>{});
               <Btn size="sm" variant="ghost" onClick={()=>delReg(r.id)}>✕</Btn>
             </div>
             {r.status==="approved"&&!alreadyAdded&&(
+              {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
+                onApply={async(status)=>{ await PUT(`/api/registrations/${r.id}`,{status}); await loadRegs(); toast("Status updated"); }}
+              />}
               <button onClick={()=>convertReg(r)} disabled={busy}
                 style={{...FONT,fontSize:12,fontWeight:600,padding:"6px 13px",borderRadius:R.sm,
                   cursor:busy?"wait":"pointer",border:"none",display:"flex",alignItems:"center",gap:5,

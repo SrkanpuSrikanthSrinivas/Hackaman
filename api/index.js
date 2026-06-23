@@ -837,6 +837,381 @@ app.post(["/api/best-judge/:hackathonId", "/best-judge/:hackathonId"], admin, as
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AI FEATURES — Powered by Claude (Anthropic)
+// Requires: ANTHROPIC_API_KEY in environment variables
+// ═══════════════════════════════════════════════════════════════════════════
+const https = require("https");
+
+async function callClaude(systemPrompt, userPrompt, maxTokens = 1024) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    const req = https.request({
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", c => data += c);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) reject(new Error(parsed.error.message));
+          else resolve(parsed.content[0].text);
+        } catch(e) { reject(e); }
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+function requireAI(req, res, next) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ error: "AI features require ANTHROPIC_API_KEY. Add it in Vercel → Settings → Environment Variables." });
+  }
+  next();
+}
+
+// ── 1. AI TEAM INSIGHTS ──────────────────────────────────────────────────────
+// Synthesises all judge feedback for one team into strengths, gaps, recommendation
+app.post(["/api/ai/team-insights", "/ai/team-insights"], auth, requireAI, async (req, res) => {
+  const { teamId, hackathonId } = req.body;
+  try {
+    const { rows: team }     = await q("SELECT * FROM teams WHERE id=$1", [teamId]);
+    const { rows: criteria } = await q("SELECT * FROM criteria WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: feedbacks }= await q(`
+      SELECT f.*, j.name as judge_name, j.org as judge_org
+      FROM feedbacks f JOIN judges j ON j.id=f.judge_id
+      WHERE f.team_id=$1 AND f.hackathon_id=$2
+    `, [teamId, hackathonId]);
+
+    if (!feedbacks.length) return res.json({ insight: "No feedback submitted yet for this team." });
+
+    const criteriaMap = Object.fromEntries(criteria.map(c => [c.id, c]));
+    const feedbackText = feedbacks.map(fb => {
+      const scores = Object.entries(fb.scores || {}).map(([cid, score]) => {
+        const c = criteriaMap[cid];
+        return c ? `${c.name}: ${score}/${c.max_score}` : null;
+      }).filter(Boolean).join(", ");
+      const comments = Object.entries(fb.comments || {}).map(([cid, comment]) => {
+        const c = criteriaMap[cid];
+        return c && comment ? `${c.name}: "${comment}"` : null;
+      }).filter(Boolean).join("\n");
+      return `Judge: ${fb.judge_name} (${fb.judge_org})\nScores: ${scores}\nComments:\n${comments}\nOverall: ${fb.overall || "None"}`;
+    }).join("\n\n---\n\n");
+
+    const t = team[0];
+    const prompt = `You are evaluating hackathon team "${t.name}" working on "${t.project}" in the "${t.category}" category.
+
+Here is the feedback from ${feedbacks.length} judge(s):
+
+${feedbackText}
+
+Provide a concise JSON response with these exact fields:
+{
+  "headline": "one sentence summary of the team's performance",
+  "strengths": ["strength 1", "strength 2", "strength 3"],
+  "gaps": ["gap 1", "gap 2"],
+  "recommendation": "1-2 sentence actionable recommendation",
+  "prizeWorthy": true or false,
+  "consensusScore": "High/Medium/Low judge agreement",
+  "standoutCriterion": "name of criterion where they excelled most"
+}
+Return ONLY valid JSON, no other text.`;
+
+    const raw = await callClaude(
+      "You are an expert hackathon evaluation analyst. Return only valid JSON.",
+      prompt, 512
+    );
+    const insight = JSON.parse(raw.replace(/```json\n?|\n?```/g, "").trim());
+    res.json({ insight });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 2. AI HACKATHON REPORT ───────────────────────────────────────────────────
+// Full narrative report of the entire hackathon
+app.post(["/api/ai/hackathon-report", "/ai/hackathon-report"], auth, requireAI, async (req, res) => {
+  const { hackathonId } = req.body;
+  try {
+    const { rows: [hack] }  = await q("SELECT * FROM hackathons WHERE id=$1", [hackathonId]);
+    const { rows: teams }   = await q("SELECT * FROM teams WHERE hackathon_id=$1 ORDER BY name", [hackathonId]);
+    const { rows: criteria }= await q("SELECT * FROM criteria WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: judges }  = await q("SELECT DISTINCT j.* FROM judges j JOIN feedbacks f ON f.judge_id=j.id WHERE f.hackathon_id=$1", [hackathonId]);
+    const { rows: feedbacks}= await q("SELECT f.*, j.name as judge_name FROM feedbacks f JOIN judges j ON j.id=f.judge_id WHERE f.hackathon_id=$1", [hackathonId]);
+
+    const totalWeight = criteria.reduce((s,c) => s+c.weight, 0) || 1;
+    const teamScores = teams.map(t => {
+      const tFbs = feedbacks.filter(f => f.team_id === t.id);
+      const avg = tFbs.length ? tFbs.reduce((sum, fb) => {
+        const ws = criteria.reduce((s,c) => s + ((fb.scores[c.id]||0)/c.max_score)*c.weight, 0);
+        return sum + (ws/totalWeight)*10;
+      }, 0) / tFbs.length : 0;
+      return { ...t, avgScore: avg.toFixed(1), feedbackCount: tFbs.length };
+    }).sort((a,b) => b.avgScore - a.avgScore);
+
+    const prompt = `Generate a professional hackathon evaluation report for "${hack.name}".
+
+EVENT DETAILS:
+- Date: ${hack.start_date} to ${hack.end_date}
+- Location: ${hack.location}
+- Prize Pool: ${hack.prize_pool}
+- Tracks: ${hack.tracks}
+
+JUDGING PANEL: ${judges.map(j => `${j.name} (${j.org})`).join(", ")}
+
+EVALUATION CRITERIA: ${criteria.map(c => `${c.name} (${c.weight}%)`).join(", ")}
+
+TEAM RANKINGS (by weighted score):
+${teamScores.map((t,i) => `${i+1}. ${t.name} — ${t.project} (${t.category}) — Score: ${t.avgScore}/10 — ${t.feedbackCount} review(s)`).join("\n")}
+
+TOTAL SUBMISSIONS: ${feedbacks.length} feedback entries from ${judges.length} judges across ${teams.length} teams.
+
+Write a professional 4-section report:
+1. Executive Summary (2-3 paragraphs)
+2. Competition Highlights (top performers, standout projects)
+3. Panel Observations (judging insights, scoring patterns)
+4. Recommendations (for future events)
+
+Use markdown formatting. Be specific and insightful. Reference actual team names, scores, and categories.`;
+
+    const report = await callClaude(
+      "You are a professional hackathon program manager writing an official event report.",
+      prompt, 2048
+    );
+    res.json({ report });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 3. AI JUDGE CALIBRATION ──────────────────────────────────────────────────
+// Detect scoring bias, outliers, harsh vs lenient patterns
+app.post(["/api/ai/calibration", "/ai/calibration"], auth, requireAI, async (req, res) => {
+  const { hackathonId } = req.body;
+  try {
+    const { rows: criteria } = await q("SELECT * FROM criteria WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: feedbacks }= await q(`
+      SELECT f.*, j.name as judge_name, j.org as judge_org, t.name as team_name
+      FROM feedbacks f
+      JOIN judges j ON j.id=f.judge_id
+      JOIN teams t ON t.id=f.team_id
+      WHERE f.hackathon_id=$1
+    `, [hackathonId]);
+
+    if (feedbacks.length < 2) return res.json({ analysis: "Need at least 2 feedback entries for calibration analysis." });
+
+    const totalWeight = criteria.reduce((s,c) => s+c.weight, 0) || 1;
+    const byJudge = {};
+    feedbacks.forEach(fb => {
+      if (!byJudge[fb.judge_id]) byJudge[fb.judge_id] = { name: fb.judge_name, org: fb.judge_org, scores: [], feedbacks: [] };
+      const ws = criteria.reduce((s,c) => s + ((fb.scores[c.id]||0)/c.max_score)*c.weight, 0);
+      byJudge[fb.judge_id].scores.push((ws/totalWeight)*10);
+      byJudge[fb.judge_id].feedbacks.push(fb);
+    });
+
+    const judgeStats = Object.entries(byJudge).map(([id, data]) => {
+      const avg = data.scores.reduce((a,b)=>a+b,0)/data.scores.length;
+      const variance = data.scores.reduce((s,v)=>s+Math.pow(v-avg,2),0)/data.scores.length;
+      const avgCommentLen = data.feedbacks.reduce((s,f) => {
+        const text = Object.values(f.comments||{}).join(" ") + " " + (f.overall||"");
+        return s + text.split(/\s+/).filter(Boolean).length;
+      }, 0) / data.feedbacks.length;
+      return { id, name: data.name, org: data.org, count: data.scores.length,
+        avgScore: avg.toFixed(1), stdDev: Math.sqrt(variance).toFixed(2),
+        avgCommentWords: Math.round(avgCommentLen) };
+    });
+
+    const overallAvg = (feedbacks.reduce((s,f) => {
+      const ws = criteria.reduce((sum,c) => sum+((f.scores[c.id]||0)/c.max_score)*c.weight, 0);
+      return s + (ws/totalWeight)*10;
+    }, 0) / feedbacks.length).toFixed(1);
+
+    const prompt = `Analyze judge calibration for this hackathon evaluation panel.
+
+OVERALL EVENT AVERAGE SCORE: ${overallAvg}/10
+
+JUDGE STATISTICS:
+${judgeStats.map(j => `${j.name} (${j.org}):
+  - Reviews submitted: ${j.count}
+  - Average score given: ${j.avgScore}/10
+  - Score std deviation: ${j.stdDev} (higher = more discriminating)
+  - Avg comment length: ${j.avgCommentWords} words`).join("\n\n")}
+
+Provide calibration analysis as JSON with these exact fields:
+{
+  "summary": "2-3 sentence overview of panel calibration quality",
+  "judges": [
+    {
+      "name": "judge name",
+      "calibration": "Well-calibrated|Lenient|Strict|Inconsistent",
+      "insight": "one specific observation about this judge's scoring pattern",
+      "commentQuality": "Detailed|Adequate|Brief",
+      "flag": null or "scoring outlier" or "low engagement" or "needs calibration"
+    }
+  ],
+  "panelHealth": "Excellent|Good|Fair|Poor",
+  "recommendations": ["recommendation 1", "recommendation 2"]
+}
+Return ONLY valid JSON.`;
+
+    const raw = await callClaude(
+      "You are an expert in psychometric assessment and evaluation calibration. Return only valid JSON.",
+      prompt, 768
+    );
+    const analysis = JSON.parse(raw.replace(/```json\n?|\n?```/g, "").trim());
+    res.json({ analysis, judgeStats });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 4. AI REGISTRATION SCREENER ──────────────────────────────────────────────
+// Screen a registration application — suggest approve/reject with reasoning
+app.post(["/api/ai/screen-registration", "/ai/screen-registration"], auth, requireAI, async (req, res) => {
+  const { registrationId, hackathonId } = req.body;
+  try {
+    const { rows: [reg] } = await q("SELECT * FROM registrations WHERE id=$1", [registrationId]);
+    const { rows: [hack]}  = await q("SELECT * FROM hackathons WHERE id=$1", [hackathonId]);
+    if (!reg) return res.status(404).json({ error: "Registration not found" });
+
+    const prompt = `Screen this ${reg.type === "judge" ? "judge application" : "team registration"} for the hackathon "${hack.name}" (Tracks: ${hack.tracks}).
+
+APPLICANT DETAILS:
+- Name: ${reg.name}
+- Organization: ${reg.org || "Not specified"}
+- Type: ${reg.type === "judge" ? "Judge" : "Team"} application
+${reg.type === "team" ? `- Team Name: ${reg.team_name || "Not given"}
+- Team Size: ${reg.team_size || "Not specified"}` : ""}
+- Message / Background: "${reg.message || "No message provided"}"
+
+Return a JSON screening decision:
+{
+  "recommendation": "Approve" or "Reject" or "Review",
+  "confidence": "High" or "Medium" or "Low",
+  "reason": "2-3 sentence explanation of the recommendation",
+  "strengths": ["strength 1", "strength 2"],
+  "concerns": ["concern 1"] or [],
+  "suggestedAction": "specific next step for the organizer"
+}
+Return ONLY valid JSON.`;
+
+    const raw = await callClaude(
+      "You are a hackathon program manager screening applications. Be fair but decisive. Return only valid JSON.",
+      prompt, 512
+    );
+    const screening = JSON.parse(raw.replace(/```json\n?|\n?```/g, "").trim());
+    res.json({ screening });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 5. AI CHAT ASSISTANT ─────────────────────────────────────────────────────
+// Natural language Q&A about hackathon data
+app.post(["/api/ai/chat", "/ai/chat"], auth, requireAI, async (req, res) => {
+  const { question, hackathonId, history = [] } = req.body;
+  try {
+    const { rows: [hack] }  = await q("SELECT * FROM hackathons WHERE id=$1", [hackathonId]);
+    const { rows: teams }   = await q("SELECT * FROM teams WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: criteria }= await q("SELECT * FROM criteria WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: feedbacks}= await q(`SELECT f.*, j.name as judge_name, t.name as team_name FROM feedbacks f JOIN judges j ON j.id=f.judge_id JOIN teams t ON t.id=f.team_id WHERE f.hackathon_id=$1`, [hackathonId]);
+    const { rows: judges }  = await q("SELECT DISTINCT j.* FROM judges j JOIN feedbacks f ON f.judge_id=j.id WHERE f.hackathon_id=$1", [hackathonId]);
+
+    const totalWeight = criteria.reduce((s,c) => s+c.weight, 0) || 1;
+    const teamScores = teams.map(t => {
+      const tFbs = feedbacks.filter(f => f.team_id === t.id);
+      const avg = tFbs.length ? tFbs.reduce((sum, fb) => {
+        return sum + (criteria.reduce((s,c) => s+((fb.scores[c.id]||0)/c.max_score)*c.weight, 0)/totalWeight)*10;
+      }, 0) / tFbs.length : null;
+      return { name: t.name, project: t.project, category: t.category, score: avg?.toFixed(1), reviews: tFbs.length };
+    }).sort((a,b) => (b.score||0)-(a.score||0));
+
+    const context = `HACKATHON: ${hack.name} | ${hack.location} | ${hack.start_date}
+TEAMS (${teams.length}): ${teamScores.map(t => `${t.name} (${t.project}, ${t.category}) - Score: ${t.score||"N/A"}/10, Reviews: ${t.reviews}`).join(" | ")}
+JUDGES (${judges.length}): ${judges.map(j => `${j.name} (${j.org})`).join(", ")}
+CRITERIA: ${criteria.map(c => `${c.name} ${c.weight}%`).join(", ")}
+FEEDBACK ENTRIES: ${feedbacks.length}
+TRACKS: ${hack.tracks}`;
+
+    const messages = [
+      ...history.slice(-6),
+      { role: "user", content: question },
+    ];
+
+    const body = JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 768,
+      system: `You are HackBot, an AI assistant for the HackFest Hub hackathon management platform. You have access to the following real-time data:\n\n${context}\n\nAnswer questions concisely and helpfully. Use specific names, scores, and data. If asked for opinions on fairness or quality, be balanced. Format numbers neatly.`,
+      messages,
+    });
+
+    const answer = await new Promise((resolve, reject) => {
+      const r = https.request({ hostname:"api.anthropic.com", path:"/v1/messages", method:"POST",
+        headers:{ "Content-Type":"application/json", "x-api-key":process.env.ANTHROPIC_API_KEY,
+          "anthropic-version":"2023-06-01", "Content-Length":Buffer.byteLength(body) }
+      }, (res) => {
+        let d=""; res.on("data",c=>d+=c); res.on("end",()=>{
+          try{ const p=JSON.parse(d); resolve(p.content[0].text); }catch(e){reject(e);}
+        });
+      });
+      r.on("error",reject); r.write(body); r.end();
+    });
+
+    res.json({ answer });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 6. AI FEEDBACK COACH ─────────────────────────────────────────────────────
+// Help judges improve their written feedback quality
+app.post(["/api/ai/feedback-coach", "/ai/feedback-coach"], auth, requireAI, async (req, res) => {
+  const { feedbackId } = req.body;
+  try {
+    const { rows: [fb] } = await q(`
+      SELECT f.*, j.name as judge_name, t.name as team_name, t.project
+      FROM feedbacks f JOIN judges j ON j.id=f.judge_id JOIN teams t ON t.id=f.team_id
+      WHERE f.id=$1
+    `, [feedbackId]);
+    if (!fb) return res.status(404).json({ error: "Feedback not found" });
+
+    const commentText = Object.values(fb.comments||{}).join(" ");
+    const wordCount = (commentText + " " + (fb.overall||"")).split(/\s+/).filter(Boolean).length;
+
+    const prompt = `You are coaching a hackathon judge to improve their feedback quality.
+
+JUDGE: ${fb.judge_name}
+TEAM REVIEWED: ${fb.team_name} (${fb.project})
+WRITTEN FEEDBACK: "${commentText}"
+OVERALL SUMMARY: "${fb.overall || "None provided"}"
+TOTAL WORD COUNT: ${wordCount} words
+
+Provide coaching as JSON:
+{
+  "qualityScore": 1-10,
+  "qualityLabel": "Excellent|Good|Adequate|Needs Improvement|Poor",
+  "whatWorked": ["specific thing that worked well"],
+  "improvements": ["specific actionable improvement"],
+  "improvedOverall": "rewrite of their overall summary in a more impactful way (keep their core points but make it clearer and more specific)",
+  "tip": "one sentence coaching tip for this judge"
+}
+Return ONLY valid JSON.`;
+
+    const raw = await callClaude(
+      "You are an expert at coaching evaluators to give constructive, specific, and fair feedback. Return only valid JSON.",
+      prompt, 640
+    );
+    const coaching = JSON.parse(raw.replace(/```json\n?|\n?```/g, "").trim());
+    res.json({ coaching });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
   res.status(404).json({

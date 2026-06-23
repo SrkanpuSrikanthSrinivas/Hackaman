@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Component } from "react";
+import { useState, useEffect, useCallback, Component, useRef } from "react";
 import {
   GET, POST, PGET, PPOST, fmtDate,
   C, FONT, MONO, R,
@@ -187,6 +187,137 @@ function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",s
 
 // Wrapper that decides which top-level component to render
 // Must be outside AppShell so hooks are never called conditionally
+
+
+/* ── AI Chat Widget ─────────────────────────────────────────────────────── */
+function AIChatWidget({ activeHackathon, hackName }) {
+  const [open,     setOpen]    = useState(false);
+  const [messages, setMessages]= useState([
+    { role:"assistant", content:`Hi! I'm HackBot 🤖 Ask me anything about **${hackName||"this hackathon"}** — team scores, judge performance, feedback patterns, rankings, or anything else.` }
+  ]);
+  const [input,    setInput]   = useState("");
+  const [loading,  setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+
+  // Reset chat when hackathon changes
+  useEffect(()=>{
+    setMessages([{ role:"assistant", content:`Hi! I'm HackBot 🤖 Ask me anything about **${hackName||"this hackathon"}**.` }]);
+  },[activeHackathon]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const q = input.trim();
+    setInput("");
+    const newMsgs = [...messages, { role:"user", content:q }];
+    setMessages(newMsgs);
+    setLoading(true);
+    try {
+      const history = newMsgs.slice(-8).map(m=>({ role:m.role, content:m.content }));
+      const res = await fetch("/api/ai/chat", {
+        method:"POST", headers:{"Content-Type":"application/json",
+          "Authorization":`Bearer ${localStorage.getItem("hf_token")}`},
+        body: JSON.stringify({ question:q, hackathonId:activeHackathon, history })
+      }).then(r=>r.json());
+      setMessages(prev=>[...prev, { role:"assistant", content: res.answer || res.error || "Sorry, I couldn't answer that." }]);
+    } catch(e) {
+      setMessages(prev=>[...prev, { role:"assistant", content:"Connection error. Please try again." }]);
+    }
+    setLoading(false);
+  };
+
+  if (!activeHackathon) return null;
+
+  const FF = {fontFamily:"'Inter',sans-serif"};
+
+  return (
+    <>
+      {/* Toggle button */}
+      <button onClick={()=>setOpen(!open)}
+        style={{position:"fixed",bottom:24,right:24,zIndex:1000,width:52,height:52,
+          borderRadius:"50%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+          border:"none",cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.5)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,
+          transition:"transform 0.2s"}}
+        onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"}
+        onMouseLeave={e=>e.currentTarget.style.transform="none"}
+        title="Ask HackBot AI">
+        {open ? "✕" : "🤖"}
+      </button>
+
+      {/* Chat panel */}
+      {open && (
+        <div style={{position:"fixed",bottom:88,right:24,zIndex:1000,width:360,
+          background:"#fff",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",
+          border:"1px solid #e5e7eb",display:"flex",flexDirection:"column",
+          maxHeight:"60vh",overflow:"hidden",...FF}}>
+
+          {/* Header */}
+          <div style={{padding:"14px 16px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+            borderRadius:"16px 16px 0 0",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.2)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🤖</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>HackBot AI</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>Ask about {hackName||"this hackathon"}</div>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
+            {messages.map((msg,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
+                <div style={{maxWidth:"82%",padding:"9px 13px",borderRadius:12,fontSize:13,lineHeight:1.55,
+                  background:msg.role==="user"?"#6366f1":"#f3f4f6",
+                  color:msg.role==="user"?"#fff":"#111827",
+                  borderBottomRightRadius:msg.role==="user"?2:12,
+                  borderBottomLeftRadius:msg.role==="assistant"?2:12}}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {loading&&(
+              <div style={{display:"flex",gap:4,padding:"8px 12px"}}>
+                {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:"#9ca3af",
+                  animation:"bounce 1.2s ease-in-out infinite",animationDelay:`${i*0.15}s`}}/>)}
+              </div>
+            )}
+            <div ref={bottomRef}/>
+          </div>
+
+          {/* Suggestions */}
+          {messages.length<=1&&(
+            <div style={{padding:"0 14px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>
+              {["Which team scored highest?","How are judges performing?","Any scoring outliers?","Best team per track?"].map(s=>(
+                <button key={s} onClick={()=>{setInput(s);}}
+                  style={{...FF,fontSize:11,padding:"4px 10px",borderRadius:9999,border:"1px solid #e5e7eb",
+                    background:"#f9fafb",color:"#6b7280",cursor:"pointer"}}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div style={{padding:"10px 14px",borderTop:"1px solid #f3f4f6",display:"flex",gap:8}}>
+            <input value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
+              placeholder="Ask anything…"
+              style={{...FF,flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid #e5e7eb",
+                fontSize:13,outline:"none",color:"#111"}} />
+            <button onClick={send} disabled={loading||!input.trim()}
+              style={{padding:"8px 14px",borderRadius:8,background:loading?"#9ca3af":"#6366f1",
+                color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:600}}>
+              ↑
+            </button>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}`}</style>
+    </>
+  );
+}
 
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { err: null }; }
@@ -453,6 +584,11 @@ function AppShell() {
           </div>
         ))}
       </div>
+      {/* AI Chat Widget — floating bottom-right */}
+      <AIChatWidget
+        activeHackathon={activeHackathon}
+        hackName={db.hackathons.find(h=>h.id===activeHackathon)?.name}
+      />
     </div>
   );
 }
