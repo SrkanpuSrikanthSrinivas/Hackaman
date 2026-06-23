@@ -9,7 +9,7 @@ import {
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
-  UserManagementPage, PublicPagesAdmin, PublicPageCMS,
+  UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -177,6 +177,7 @@ const ADMIN_NAV=[
   {id:"feedback",   label:"Submit Feedback", section:"judging"},
   {id:"all-feedback",label:"All Feedback",   section:"judging"},
   {id:"reports",    label:"Reports",         section:"judging"},
+  {id:"best-judge", label:"Best Judge Award",  section:"judging"},
   {id:"users",      label:"User Management", section:"admin"},
   {id:"public-cms", label:"Page CMS",         section:"admin"},
   {id:"public",     label:"Registrations",   section:"admin"},
@@ -434,6 +435,7 @@ function AppShell() {
         {page==="feedback"     && <FeedbackPage     {...props} currentUser={currentUser} />}
         {page==="all-feedback" && <AllFeedbackPage  {...props} currentUser={currentUser} />}
         {page==="reports"      && <ReportPage       {...props} />}
+        {page==="best-judge"   && isAdmin && <BestJudgePage  {...props} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}

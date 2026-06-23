@@ -636,6 +636,10 @@ app.get(["/api/pubpage/preview/:id", "/pubpage/preview/:id"], auth, async (req, 
     const { rows: hRows } = await q("SELECT * FROM hackathons WHERE id=$1", [req.params.id]);
     if (!hRows.length) return res.status(404).json({ error: "Hackathon not found" });
     const hack = camel(hRows[0]);
+    // Include best judge details
+    if (hack.bestJudgeId) {
+      try { const {rows:bj} = await q("SELECT * FROM judges WHERE id=$1",[hack.bestJudgeId]); if(bj[0]) hack.bestJudge = camel(bj[0]); } catch(_){}
+    }
     const safeQ = async (sql, params) => { try { const r = await q(sql, params); return r.rows; } catch(_){ return []; }};
     const [speakers, partners, team, judges] = await Promise.all([
       safeQ("SELECT * FROM page_speakers WHERE hackathon_id=$1 ORDER BY sort_order,name",[hack.id]),
@@ -724,6 +728,114 @@ app.delete(["/api/judge-teams/:userId/:teamId", "/judge-teams/:userId/:teamId"],
 // ─── GET users with team assignments included ─────────────────────────────────
 // Patch the existing /api/users GET to also include assignedTeams
 // (already included via buildUserPayload above)
+
+
+// ─── BEST JUDGE ANALYTICS ─────────────────────────────────────────────────────
+app.get(["/api/best-judge/:hackathonId", "/best-judge/:hackathonId"], auth, async (req, res) => {
+  const { hackathonId } = req.params;
+  try {
+    // Get all judges assigned to this hackathon
+    const { rows: assigned } = await q(`
+      SELECT DISTINCT j.*, u.id as user_id
+      FROM judges j
+      LEFT JOIN users u ON u.judge_id = j.id
+      LEFT JOIN hackathon_judges hj ON hj.user_id = u.id AND hj.hackathon_id = $1
+      WHERE hj.hackathon_id = $1
+        OR j.id IN (SELECT DISTINCT judge_id FROM feedbacks WHERE hackathon_id = $1)
+    `, [hackathonId]);
+
+    const { rows: teams }     = await q("SELECT id FROM teams WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: criteria }  = await q("SELECT id,max_score,weight FROM criteria WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: feedbacks } = await q("SELECT * FROM feedbacks WHERE hackathon_id=$1", [hackathonId]);
+    const { rows: hack }      = await q("SELECT best_judge_id, best_judge_note FROM hackathons WHERE id=$1", [hackathonId]);
+
+    const totalTeams    = teams.length;
+    const totalWeight   = criteria.reduce((s,c) => s + c.weight, 0) || 1;
+
+    const scored = assigned.map(judge => {
+      const jFbs = feedbacks.filter(f => f.judge_id === judge.id);
+
+      // ── Metric 1: Coverage (0-100) — % of teams reviewed
+      const coverage = totalTeams > 0 ? (jFbs.length / totalTeams) * 100 : 0;
+
+      // ── Metric 2: Thoroughness (0-100) — average comment word count
+      const avgWords = jFbs.length === 0 ? 0 : jFbs.reduce((sum, fb) => {
+        const comments = Object.values(fb.comments || {}).join(" ");
+        const overall  = fb.overall || "";
+        return sum + (comments + " " + overall).split(/\s+/).filter(Boolean).length;
+      }, 0) / jFbs.length;
+      const thoroughness = Math.min(100, (avgWords / 80) * 100); // 80 words = full score
+
+      // ── Metric 3: Discrimination (0-100) — std dev of weighted scores (high = good)
+      const weightedScores = jFbs.map(fb => {
+        const scores = fb.scores || {};
+        return criteria.reduce((s,c) => s + ((scores[c.id] || 0) / c.max_score) * c.weight, 0) / totalWeight;
+      });
+      const mean = weightedScores.length ? weightedScores.reduce((a,b) => a+b, 0) / weightedScores.length : 0;
+      const variance = weightedScores.length < 2 ? 0 :
+      weightedScores.reduce((s,v) => s + Math.pow(v - mean, 2), 0) / weightedScores.length;
+      const stddev = Math.sqrt(variance);
+      const discrimination = Math.min(100, stddev * 400); // 0.25 stddev = full score
+
+      // ── Metric 4: Consistency (0-100) — criteria weights used consistently
+      const criteriaCompleteness = jFbs.length === 0 ? 0 :
+      jFbs.reduce((sum, fb) => {
+        const scored = Object.keys(fb.scores || {}).length;
+        return sum + (criteria.length > 0 ? scored / criteria.length : 0);
+      }, 0) / jFbs.length * 100;
+
+      // ── Metric 5: Engagement (0-100) — wrote overall summary
+      const withOverall = jFbs.filter(f => (f.overall || "").trim().length > 20).length;
+      const engagement  = jFbs.length > 0 ? (withOverall / jFbs.length) * 100 : 0;
+
+      // ── Composite score (weighted)
+      const composite = Math.round(
+        coverage        * 0.30 +
+        thoroughness    * 0.25 +
+        discrimination  * 0.20 +
+        criteriaCompleteness * 0.15 +
+        engagement      * 0.10
+      );
+
+      return {
+        ...camel(judge),
+        feedbackCount:  jFbs.length,
+        totalTeams,
+        coverage:       Math.round(coverage),
+        thoroughness:   Math.round(thoroughness),
+        discrimination: Math.round(discrimination),
+        criteriaCompleteness: Math.round(criteriaCompleteness),
+        engagement:     Math.round(engagement),
+        composite,
+        avgScore:       weightedScores.length
+        ? +(weightedScores.reduce((a,b) => a+b, 0) / weightedScores.length * 10).toFixed(1)
+        : null,
+      };
+    });
+
+    // Rank by composite descending
+    scored.sort((a,b) => b.composite - a.composite);
+
+    res.json({
+      judges:       scored,
+      bestJudgeId:  hack[0]?.best_judge_id  || null,
+      bestJudgeNote:hack[0]?.best_judge_note || "",
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Set best judge
+app.post(["/api/best-judge/:hackathonId", "/best-judge/:hackathonId"], admin, async (req, res) => {
+  const { judgeId, note } = req.body;
+  const { hackathonId }   = req.params;
+  try {
+    await q(
+      "UPDATE hackathons SET best_judge_id=$1, best_judge_note=$2 WHERE id=$3",
+      [judgeId || null, note || null, hackathonId]
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {

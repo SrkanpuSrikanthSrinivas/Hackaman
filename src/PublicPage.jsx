@@ -434,6 +434,7 @@ export default function PublicPage({hackathonId}){
     {id:"keynotes",   label:"Keynotes",       show:(data.keynotes?.length||0)>0},
     {id:"chairs",     label:"Session Chairs", show:(data.sessionChairs?.length||0)>0},
     {id:"judges",     label:"Judges",         show:(data.judges?.length||0)>0},
+    {id:"best-judge", label:"Best Judge",     show:!!(data.bestJudge)},
     {id:"team",       label:"Team",           show:(data.team?.length||0)>0},
     {id:"partners",   label:"Partners",       show:(data.partners?.length||0)>0},
     {id:"prizes",     label:"Prizes",         show:!!(data.websitePrizes)},
@@ -650,6 +651,48 @@ export default function PublicPage({hackathonId}){
             sub="A distinguished panel of practitioners who will evaluate your submissions." />
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14}}>
             {data.judges.map(j=><PersonCard key={j.id} person={j} accent={accent} />)}
+          </div>
+        </S>
+      )}
+
+      {/* ── BEST JUDGE SPOTLIGHT ── */}
+      {data.bestJudge&&(
+        <S id="best-judge" style={{background:`${accent}08`,borderTop:`1px solid ${accent}22`,borderBottom:`1px solid ${accent}22`}}>
+          <div style={{maxWidth:700,margin:"0 auto",textAlign:"center"}}>
+            <div style={{...M,fontSize:10,color:"#f59e0b",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>🏆 Best Judge Award</div>
+            <div style={{background:"linear-gradient(135deg,rgba(245,158,11,0.1),rgba(251,191,36,0.05))",border:"2px solid rgba(245,158,11,0.3)",borderRadius:20,padding:"36px 32px",position:"relative",overflow:"hidden"}}>
+              <div style={{position:"absolute",top:"-30px",right:"-30px",fontSize:120,opacity:0.06}}>🏆</div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
+                {/* Avatar */}
+                <div style={{position:"relative"}}>
+                  <div style={{width:120,height:120,borderRadius:"50%",overflow:"hidden",
+                    border:"4px solid rgba(245,158,11,0.5)",
+                    background:data.bestJudge.avatarUrl?"transparent":"#b45309",
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    boxShadow:"0 0 40px rgba(245,158,11,0.3)"}}>
+                    {data.bestJudge.avatarUrl
+                      ?<img src={data.bestJudge.avatarUrl} alt={data.bestJudge.name} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                      :<span style={{...M,fontSize:36,fontWeight:700,color:"#fff"}}>
+                          {(data.bestJudge.name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}
+                        </span>
+                    }
+                  </div>
+                  <div style={{position:"absolute",bottom:-4,right:-4,fontSize:28}}>🏆</div>
+                </div>
+                <div>
+                  <div style={{...F,fontSize:24,fontWeight:800,color:"#fff",marginBottom:4}}>{data.bestJudge.name}</div>
+                  <div style={{...F,fontSize:15,color:"#fbbf24",marginBottom:4,fontWeight:500}}>{data.bestJudge.title}</div>
+                  <div style={{...F,fontSize:14,color:"rgba(255,255,255,0.55)"}}>{data.bestJudge.org}</div>
+                </div>
+                {data.bestJudgeNote&&(
+                  <div style={{...F,fontSize:15,color:"rgba(255,255,255,0.7)",fontStyle:"italic",
+                    maxWidth:480,lineHeight:1.7,borderTop:"1px solid rgba(245,158,11,0.2)",
+                    paddingTop:16,marginTop:4}}>
+                    "{data.bestJudgeNote}"
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </S>
       )}

@@ -1204,6 +1204,239 @@ function PeopleEditor({ title, type, hackathonId, toast }) {
 }
 
 
+
+/* ─── BEST JUDGE PAGE ────────────────────────────────────────────────────── */
+export function BestJudgePage({ db, toast, activeHackathon }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [saving,  setSaving]  = useState(false);
+  const [note,    setNote]    = useState("");
+  const [selId,   setSelId]   = useState(null); // judgeId being nominated
+
+  const hack = db.hackathons.find(h => h.id === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/best-judge/${activeHackathon}`)
+      .then(d => {
+        setData(d);
+        setSelId(d.bestJudgeId || null);
+        setNote(d.bestJudgeNote || "");
+      })
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const nominate = async (judgeId) => {
+    setSaving(true);
+    try {
+      await POST(`/api/best-judge/${activeHackathon}`, { judgeId, note });
+      setSelId(judgeId);
+      toast("🏆 Best Judge nominated and saved!");
+      load();
+    } catch(e) {
+      toast(e.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    if (!confirm("Remove the Best Judge nomination?")) return;
+    setSaving(true);
+    try {
+      await POST(`/api/best-judge/${activeHackathon}`, { judgeId: null, note: "" });
+      setSelId(null); setNote("");
+      toast("Nomination cleared");
+      load();
+    } catch(e) {
+      toast(e.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!activeHackathon) return <Empty icon="⭐" title="Select a hackathon" />;
+
+  const MetricBar = ({ label, value, color }) => (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+        <span style={{ ...FONT, fontSize: 11, color: C.text3 }}>{label}</span>
+        <span style={{ ...MONO, fontSize: 11, color: C.text2 }}>{value}%</span>
+      </div>
+      <div style={{ background: C.bg3, borderRadius: 3, height: 5, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${value}%`, borderRadius: 3,
+          background: color || (value >= 75 ? C.green : value >= 50 ? C.blue : C.amber),
+          transition: "width 0.6s ease" }} />
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <SectionHeader
+        title="Best Judge Award"
+        count={hack?.name}
+        action={<Btn variant="secondary" onClick={load} disabled={loading}>{loading ? <Spinner /> : "↻"} Refresh</Btn>}
+      />
+
+      {/* Current nominee banner */}
+      {selId && data && (
+        <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#fef3c7,#fffbeb)", border: "1px solid #fde68a" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ fontSize: 36 }}>🏆</div>
+              <div>
+                <div style={{ ...FONT, fontSize: 12, fontWeight: 500, color: C.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>Current Best Judge Nominee</div>
+                <div style={{ ...FONT, fontSize: 18, fontWeight: 700, color: "#92400e" }}>
+                  {data.judges?.find(j => j.id === selId)?.name || selId}
+                </div>
+                {data.bestJudgeNote && (
+                  <div style={{ ...FONT, fontSize: 13, color: "#a16207", marginTop: 4, fontStyle: "italic" }}>"{data.bestJudgeNote}"</div>
+                )}
+              </div>
+            </div>
+            <Btn variant="danger" size="sm" onClick={clear} disabled={saving}>Remove Nomination</Btn>
+          </div>
+        </Card>
+      )}
+
+      {/* Note for nomination */}
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ ...FONT, fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>Award Citation</div>
+        <p style={{ ...FONT, fontSize: 12, color: C.text3, marginBottom: 10 }}>
+          Write a short note that will appear on the public page alongside the winner's profile.
+        </p>
+        <textarea
+          style={{ ...MONO, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: R.sm,
+            padding: "10px 12px", fontSize: 13, color: C.text, width: "100%", minHeight: 72, resize: "vertical" }}
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder='e.g. "For exceptional attention to detail, thorough written feedback, and consistent evaluation across all teams."'
+        />
+        {selId && (
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+            <Btn size="sm" onClick={() => nominate(selId)} disabled={saving}>
+              {saving && <Spinner />} Update Citation
+            </Btn>
+          </div>
+        )}
+      </Card>
+
+      {/* Analytics leaderboard */}
+      {loading && <div style={{ ...FONT, fontSize: 14, color: C.text3, textAlign: "center", padding: "32px 0" }}>Calculating judge analytics…</div>}
+
+      {!loading && data?.judges?.length === 0 && (
+        <Empty icon="📊" title="No feedback submitted yet" sub="Judges need to submit feedback before analytics can be calculated." />
+      )}
+
+      {!loading && data?.judges?.map((judge, i) => {
+        const isNominated = judge.id === selId;
+        const rank = i + 1;
+        const rankColor = rank === 1 ? "#f59e0b" : rank === 2 ? "#94a3b8" : rank === 3 ? "#b45309" : C.text3;
+        const rankIcon  = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
+
+        return (
+          <Card key={judge.id} style={{
+            marginBottom: 12,
+            border: `2px solid ${isNominated ? "#fde68a" : C.border}`,
+            background: isNominated ? "#fffbeb" : C.bg,
+          }}>
+            <div style={{ display: "grid", gridTemplateColumns: "48px 1fr auto", gap: 16, alignItems: "start" }}>
+              {/* Rank */}
+              <div style={{ textAlign: "center", paddingTop: 4 }}>
+                <div style={{ fontSize: rank <= 3 ? 28 : 18, fontWeight: 700, color: rankColor, lineHeight: 1 }}>
+                  {rank <= 3 ? rankIcon : `#${rank}`}
+                </div>
+              </div>
+
+              {/* Judge info + metrics */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  {judge.avatarUrl
+                    ? <img src={judge.avatarUrl} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover" }} />
+                    : <Avatar name={judge.name} size={44} />
+                  }
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                      <span style={{ ...FONT, fontSize: 15, fontWeight: 700, color: C.text }}>{judge.name}</span>
+                      {isNominated && <Chip label="🏆 Nominated" color="amber" />}
+                    </div>
+                    <div style={{ ...FONT, fontSize: 12, color: C.text3 }}>
+                      {judge.org} · {judge.feedbackCount} of {judge.totalTeams} teams reviewed
+                      {judge.avgScore != null && ` · avg score given: ${judge.avgScore}`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metric bars */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 24px" }}>
+                  <MetricBar label="Coverage (teams reviewed)"     value={judge.coverage}             color={judge.coverage >= 100 ? C.green : C.blue} />
+                  <MetricBar label="Thoroughness (comment depth)"  value={judge.thoroughness}          />
+                  <MetricBar label="Discrimination (score spread)" value={judge.discrimination}        />
+                  <MetricBar label="Criteria completeness"         value={judge.criteriaCompleteness} color={C.purple} />
+                  <MetricBar label="Engagement (overall summaries)" value={judge.engagement}          color={C.green} />
+                </div>
+              </div>
+
+              {/* Score + nominate button */}
+              <div style={{ textAlign: "center", minWidth: 110 }}>
+                {/* Composite score ring */}
+                <div style={{ position: "relative", width: 80, height: 80, margin: "0 auto 12px" }}>
+                  <svg width="80" height="80" style={{ transform: "rotate(-90deg)" }}>
+                    <circle cx="40" cy="40" r="32" fill="none" stroke={C.bg3} strokeWidth="8" />
+                    <circle cx="40" cy="40" r="32" fill="none"
+                      stroke={judge.composite >= 80 ? C.green : judge.composite >= 60 ? C.blue : C.amber}
+                      strokeWidth="8"
+                      strokeDasharray={`${(judge.composite / 100) * 201} 201`}
+                      strokeLinecap="round" />
+                  </svg>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ ...MONO, fontSize: 20, fontWeight: 700,
+                      color: judge.composite >= 80 ? C.green : judge.composite >= 60 ? C.blue : C.amber,
+                      lineHeight: 1 }}>{judge.composite}</span>
+                    <span style={{ ...FONT, fontSize: 9, color: C.text3, marginTop: 1 }}>/ 100</span>
+                  </div>
+                </div>
+
+                {isNominated
+                  ? <Chip label="✓ Nominated" color="amber" />
+                  : <Btn size="sm" variant="primary" onClick={() => nominate(judge.id)} disabled={saving}>
+                      {saving ? <Spinner /> : "Nominate 🏆"}
+                    </Btn>
+                }
+              </div>
+            </div>
+          </Card>
+        );
+      })}
+
+      {/* Scoring explainer */}
+      <Card style={{ marginTop: 16, background: C.bg2 }}>
+        <div style={{ ...FONT, fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 10 }}>How the Score is Calculated</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8 }}>
+          {[
+            ["Coverage 30%",     "% of teams the judge reviewed"],
+            ["Thoroughness 25%", "Average word count in comments"],
+            ["Discrimination 20%","Spread of scores — avoids giving everyone the same"],
+            ["Completeness 15%", "% of criteria scored per submission"],
+            ["Engagement 10%",   "% of submissions with a written summary"],
+          ].map(([title,desc]) => (
+            <div key={title} style={{ padding: "10px 12px", background: C.bg, borderRadius: R.sm, border: `1px solid ${C.border}` }}>
+              <div style={{ ...MONO, fontSize: 11, color: C.blue, marginBottom: 4 }}>{title}</div>
+              <div style={{ ...FONT, fontSize: 11, color: C.text3, lineHeight: 1.5 }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 /* ─── PUBLIC PAGE CMS ───────────────────────────────────────────────────── */
 export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
   const [tab,setTab]=useState("content");
