@@ -470,3 +470,143 @@ function AppShell() {
     </div>
   );
 }
+
+/* ── AI Chat Widget ─────────────────────────────────────────────────────── */
+function AIChatWidget({ activeHackathon, hackName }) {
+  const [open,     setOpen]    = useState(false);
+  const [messages, setMessages]= useState([]);
+  const [input,    setInput]   = useState("");
+  const [loading,  setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(()=>{
+    setMessages([{ role:"assistant", content:`Hi! I'm HackBot 🤖 Ask me anything about ${hackName||"this hackathon"} — scores, judges, teams, feedback.` }]);
+  },[activeHackathon, hackName]);
+
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const q = input.trim(); setInput("");
+    const newMsgs = [...messages, { role:"user", content:q }];
+    setMessages(newMsgs); setLoading(true);
+    try {
+      const history = newMsgs.slice(-8).map(m=>({ role:m.role, content:m.content }));
+      const res = await fetch("/api/ai/chat", {
+        method:"POST", headers:{"Content-Type":"application/json",
+          "Authorization":`Bearer ${localStorage.getItem("hf_token")}`},
+        body: JSON.stringify({ question:q, hackathonId:activeHackathon, history })
+      }).then(r=>r.json());
+      setMessages(prev=>[...prev, { role:"assistant", content: res.answer||res.error||"Sorry, could not answer that." }]);
+    } catch(e) {
+      setMessages(prev=>[...prev, { role:"assistant", content:"Connection error. Try again." }]);
+    }
+    setLoading(false);
+  };
+
+  if (!activeHackathon) return null;
+
+  return (
+    <>
+      <button onClick={()=>setOpen(!open)} title="Ask HackBot AI"
+        style={{position:"fixed",bottom:24,right:24,zIndex:1000,width:52,height:52,
+          borderRadius:"50%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+          border:"none",cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.45)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,transition:"transform 0.2s"}}
+        onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"}
+        onMouseLeave={e=>e.currentTarget.style.transform="none"}>
+        {open ? "✕" : "🤖"}
+      </button>
+      {open && (
+        <div style={{position:"fixed",bottom:88,right:24,zIndex:1000,width:360,
+          background:"#fff",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",
+          border:"1px solid #e5e7eb",display:"flex",flexDirection:"column",
+          maxHeight:"60vh",overflow:"hidden",...FONT}}>
+          <div style={{padding:"14px 16px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+            borderRadius:"16px 16px 0 0",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.2)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🤖</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>HackBot AI</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>Ask about {hackName||"this hackathon"}</div>
+            </div>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:8}}>
+            {messages.map((msg,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
+                <div style={{maxWidth:"83%",padding:"8px 12px",borderRadius:12,fontSize:13,lineHeight:1.55,
+                  background:msg.role==="user"?"#6366f1":"#f3f4f6",
+                  color:msg.role==="user"?"#fff":"#111",
+                  borderBottomRightRadius:msg.role==="user"?2:12,
+                  borderBottomLeftRadius:msg.role==="assistant"?2:12}}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {loading&&<div style={{display:"flex",gap:4,padding:"6px 10px"}}>
+              {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:"#9ca3af",
+                animation:"bounce 1.2s ease-in-out infinite",animationDelay:`${i*0.15}s`}}/>)}
+            </div>}
+            <div ref={bottomRef}/>
+          </div>
+          {messages.length<=1&&(
+            <div style={{padding:"0 14px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>
+              {["Top scoring team?","Judge consistency?","Scoring outliers?","Best per track?"].map(s=>(
+                <button key={s} onClick={()=>setInput(s)}
+                  style={{...FONT,fontSize:11,padding:"4px 9px",borderRadius:9999,
+                    border:"1px solid #e5e7eb",background:"#f9fafb",color:"#6b7280",cursor:"pointer"}}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{padding:"10px 12px",borderTop:"1px solid #f3f4f6",display:"flex",gap:8}}>
+            <input value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&send()}
+              placeholder="Ask anything…"
+              style={{...FONT,flex:1,padding:"8px 11px",borderRadius:8,
+                border:"1px solid #e5e7eb",fontSize:13,outline:"none",color:"#111"}}/>
+            <button onClick={send} disabled={loading||!input.trim()}
+              style={{padding:"8px 13px",borderRadius:8,
+                background:loading||!input.trim()?"#9ca3af":"#6366f1",
+                color:"#fff",border:"none",cursor:"pointer",fontWeight:600}}>↑</button>
+          </div>
+        </div>
+      )}
+      <style>{"@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}"}</style>
+    </>
+  );
+}
+
+/* ── Error Boundary ──────────────────────────────────────────────────────── */
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(e) { return { err: e }; }
+  componentDidCatch(e, info) { console.error("ErrorBoundary:", e, info); }
+  render() {
+    if (this.state.err) return (
+      <div style={{padding:32,fontFamily:"monospace",background:"#1a0000",minHeight:"100vh",color:"#fff"}}>
+        <div style={{fontSize:32,marginBottom:8}}>💥</div>
+        <h2 style={{color:"#f87171",marginBottom:12,fontSize:18}}>Render Error</h2>
+        <pre style={{background:"#2a0000",border:"1px solid #ef4444",padding:16,borderRadius:8,
+          fontSize:11,whiteSpace:"pre-wrap",overflowX:"auto",color:"#fca5a5",maxHeight:400,overflow:"auto"}}>
+          {String(this.state.err)}{"\n\n"}{this.state.err?.stack}
+        </pre>
+        <button onClick={()=>window.location.reload()} style={{marginTop:16,padding:"10px 24px",
+          background:"#ef4444",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:14}}>
+          Reload Page
+        </button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+/* ── Root App ────────────────────────────────────────────────────────────── */
+export default function App() {
+  const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
+  if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;
+  const subdomainId = typeof import.meta !== "undefined" && import.meta.env?.VITE_HACKATHON_ID;
+  if (subdomainId) return <ErrorBoundary><PublicPage hackathonId={subdomainId} /></ErrorBoundary>;
+  return <ErrorBoundary><AppShell /></ErrorBoundary>;
+}
