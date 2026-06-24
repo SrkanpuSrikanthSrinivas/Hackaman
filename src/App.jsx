@@ -9,7 +9,9 @@ import {
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
-  UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage,
+  UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
+  SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
+  CheckinPage, CertificatesPage, ExportPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -121,239 +123,90 @@ function OAuthBtn({ provider, icon, label }) {
   );
 }
 
-function LoginPage({ onLogin, oauthError }) {
-  const [email,setEmail]=useState("");const [password,setPassword]=useState("");
-  const [loading,setLoading]=useState(false);const [err,setErr]=useState(oauthError||"");
-  const submit=async e=>{
-    e.preventDefault();setLoading(true);setErr("");
-    try{const d=await POST("/api/auth/login",{email,password});localStorage.setItem("hf_token",d.token);onLogin(d.user);}
-    catch(e){setErr(e.message);}setLoading(false);
+function LoginPage({ onLogin }) {
+  const [email,   setEmail]   = useState("");
+  const [pass,    setPass]    = useState("");
+  const [err,     setErr]     = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async e => {
+    e.preventDefault(); setLoading(true); setErr("");
+    try {
+      const r = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: pass }),
+      }).then(r => r.json());
+      if (r.error) setErr(r.error);
+      else { localStorage.setItem("hf_token", r.token); onLogin(r.user || JSON.parse(atob(r.token.split(".")[1]))); }
+    } catch(e) { setErr(e.message); }
+    setLoading(false);
   };
-  return(
-    <div style={{minHeight:"100vh",background:"#f9fafb",display:"flex",alignItems:"center",justifyContent:"center",padding:24,...FONT}}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');*{box-sizing:border-box;margin:0;padding:0;}input:focus{outline:none;box-shadow:0 0 0 2px #bfdbfe;border-color:#2563eb!important;}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <div style={{width:"100%",maxWidth:400}}>
-        <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{...MONO,fontSize:22,fontWeight:600,color:C.text,letterSpacing:"-0.02em",marginBottom:4}}>HackFest Hub</div>
-          <div style={{fontSize:13,color:C.text3}}>Sign in to manage or judge</div>
+
+  const IS = { width:"100%", padding:"11px 14px", borderRadius:8,
+    border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)",
+    color:"#fff", fontSize:14, outline:"none", fontFamily:"'Inter',sans-serif" };
+
+  return (
+    <div style={{minHeight:"100vh", background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)",
+      display:"flex", alignItems:"center", justifyContent:"center", padding:24,
+      fontFamily:"'Inter',sans-serif"}}>
+      <div style={{width:"100%", maxWidth:380}}>
+        <div style={{textAlign:"center", marginBottom:36}}>
+          <div style={{fontSize:44, marginBottom:12}}>⚡</div>
+          <h1 style={{fontSize:26, fontWeight:800, color:"#fff", letterSpacing:"-0.03em", marginBottom:6}}>
+            HackFest Hub
+          </h1>
+          <p style={{fontSize:14, color:"rgba(255,255,255,0.4)"}}>Hackathon Management Platform</p>
         </div>
-        <Card style={{boxShadow:"0 4px 24px rgba(0,0,0,0.07)"}}>
-          {err&&<div style={{background:C.bgRed,border:`1px solid ${C.bdRed}`,borderRadius:R.sm,padding:"9px 12px",fontSize:12,color:C.red,marginBottom:16}}>⚠ {err}</div>}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:18}}>
-            <OAuthBtn provider="github" icon="🐙" label="GitHub" />
-            <OAuthBtn provider="google" icon="G" label="Google" />
-            <OAuthBtn provider="gitlab" icon="🦊" label="GitLab" />
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-            <div style={{flex:1,height:1,background:C.border}} />
-            <span style={{fontSize:11,color:C.text3,whiteSpace:"nowrap"}}>or continue with email</span>
-            <div style={{flex:1,height:1,background:C.border}} />
-          </div>
-          <form onSubmit={submit}>
-            <Field label="Email"><input style={IN} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@hackfest.com" autoFocus /></Field>
-            <Field label="Password"><input style={IN} type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" /></Field>
-            <Btn type="submit" full size="lg" disabled={loading}>{loading&&<Spinner/>} {loading?"Signing in...":"Sign in"}</Btn>
-          </form>
-          <div style={{marginTop:18,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
-            <div style={{...FONT,fontSize:11,color:C.text3,marginBottom:4,fontWeight:500}}>Demo credentials</div>
-            <div style={{...MONO,fontSize:11,color:C.text3,lineHeight:2}}>
-              admin@hackfest.com / admin123<br/>
-              srikanth@hackfest.com / judge123
+
+        <div style={{background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)",
+          borderRadius:18, padding:28, backdropFilter:"blur(12px)"}}>
+          <div style={{fontSize:15, fontWeight:600, color:"#fff", marginBottom:20}}>Sign in</div>
+
+          {err && (
+            <div style={{background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)",
+              borderRadius:8, padding:"10px 14px", fontSize:13, color:"#f87171", marginBottom:16}}>
+              {err}
             </div>
-          </div>
-        </Card>
+          )}
+
+          <form onSubmit={submit}>
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block", fontSize:11, fontWeight:500, color:"rgba(255,255,255,0.5)",
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6}}>Email</label>
+              <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+                placeholder="you@example.com" style={IS}
+                onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+            </div>
+            <div style={{marginBottom:20}}>
+              <label style={{display:"block", fontSize:11, fontWeight:500, color:"rgba(255,255,255,0.5)",
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6}}>Password</label>
+              <input type="password" required value={pass} onChange={e=>setPass(e.target.value)}
+                placeholder="••••••••" style={IS}
+                onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+            </div>
+            <button type="submit" disabled={loading}
+              style={{width:"100%", padding:"12px", borderRadius:10,
+                background: loading ? "rgba(99,102,241,0.6)" : "#6366f1",
+                color:"#fff", border:"none", cursor: loading ? "not-allowed" : "pointer",
+                fontSize:15, fontWeight:700, fontFamily:"'Inter',sans-serif",
+                boxShadow:"0 4px 20px rgba(99,102,241,0.4)", transition:"background 0.15s"}}>
+              {loading ? "Signing in…" : "Sign in →"}
+            </button>
+          </form>
+        </div>
+
+        <p style={{textAlign:"center", marginTop:20, fontSize:12, color:"rgba(255,255,255,0.2)"}}>
+          HackFest Hub · Secure access
+        </p>
       </div>
     </div>
   );
 }
 
-/* ─── ROOT APP ──────────────────────────────────────────────────────────── */
-const ADMIN_NAV=[
-  {id:"dashboard",  label:"Dashboard",      section:"overview"},
-  {id:"hackathons", label:"Hackathons",      section:"overview"},
-  {id:"teams",      label:"Teams",           section:"overview"},
-  {id:"judges",     label:"Judges",          section:"overview"},
-  {id:"criteria",   label:"Criteria",        section:"overview"},
-  {id:"feedback",   label:"Submit Feedback", section:"judging"},
-  {id:"all-feedback",label:"All Feedback",   section:"judging"},
-  {id:"reports",    label:"Reports",         section:"judging"},
-  {id:"best-judge", label:"Best Judge Award",  section:"judging"},
-  {id:"users",      label:"User Management", section:"admin"},
-  {id:"public-cms", label:"Page CMS",         section:"admin"},
-  {id:"public",     label:"Registrations",   section:"admin"},
-];
-const JUDGE_EXTRA=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"}];
-function getJudgeNav(user){ const base=[{id:"feedback",label:"Submit Feedback",section:"judging"}]; const extras=(user.permissions||[]).map(p=>({id:p.page,label:JUDGE_EXTRA.find(x=>x.id===p.page)?.label||p.page,section:"judging"}));return[...base,...extras.filter(e=>!base.find(b=>b.id===e.id))]; }
-
-// Wrapper that decides which top-level component to render
-// Must be outside AppShell so hooks are never called conditionally
-
-
-/* ── AI Chat Widget ─────────────────────────────────────────────────────── */
-function AIChatWidget({ activeHackathon, hackName }) {
-  const [open,     setOpen]    = useState(false);
-  const [messages, setMessages]= useState([
-    { role:"assistant", content:`Hi! I'm HackBot 🤖 Ask me anything about **${hackName||"this hackathon"}** — team scores, judge performance, feedback patterns, rankings, or anything else.` }
-  ]);
-  const [input,    setInput]   = useState("");
-  const [loading,  setLoading] = useState(false);
-  const bottomRef = useRef(null);
-
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
-
-  // Reset chat when hackathon changes
-  useEffect(()=>{
-    setMessages([{ role:"assistant", content:`Hi! I'm HackBot 🤖 Ask me anything about **${hackName||"this hackathon"}**.` }]);
-  },[activeHackathon]);
-
-  const send = async () => {
-    if (!input.trim() || loading) return;
-    const q = input.trim();
-    setInput("");
-    const newMsgs = [...messages, { role:"user", content:q }];
-    setMessages(newMsgs);
-    setLoading(true);
-    try {
-      const history = newMsgs.slice(-8).map(m=>({ role:m.role, content:m.content }));
-      const res = await fetch("/api/ai/chat", {
-        method:"POST", headers:{"Content-Type":"application/json",
-          "Authorization":`Bearer ${localStorage.getItem("hf_token")}`},
-        body: JSON.stringify({ question:q, hackathonId:activeHackathon, history })
-      }).then(r=>r.json());
-      setMessages(prev=>[...prev, { role:"assistant", content: res.answer || res.error || "Sorry, I couldn't answer that." }]);
-    } catch(e) {
-      setMessages(prev=>[...prev, { role:"assistant", content:"Connection error. Please try again." }]);
-    }
-    setLoading(false);
-  };
-
-  if (!activeHackathon) return null;
-
-  const FF = {fontFamily:"'Inter',sans-serif"};
-
-  return (
-    <>
-      {/* Toggle button */}
-      <button onClick={()=>setOpen(!open)}
-        style={{position:"fixed",bottom:24,right:24,zIndex:1000,width:52,height:52,
-          borderRadius:"50%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
-          border:"none",cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.5)",
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,
-          transition:"transform 0.2s"}}
-        onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"}
-        onMouseLeave={e=>e.currentTarget.style.transform="none"}
-        title="Ask HackBot AI">
-        {open ? "✕" : "🤖"}
-      </button>
-
-      {/* Chat panel */}
-      {open && (
-        <div style={{position:"fixed",bottom:88,right:24,zIndex:1000,width:360,
-          background:"#fff",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",
-          border:"1px solid #e5e7eb",display:"flex",flexDirection:"column",
-          maxHeight:"60vh",overflow:"hidden",...FF}}>
-
-          {/* Header */}
-          <div style={{padding:"14px 16px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
-            borderRadius:"16px 16px 0 0",display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.2)",
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🤖</div>
-            <div>
-              <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>HackBot AI</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>Ask about {hackName||"this hackathon"}</div>
-            </div>
-          </div>
-
-          {/* Messages */}
-          <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
-            {messages.map((msg,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
-                <div style={{maxWidth:"82%",padding:"9px 13px",borderRadius:12,fontSize:13,lineHeight:1.55,
-                  background:msg.role==="user"?"#6366f1":"#f3f4f6",
-                  color:msg.role==="user"?"#fff":"#111827",
-                  borderBottomRightRadius:msg.role==="user"?2:12,
-                  borderBottomLeftRadius:msg.role==="assistant"?2:12}}>
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            {loading&&(
-              <div style={{display:"flex",gap:4,padding:"8px 12px"}}>
-                {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:"#9ca3af",
-                  animation:"bounce 1.2s ease-in-out infinite",animationDelay:`${i*0.15}s`}}/>)}
-              </div>
-            )}
-            <div ref={bottomRef}/>
-          </div>
-
-          {/* Suggestions */}
-          {messages.length<=1&&(
-            <div style={{padding:"0 14px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>
-              {["Which team scored highest?","How are judges performing?","Any scoring outliers?","Best team per track?"].map(s=>(
-                <button key={s} onClick={()=>{setInput(s);}}
-                  style={{...FF,fontSize:11,padding:"4px 10px",borderRadius:9999,border:"1px solid #e5e7eb",
-                    background:"#f9fafb",color:"#6b7280",cursor:"pointer"}}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Input */}
-          <div style={{padding:"10px 14px",borderTop:"1px solid #f3f4f6",display:"flex",gap:8}}>
-            <input value={input} onChange={e=>setInput(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
-              placeholder="Ask anything…"
-              style={{...FF,flex:1,padding:"8px 12px",borderRadius:8,border:"1px solid #e5e7eb",
-                fontSize:13,outline:"none",color:"#111"}} />
-            <button onClick={send} disabled={loading||!input.trim()}
-              style={{padding:"8px 14px",borderRadius:8,background:loading?"#9ca3af":"#6366f1",
-                color:"#fff",border:"none",cursor:"pointer",fontSize:13,fontWeight:600}}>
-              ↑
-            </button>
-          </div>
-        </div>
-      )}
-      <style>{`@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}`}</style>
-    </>
-  );
-}
-
-class ErrorBoundary extends Component {
-  constructor(props) { super(props); this.state = { err: null }; }
-  static getDerivedStateFromError(e) { return { err: e }; }
-  componentDidCatch(e, info) { console.error("HackFest ErrorBoundary caught:", e, info); }
-  render() {
-    if (this.state.err) return (
-      <div style={{padding:32,fontFamily:"monospace",background:"#1a0000",minHeight:"100vh",color:"#fff"}}>
-        <div style={{fontSize:32,marginBottom:8}}>💥</div>
-        <h2 style={{color:"#f87171",marginBottom:12,fontSize:18}}>Render Error</h2>
-        <pre style={{background:"#2a0000",border:"1px solid #ef4444",padding:16,borderRadius:8,
-          fontSize:11,whiteSpace:"pre-wrap",overflowX:"auto",color:"#fca5a5",maxHeight:400,overflow:"auto"}}>
-          {String(this.state.err)}{"\n\n"}{this.state.err?.stack}
-        </pre>
-        <button onClick={()=>window.location.reload()} style={{marginTop:16,padding:"10px 24px",
-          background:"#ef4444",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:14}}>
-          Reload Page
-        </button>
-      </div>
-    );
-    return this.props.children;
-  }
-}
-
-export default function App() {
-  // Option A: path-based  →  yourdomain.com/register/h1
-  const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
-  if (regMatch) return <PublicPage hackathonId={regMatch[1]} />;
-
-  // Option B: subdomain-based  →  hackfest2025.yourdomain.com
-  // The hackathon ID is stored as a Vercel env var VITE_HACKATHON_ID per domain
-  const subdomainHackathonId = import.meta.env.VITE_HACKATHON_ID;
-  if (subdomainHackathonId) return <PublicPage hackathonId={subdomainHackathonId} />;
-
-  return <ErrorBoundary><AppShell /></ErrorBoundary>;
-}
 
 function AppShell() {
   // Initialise from localStorage only — OAuth token handled in useEffect below
@@ -386,7 +239,16 @@ function AppShell() {
     }
   }, [db.hackathons]);
 
-  const logout = () => { localStorage.removeItem("hf_token"); setCurrentUser(null); };
+  const logout = () => {
+    // Log the logout event before clearing session
+    const token = localStorage.getItem("hf_token");
+    if (token) {
+      fetch("/api/auth/logout", { method:"POST",
+        headers:{ Authorization:`Bearer ${token}` } }).catch(()=>{});
+    }
+    localStorage.removeItem("hf_token");
+    setCurrentUser(null);
+  };
 
   // Handle OAuth redirect — reads ?token= or ?error= from URL after Google/GitHub/GitLab login
   useEffect(() => {
@@ -571,6 +433,14 @@ function AppShell() {
         {page==="all-feedback" && <AllFeedbackPage  {...props} currentUser={currentUser} />}
         {page==="reports"      && <ReportPage       {...props} />}
         {page==="best-judge"   && isAdmin && <BestJudgePage  {...props} />}
+        {page==="login-logs"   && isAdmin && <LoginLogsPage   toast={toast} />}
+        {page==="submissions"  &&              <SubmissionsPage  {...props} db={db} isAdmin={isAdmin} />}
+        {page==="judge-progress"&&isAdmin &&   <JudgeProgressPage {...props} db={db} />}
+        {page==="announcements"&&isAdmin &&    <AnnouncementsPage {...props} db={db} />}
+        {page==="checkin"      && isAdmin &&   <CheckinPage       {...props} db={db} />}
+        {page==="mentors"      && isAdmin &&   <MentorsPage       {...props} db={db} />}
+        {page==="certificates" && isAdmin &&   <CertificatesPage  {...props} db={db} />}
+        {page==="export"       && isAdmin &&   <ExportPage        {...props} db={db} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
@@ -591,4 +461,144 @@ function AppShell() {
       />
     </div>
   );
+}
+
+/* ── AI Chat Widget ─────────────────────────────────────────────────────── */
+function AIChatWidget({ activeHackathon, hackName }) {
+  const [open,     setOpen]    = useState(false);
+  const [messages, setMessages]= useState([]);
+  const [input,    setInput]   = useState("");
+  const [loading,  setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(()=>{
+    setMessages([{ role:"assistant", content:`Hi! I'm HackBot 🤖 Ask me anything about ${hackName||"this hackathon"} — scores, judges, teams, feedback.` }]);
+  },[activeHackathon, hackName]);
+
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const q = input.trim(); setInput("");
+    const newMsgs = [...messages, { role:"user", content:q }];
+    setMessages(newMsgs); setLoading(true);
+    try {
+      const history = newMsgs.slice(-8).map(m=>({ role:m.role, content:m.content }));
+      const res = await fetch("/api/ai/chat", {
+        method:"POST", headers:{"Content-Type":"application/json",
+          "Authorization":`Bearer ${localStorage.getItem("hf_token")}`},
+        body: JSON.stringify({ question:q, hackathonId:activeHackathon, history })
+      }).then(r=>r.json());
+      setMessages(prev=>[...prev, { role:"assistant", content: res.answer||res.error||"Sorry, could not answer that." }]);
+    } catch(e) {
+      setMessages(prev=>[...prev, { role:"assistant", content:"Connection error. Try again." }]);
+    }
+    setLoading(false);
+  };
+
+  if (!activeHackathon) return null;
+
+  return (
+    <>
+      <button onClick={()=>setOpen(!open)} title="Ask HackBot AI"
+        style={{position:"fixed",bottom:24,right:24,zIndex:1000,width:52,height:52,
+          borderRadius:"50%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+          border:"none",cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.45)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,transition:"transform 0.2s"}}
+        onMouseEnter={e=>e.currentTarget.style.transform="scale(1.1)"}
+        onMouseLeave={e=>e.currentTarget.style.transform="none"}>
+        {open ? "✕" : "🤖"}
+      </button>
+      {open && (
+        <div style={{position:"fixed",bottom:88,right:24,zIndex:1000,width:360,
+          background:"#fff",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",
+          border:"1px solid #e5e7eb",display:"flex",flexDirection:"column",
+          maxHeight:"60vh",overflow:"hidden",...FONT}}>
+          <div style={{padding:"14px 16px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+            borderRadius:"16px 16px 0 0",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,0.2)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🤖</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>HackBot AI</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>Ask about {hackName||"this hackathon"}</div>
+            </div>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:8}}>
+            {messages.map((msg,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
+                <div style={{maxWidth:"83%",padding:"8px 12px",borderRadius:12,fontSize:13,lineHeight:1.55,
+                  background:msg.role==="user"?"#6366f1":"#f3f4f6",
+                  color:msg.role==="user"?"#fff":"#111",
+                  borderBottomRightRadius:msg.role==="user"?2:12,
+                  borderBottomLeftRadius:msg.role==="assistant"?2:12}}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {loading&&<div style={{display:"flex",gap:4,padding:"6px 10px"}}>
+              {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:"#9ca3af",
+                animation:"bounce 1.2s ease-in-out infinite",animationDelay:`${i*0.15}s`}}/>)}
+            </div>}
+            <div ref={bottomRef}/>
+          </div>
+          {messages.length<=1&&(
+            <div style={{padding:"0 14px 8px",display:"flex",gap:6,flexWrap:"wrap"}}>
+              {["Top scoring team?","Judge consistency?","Scoring outliers?","Best per track?"].map(s=>(
+                <button key={s} onClick={()=>setInput(s)}
+                  style={{...FONT,fontSize:11,padding:"4px 9px",borderRadius:9999,
+                    border:"1px solid #e5e7eb",background:"#f9fafb",color:"#6b7280",cursor:"pointer"}}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{padding:"10px 12px",borderTop:"1px solid #f3f4f6",display:"flex",gap:8}}>
+            <input value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&send()}
+              placeholder="Ask anything…"
+              style={{...FONT,flex:1,padding:"8px 11px",borderRadius:8,
+                border:"1px solid #e5e7eb",fontSize:13,outline:"none",color:"#111"}}/>
+            <button onClick={send} disabled={loading||!input.trim()}
+              style={{padding:"8px 13px",borderRadius:8,
+                background:loading||!input.trim()?"#9ca3af":"#6366f1",
+                color:"#fff",border:"none",cursor:"pointer",fontWeight:600}}>↑</button>
+          </div>
+        </div>
+      )}
+      <style>{"@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}"}</style>
+    </>
+  );
+}
+
+/* ── Error Boundary ──────────────────────────────────────────────────────── */
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(e) { return { err: e }; }
+  componentDidCatch(e, info) { console.error("ErrorBoundary:", e, info); }
+  render() {
+    if (this.state.err) return (
+      <div style={{padding:32,fontFamily:"monospace",background:"#1a0000",minHeight:"100vh",color:"#fff"}}>
+        <div style={{fontSize:32,marginBottom:8}}>💥</div>
+        <h2 style={{color:"#f87171",marginBottom:12,fontSize:18}}>Render Error</h2>
+        <pre style={{background:"#2a0000",border:"1px solid #ef4444",padding:16,borderRadius:8,
+          fontSize:11,whiteSpace:"pre-wrap",overflowX:"auto",color:"#fca5a5",maxHeight:400,overflow:"auto"}}>
+          {String(this.state.err)}{"\n\n"}{this.state.err?.stack}
+        </pre>
+        <button onClick={()=>window.location.reload()} style={{marginTop:16,padding:"10px 24px",
+          background:"#ef4444",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:14}}>
+          Reload Page
+        </button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+/* ── Root App ────────────────────────────────────────────────────────────── */
+export default function App() {
+  const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
+  if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;
+  const subdomainId = typeof import.meta !== "undefined" && import.meta.env?.VITE_HACKATHON_ID;
+  if (subdomainId) return <ErrorBoundary><PublicPage hackathonId={subdomainId} /></ErrorBoundary>;
+  return <ErrorBoundary><AppShell /></ErrorBoundary>;
 }

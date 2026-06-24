@@ -1064,6 +1064,737 @@ export function UserManagementPage({ db, reload, toast }) {
 }
 
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ENTERPRISE PAGES
+══════════════════════════════════════════════════════════════════════════ */
+
+// ── Submissions Page ─────────────────────────────────────────────────────────
+export function SubmissionsPage({ db, toast, activeHackathon, isAdmin }) {
+  const [subs,    setSubs]    = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [modal,   setModal]   = useState(null);
+  const [form,    setForm]    = useState({});
+  const [filter,  setFilter]  = useState("all");
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/submissions?hackathonId=${activeHackathon}`)
+      .then(d => setSubs(Array.isArray(d) ? d : []))
+      .catch(() => setSubs([]))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const STATUS_COLOR = { draft:"neutral", submitted:"blue", shortlisted:"purple", winner:"green" };
+
+  const save = async () => {
+    if (!form.teamId || !form.title?.trim()) { toast("Team and title required", "error"); return; }
+    try {
+      await POST("/api/submissions", { ...form, hackathonId: activeHackathon });
+      load(); toast("Submission saved"); setModal(null);
+    } catch(e) { toast(e.message, "error"); }
+  };
+
+  const updateStatus = async (id, status) => {
+    try { await PUT(`/api/submissions/${id}`, { status }); load(); toast(`Marked as ${status}`); }
+    catch(e) { toast(e.message, "error"); }
+  };
+
+  const filtered = filter === "all" ? subs : subs.filter(s => s.status === filter);
+
+  return (
+    <div>
+      <SectionHeader title="Project Submissions"
+        count={`${subs.filter(s=>s.status==="submitted").length} submitted`}
+        action={isAdmin && <Btn onClick={() => { setForm({ hackathonId: activeHackathon }); setModal("new"); }}>+ Add Submission</Btn>}
+      />
+      {/* Filters */}
+      <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+        {["all","draft","submitted","shortlisted","winner"].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ ...FONT, fontSize:12, padding:"5px 12px", borderRadius:R.sm, cursor:"pointer",
+              border:`1px solid ${filter===f?C.blue:C.border}`,
+              background:filter===f?C.bgBlue:C.bg, color:filter===f?C.blue:C.text3,
+              textTransform:"capitalize" }}>
+            {f} ({f==="all"?subs.length:subs.filter(s=>s.status===f).length})
+          </button>
+        ))}
+      </div>
+      {loading && <div style={{ ...FONT, fontSize:13, color:C.text3, padding:24, textAlign:"center" }}>Loading…</div>}
+      {!loading && filtered.length === 0 && <Empty icon="📦" title="No submissions yet" sub="Teams haven't submitted their projects yet." />}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12 }}>
+        {filtered.map(s => (
+          <Card key={s.id}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+              <div>
+                <div style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text, marginBottom:3 }}>{s.title}</div>
+                <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{s.teamName} · {s.track||"No track"}</div>
+              </div>
+              <Chip label={s.status} color={STATUS_COLOR[s.status]||"neutral"} />
+            </div>
+            {s.tagline && <div style={{ ...FONT, fontSize:12, color:C.text2, fontStyle:"italic", marginBottom:8 }}>"{s.tagline}"</div>}
+            {s.description && <div style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6, marginBottom:10 }}>{s.description?.slice(0,120)}…</div>}
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+              {s.githubUrl && <a href={s.githubUrl} target="_blank" rel="noopener" style={{ ...FONT, fontSize:11, color:C.blue }}>GitHub →</a>}
+              {s.demoUrl   && <a href={s.demoUrl}   target="_blank" rel="noopener" style={{ ...FONT, fontSize:11, color:C.green }}>Demo →</a>}
+              {s.videoUrl  && <a href={s.videoUrl}  target="_blank" rel="noopener" style={{ ...FONT, fontSize:11, color:C.purple }}>Video →</a>}
+            </div>
+            {s.techStack && <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:8 }}>
+              {s.techStack.split(",").map(t => <span key={t} style={{ display:"inline-block", padding:"2px 7px", borderRadius:9999, background:C.bg3, marginRight:4, marginBottom:3 }}>{t.trim()}</span>)}
+            </div>}
+            {isAdmin && (
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {["shortlisted","winner"].map(st => (
+                  <Btn key={st} size="sm" variant={s.status===st?"primary":"secondary"} onClick={() => updateStatus(s.id, st)}>
+                    {st==="winner"?"🏆 Winner":"⭐ Shortlist"}
+                  </Btn>
+                ))}
+                {s.status!=="submitted"&&<Btn size="sm" variant="secondary" onClick={()=>updateStatus(s.id,"submitted")}>Reset</Btn>}
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+      {modal && (
+        <Modal title="Add Submission" onClose={() => setModal(null)} width={580}>
+          <Field label="Team" required>
+            <select style={IN} value={form.teamId||""} onChange={sf("teamId")}>
+              <option value="">Select team…</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Project Title" required><input style={IN} value={form.title||""} onChange={sf("title")} /></Field>
+            <Field label="Tagline"><input style={IN} value={form.tagline||""} onChange={sf("tagline")} /></Field>
+          </div>
+          <Field label="Description"><textarea style={{...TA,minHeight:72}} value={form.description||""} onChange={sf("description")} /></Field>
+          <Field label="Problem Statement"><textarea style={{...TA,minHeight:60}} value={form.problemStatement||""} onChange={sf("problemStatement")} /></Field>
+          <Field label="Solution"><textarea style={{...TA,minHeight:60}} value={form.solution||""} onChange={sf("solution")} /></Field>
+          <Field label="Tech Stack" hint="Comma-separated"><input style={IN} value={form.techStack||""} onChange={sf("techStack")} placeholder="React, Node.js, PostgreSQL" /></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="GitHub URL"><input style={IN} value={form.githubUrl||""} onChange={sf("githubUrl")} /></Field>
+            <Field label="Demo URL"><input style={IN} value={form.demoUrl||""} onChange={sf("demoUrl")} /></Field>
+            <Field label="Video URL"><input style={IN} value={form.videoUrl||""} onChange={sf("videoUrl")} /></Field>
+            <Field label="Deck URL"><input style={IN} value={form.deckUrl||""} onChange={sf("deckUrl")} /></Field>
+          </div>
+          <Field label="Track">
+            <select style={IN} value={form.track||""} onChange={sf("track")}>
+              <option value="">Select track…</option>
+              {(db.hackathons.find(h=>h.id===activeHackathon)?.tracks||"").split(",").map(t=>t.trim()).filter(Boolean).map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:8 }}>
+            <Btn variant="secondary" onClick={() => setModal(null)}>Cancel</Btn>
+            <Btn onClick={save}>Save Submission</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Judge Progress Tracker ────────────────────────────────────────────────────
+export function JudgeProgressPage({ db, toast, activeHackathon }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/judge-progress/${activeHackathon}`)
+      .then(d => setData(d))
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [activeHackathon]);
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, [autoRefresh, activeHackathon]);
+
+  if (!activeHackathon) return <Empty icon="📊" title="Select a hackathon" />;
+
+  const overall = data?.overall || {};
+  const progress = data?.progress || [];
+
+  return (
+    <div>
+      <SectionHeader title="Judge Progress Tracker"
+        action={
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <label style={{ ...FONT, fontSize:12, color:C.text3, display:"flex", alignItems:"center", gap:6 }}>
+              <input type="checkbox" checked={autoRefresh} onChange={e=>setAutoRefresh(e.target.checked)} />
+              Auto-refresh (30s)
+            </label>
+            <Btn variant="secondary" onClick={load} disabled={loading}>{loading?<Spinner/>:"↻"} Refresh</Btn>
+          </div>
+        }
+      />
+      {/* Overall stats */}
+      {data && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:16 }}>
+          <Stat label="Total Teams"     value={overall.total||0}         />
+          <Stat label="Judges Complete" value={`${overall.judgesComplete||0}/${overall.judgesTotal||0}`} color={C.green} />
+          <Stat label="Total Reviews"   value={data.progress.reduce((s,p)=>s+p.scored,0)} color={C.blue} />
+          <Stat label="Coverage"        value={`${overall.total&&overall.judgesTotal?Math.round(data.progress.reduce((s,p)=>s+p.scored,0)/(overall.total*overall.judgesTotal)*100):0}%`} color={C.purple} />
+        </div>
+      )}
+      {loading && !data && <div style={{ ...FONT, fontSize:13, color:C.text3, padding:24, textAlign:"center" }}>Loading…</div>}
+      {progress.map(judge => (
+        <Card key={judge.judgeId} style={{ marginBottom:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:16, alignItems:"center" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <Avatar name={judge.name} src={judge.avatarUrl} size={44} />
+              <div>
+                <div style={{ ...FONT, fontSize:14, fontWeight:600, color:C.text }}>{judge.name}</div>
+                <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{judge.org}</div>
+                <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:2 }}>
+                  {judge.scored}/{judge.total} teams scored
+                  {judge.conflicts > 0 && ` · ${judge.conflicts} conflict(s)`}
+                </div>
+              </div>
+            </div>
+            <div style={{ textAlign:"center", minWidth:80 }}>
+              <div style={{ ...MONO, fontSize:22, fontWeight:700,
+                color:judge.pct===100?C.green:judge.pct>=50?C.blue:C.amber }}>{judge.pct}%</div>
+              <Chip label={judge.pct===100?"Complete":judge.pending===0?"No Teams":"In Progress"}
+                color={judge.pct===100?"green":judge.pct>=50?"blue":"amber"} />
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div style={{ margin:"10px 0 0", background:C.bg3, borderRadius:4, height:6, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${judge.pct}%`, borderRadius:4, transition:"width 0.4s",
+              background:judge.pct===100?C.green:C.blue }} />
+          </div>
+          {/* Pending teams */}
+          {judge.pendingTeams?.length > 0 && (
+            <div style={{ marginTop:8, display:"flex", gap:6, flexWrap:"wrap" }}>
+              <span style={{ ...FONT, fontSize:11, color:C.text3 }}>Pending:</span>
+              {judge.pendingTeams.slice(0,8).map(t => (
+                <span key={t.id} style={{ ...FONT, fontSize:11, padding:"2px 8px", borderRadius:9999,
+                  background:C.bgAmber, color:C.amber, border:`1px solid ${C.bdAmber}` }}>{t.name}</span>
+              ))}
+              {judge.pendingTeams.length > 8 && <span style={{ ...FONT, fontSize:11, color:C.text3 }}>+{judge.pendingTeams.length-8} more</span>}
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ── Announcements Page ────────────────────────────────────────────────────────
+export function AnnouncementsPage({ db, toast, activeHackathon }) {
+  const [anns,   setAnns]  = useState([]);
+  const [modal,  setModal] = useState(null);
+  const [form,   setForm]  = useState({});
+  const [saving, setSaving]= useState(false);
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  const load = () => {
+    if (!activeHackathon) return;
+    GET(`/api/announcements?hackathonId=${activeHackathon}`)
+      .then(d => setAnns(Array.isArray(d) ? d : [])).catch(() => {});
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const save = async () => {
+    if (!form.title?.trim() || !form.body?.trim()) { toast("Title and message required", "error"); return; }
+    setSaving(true);
+    try {
+      if (modal === "new") await POST("/api/announcements", { ...form, hackathonId: activeHackathon });
+      else await PUT(`/api/announcements/${modal.id}`, form);
+      load(); toast(modal==="new"?"Announcement posted":"Updated"); setModal(null);
+    } catch(e) { toast(e.message, "error"); } finally { setSaving(false); }
+  };
+
+  const del = async id => {
+    if (!confirm("Delete this announcement?")) return;
+    try { await DEL(`/api/announcements/${id}`); load(); toast("Deleted"); } catch(e) { toast(e.message,"error"); }
+  };
+
+  const PRIORITY_COLOR = { low:"neutral", normal:"blue", high:"amber", urgent:"red" };
+  const AUDIENCE_ICON  = { all:"🌐", judges:"⭐", teams:"🚀", public:"📢" };
+
+  return (
+    <div>
+      <SectionHeader title="Announcements"
+        action={<Btn onClick={() => { setForm({ priority:"normal", audience:"all", pinned:false }); setModal("new"); }}>+ New Announcement</Btn>}
+      />
+      {!activeHackathon && <Empty icon="📢" title="Select a hackathon" />}
+      {anns.length === 0 && activeHackathon && <Empty icon="📢" title="No announcements yet" sub="Post an update to participants, judges, or teams." />}
+      {anns.map(ann => (
+        <Card key={ann.id} style={{ marginBottom:10, border:`1px solid ${ann.pinned?C.bdBlue:C.border}`,
+          background:ann.pinned?C.bgBlue:C.bg }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              {ann.pinned && <span style={{ fontSize:14 }}>📌</span>}
+              <span style={{ ...FONT, fontSize:15, fontWeight:600, color:C.text }}>{ann.title}</span>
+              <Chip label={ann.priority} color={PRIORITY_COLOR[ann.priority]} />
+              <Chip label={`${AUDIENCE_ICON[ann.audience]} ${ann.audience}`} color="neutral" />
+            </div>
+            <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+              <Btn size="sm" variant="secondary" onClick={() => { setForm({...ann}); setModal(ann); }}>Edit</Btn>
+              <Btn size="sm" variant="danger"    onClick={() => del(ann.id)}>Delete</Btn>
+            </div>
+          </div>
+          <div style={{ ...FONT, fontSize:13, color:C.text2, lineHeight:1.7, marginBottom:6 }}>{ann.body}</div>
+          <div style={{ ...FONT, fontSize:11, color:C.text3 }}>
+            {new Date(ann.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+          </div>
+        </Card>
+      ))}
+      {modal && (
+        <Modal title={modal==="new"?"New Announcement":"Edit Announcement"} onClose={() => setModal(null)} width={540}>
+          <Field label="Title" required><input style={IN} value={form.title||""} onChange={sf("title")} /></Field>
+          <Field label="Message" required><textarea style={{...TA,minHeight:100}} value={form.body||""} onChange={sf("body")} /></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Priority">
+              <select style={IN} value={form.priority||"normal"} onChange={sf("priority")}>
+                {["low","normal","high","urgent"].map(p=><option key={p} value={p} style={{textTransform:"capitalize"}}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="Audience">
+              <select style={IN} value={form.audience||"all"} onChange={sf("audience")}>
+                {["all","judges","teams","public"].map(a=><option key={a} value={a} style={{textTransform:"capitalize"}}>{AUDIENCE_ICON[a]} {a}</option>)}
+              </select>
+            </Field>
+          </div>
+          <label style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, cursor:"pointer" }}>
+            <input type="checkbox" checked={!!form.pinned} onChange={e=>setForm(p=>({...p,pinned:e.target.checked}))} />
+            <span style={{ ...FONT, fontSize:13, color:C.text }}>📌 Pin to top</span>
+          </label>
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
+            <Btn variant="secondary" onClick={() => setModal(null)}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} {modal==="new"?"Post":"Update"}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Mentors Page ──────────────────────────────────────────────────────────────
+export function MentorsPage({ db, toast, activeHackathon }) {
+  const [mentors, setMentors] = useState([]);
+  const [modal,   setModal]   = useState(null);
+  const [form,    setForm]    = useState({});
+  const [saving,  setSaving]  = useState(false);
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    GET(`/api/mentors?hackathonId=${activeHackathon}`)
+      .then(d => setMentors(Array.isArray(d) ? d : [])).catch(() => {});
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const save = async () => {
+    if (!form.name?.trim()) { toast("Name required","error"); return; }
+    setSaving(true);
+    try {
+      if (modal==="new") await POST("/api/mentors",{...form,hackathonId:activeHackathon});
+      else await PUT(`/api/mentors/${modal.id}`,form);
+      load(); toast(modal==="new"?"Mentor added":"Updated"); setModal(null);
+    } catch(e){toast(e.message,"error");} finally{setSaving(false);}
+  };
+
+  const assignTeam = async (mentorId, teamId) => {
+    try { await POST("/api/mentor-assignments",{mentorId,teamId,hackathonId:activeHackathon}); load(); toast("Team assigned"); }
+    catch(e){toast(e.message,"error");}
+  };
+
+  const unassign = async (mentorId, teamId) => {
+    try { await DEL(`/api/mentor-assignments/${mentorId}/${teamId}`); load(); toast("Unassigned"); }
+    catch(e){toast(e.message,"error");}
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Mentor Management" count={`${mentors.length} mentors`}
+        action={<Btn onClick={() => { setForm({}); setModal("new"); }}>+ Add Mentor</Btn>}
+      />
+      {!activeHackathon && <Empty icon="🎓" title="Select a hackathon" />}
+      {mentors.length===0 && activeHackathon && <Empty icon="🎓" title="No mentors yet" sub="Add mentors to support participating teams." />}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12 }}>
+        {mentors.map(m => (
+          <Card key={m.id}>
+            <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
+              <Avatar name={m.name} src={m.avatarUrl} size={44} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ ...FONT, fontSize:14, fontWeight:600, color:C.text }}>{m.name}</div>
+                <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{m.title} · {m.org}</div>
+                {m.availability && <div style={{ ...FONT, fontSize:11, color:C.blue, marginTop:2 }}>🕐 {m.availability}</div>}
+              </div>
+              <div style={{ display:"flex", gap:4 }}>
+                <Btn size="sm" variant="secondary" onClick={() => { setForm({...m}); setModal(m); }}>Edit</Btn>
+                <Btn size="sm" variant="danger" onClick={async()=>{if(!confirm("Delete?"))return;try{await DEL(`/api/mentors/${m.id}`);load();toast("Deleted");}catch(e){toast(e.message,"error");}}}>✕</Btn>
+              </div>
+            </div>
+            {m.expertise && <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:8 }}>
+              {m.expertise.split(",").map(e=><span key={e} style={{display:"inline-block",padding:"2px 7px",borderRadius:9999,background:C.bgBlue,color:C.blue,marginRight:3,marginBottom:3,fontSize:10}}>{e.trim()}</span>)}
+            </div>}
+            {/* Team assignments */}
+            <div style={{ ...FONT, fontSize:11, color:C.text3, fontWeight:600, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Assigned Teams</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
+              {(m.assignments||[]).filter(a=>a.teamId).map(a=>(
+                <span key={a.teamId} style={{ ...FONT, fontSize:11, padding:"3px 9px", borderRadius:9999,
+                  background:C.bg3, color:C.text2, display:"flex", alignItems:"center", gap:5 }}>
+                  {a.teamName}
+                  <button onClick={() => unassign(m.id, a.teamId)} style={{ background:"none", border:"none",
+                    cursor:"pointer", color:C.text3, fontSize:13, lineHeight:1, padding:0 }}>×</button>
+                </span>
+              ))}
+              {(m.assignments||[]).filter(a=>a.teamId).length === 0 && <span style={{ ...FONT, fontSize:11, color:C.text3, fontStyle:"italic" }}>None assigned</span>}
+            </div>
+            <select style={{ ...IN, fontSize:12 }} value="" onChange={e => { if(e.target.value) assignTeam(m.id, e.target.value); }}>
+              <option value="">+ Assign team…</option>
+              {teams.filter(t => !(m.assignments||[]).find(a=>a.teamId===t.id)).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </Card>
+        ))}
+      </div>
+      {modal && (
+        <Modal title={modal==="new"?"Add Mentor":"Edit Mentor"} onClose={()=>setModal(null)} width={520}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={sf("name")} /></Field>
+            <Field label="Email"><input type="email" style={IN} value={form.email||""} onChange={sf("email")} /></Field>
+            <Field label="Title / Position"><input style={IN} value={form.title||""} onChange={sf("title")} /></Field>
+            <Field label="Organization"><input style={IN} value={form.org||""} onChange={sf("org")} /></Field>
+          </div>
+          <Field label="Expertise" hint="Comma-separated skills">
+            <input style={IN} value={form.expertise||""} onChange={sf("expertise")} placeholder="AI/ML, Product, Design" />
+          </Field>
+          <Field label="Availability"><input style={IN} value={form.availability||""} onChange={sf("availability")} placeholder="Sat 10am-4pm, Sun 11am-2pm" /></Field>
+          <Field label="Bio"><textarea style={{...TA,minHeight:64}} value={form.bio||""} onChange={sf("bio")} /></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="LinkedIn URL"><input style={IN} value={form.linkedinUrl||""} onChange={sf("linkedinUrl")} /></Field>
+            <Field label="Photo URL"><input style={IN} value={form.avatarUrl||""} onChange={sf("avatarUrl")} /></Field>
+          </div>
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:8 }}>
+            <Btn variant="secondary" onClick={()=>setModal(null)}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Check-in Page ─────────────────────────────────────────────────────────────
+export function CheckinPage({ db, toast, activeHackathon }) {
+  const [checkins, setCheckins] = useState([]);
+  const [stats,    setStats]    = useState({});
+  const [form,     setForm]     = useState({ type:"participant" });
+  const [saving,   setSaving]   = useState(false);
+  const [search,   setSearch]   = useState("");
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    GET(`/api/checkins?hackathonId=${activeHackathon}`).then(d => setCheckins(Array.isArray(d)?d:[])).catch(()=>{});
+    GET(`/api/checkins/stats/${activeHackathon}`).then(d => setStats(d||{})).catch(()=>{});
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const checkin = async e => {
+    e.preventDefault();
+    if (!form.name?.trim()) { toast("Name required","error"); return; }
+    setSaving(true);
+    try {
+      await POST("/api/checkins",{ ...form, hackathonId:activeHackathon });
+      setForm({ type:"participant" }); load(); toast(`✓ ${form.name} checked in!`);
+    } catch(err){toast(err.message,"error");} finally{setSaving(false);}
+  };
+
+  const filtered = checkins.filter(c =>
+    !search || c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.email?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const TYPE_ICON = { participant:"👤", judge:"⭐", mentor:"🎓", organizer:"🔧", volunteer:"🙋", sponsor:"💎" };
+  const TYPE_COLOR= { participant:"neutral",judge:"blue",mentor:"purple",organizer:"green",volunteer:"amber",sponsor:"red" };
+
+  return (
+    <div>
+      <SectionHeader title="Check-in / Attendance" count={`${stats.total||0} checked in`}
+        action={<Btn variant="secondary" onClick={load}>↻ Refresh</Btn>}
+      />
+      {/* Stats */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+        {Object.entries(stats.byType||{}).map(([type,count])=>(
+          <div key={type} style={{ padding:"10px 16px", background:C.bg2, border:`1px solid ${C.border}`,
+            borderRadius:R.md, textAlign:"center", minWidth:90 }}>
+            <div style={{ fontSize:20, marginBottom:3 }}>{TYPE_ICON[type]||"👤"}</div>
+            <div style={{ ...MONO, fontSize:20, fontWeight:700, color:C.text }}>{count}</div>
+            <div style={{ ...FONT, fontSize:11, color:C.text3, textTransform:"capitalize" }}>{type}s</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:20, alignItems:"start" }}>
+        {/* Check-in form */}
+        <Card>
+          <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:14 }}>Check In</div>
+          <form onSubmit={checkin}>
+            <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={sf("name")} autoFocus /></Field>
+            <Field label="Email"><input type="email" style={IN} value={form.email||""} onChange={sf("email")} /></Field>
+            <Field label="Type">
+              <select style={IN} value={form.type||"participant"} onChange={sf("type")}>
+                {["participant","judge","mentor","organizer","volunteer","sponsor"].map(t=>(
+                  <option key={t} value={t}>{TYPE_ICON[t]} {t}</option>
+                ))}
+              </select>
+            </Field>
+            {form.type==="participant"&&<Field label="Team (optional)">
+              <select style={IN} value={form.teamId||""} onChange={sf("teamId")}>
+                <option value="">No team / walk-in</option>
+                {teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </Field>}
+            <Btn type="submit" disabled={saving} style={{ width:"100%", marginTop:4 }}>
+              {saving?<Spinner/>:"✓ Check In"}
+            </Btn>
+          </form>
+        </Card>
+        {/* Attendance list */}
+        <div>
+          <input style={{ ...IN, marginBottom:10, width:"100%" }} value={search}
+            onChange={e=>setSearch(e.target.value)} placeholder="Search by name or email…" />
+          <Card style={{ padding:0, overflow:"hidden" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:C.bg2, borderBottom:`1px solid ${C.border}` }}>
+                  {["Name","Email","Type","Team","Time"].map(h=>(
+                    <th key={h} style={{ ...FONT, fontSize:11, color:C.text3, padding:"9px 12px",
+                      textAlign:"left", textTransform:"uppercase", letterSpacing:"0.05em" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0,50).map((c,i)=>(
+                  <tr key={c.id} style={{ borderBottom:`1px solid ${C.border}`, background:i%2?C.bg2:C.bg }}>
+                    <td style={{ ...FONT, fontSize:13, fontWeight:500, color:C.text, padding:"8px 12px" }}>{c.name}</td>
+                    <td style={{ ...FONT, fontSize:12, color:C.text3, padding:"8px 12px" }}>{c.email||"—"}</td>
+                    <td style={{ padding:"8px 12px" }}><Chip label={`${TYPE_ICON[c.type]||""} ${c.type}`} color={TYPE_COLOR[c.type]||"neutral"} /></td>
+                    <td style={{ ...FONT, fontSize:12, color:C.text3, padding:"8px 12px" }}>{c.teamName||"—"}</td>
+                    <td style={{ ...MONO, fontSize:11, color:C.text3, padding:"8px 12px" }}>
+                      {new Date(c.checkedInAt).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}
+                    </td>
+                  </tr>
+                ))}
+                {filtered.length===0&&<tr><td colSpan={5} style={{ ...FONT, fontSize:13, color:C.text3, textAlign:"center", padding:20 }}>No check-ins yet</td></tr>}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Certificates Page ─────────────────────────────────────────────────────────
+export function CertificatesPage({ db, toast, activeHackathon }) {
+  const [certs,   setCerts]   = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+  const hack  = db.hackathons.find(h => h.id === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/certificates?hackathonId=${activeHackathon}`)
+      .then(d => setCerts(Array.isArray(d)?d:[])).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const issueForAll = async type => {
+    if (!confirm(`Issue "${type}" certificates for all ${type==="participant"?`teams (${teams.length})`:"relevant people"}?`)) return;
+    setIssuing(true);
+    const certList = type==="participant"
+      ? teams.map(t => ({ recipient:t.name, email:"", type, teamName:t.name }))
+      : [];
+    try {
+      const r = await POST("/api/certificates/bulk",{ hackathonId:activeHackathon, certs:certList });
+      load(); toast(`${r.issued} certificates issued`);
+    } catch(e){toast(e.message,"error");} finally{setIssuing(false);}
+  };
+
+  const printCert = cert => {
+    const w = window.open("","_blank");
+    w.document.write(`<!DOCTYPE html><html><head><title>Certificate</title>
+    <style>
+      body{margin:0;padding:0;font-family:'Georgia',serif;background:#fff;}
+      .cert{width:800px;height:560px;margin:20px auto;border:12px double #b8860b;padding:40px;
+        text-align:center;background:linear-gradient(135deg,#fffef0 0%,#fff9e6 100%);
+        position:relative;box-sizing:border-box;}
+      .cert::before{content:"";position:absolute;inset:18px;border:2px solid #d4a017;pointer-events:none;}
+      .eyebrow{font-size:13px;color:#8b6914;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:12px;}
+      .title{font-size:42px;color:#b8860b;margin:0 0 8px;font-weight:bold;}
+      .sub{font-size:16px;color:#555;margin-bottom:20px;}
+      .name{font-size:32px;color:#1a1a1a;border-bottom:2px solid #b8860b;display:inline-block;padding-bottom:6px;margin-bottom:16px;}
+      .for{font-size:15px;color:#666;margin-bottom:6px;}
+      .event{font-size:20px;color:#333;font-weight:bold;margin-bottom:20px;}
+      .footer{font-size:11px;color:#999;margin-top:20px;}
+      .seal{font-size:48px;margin:10px 0;}
+      @media print{body{margin:0;}button{display:none!important;}}
+    </style></head><body>
+    <div class="cert">
+      <div class="eyebrow">Certificate of ${cert.type.replace("_"," ")}</div>
+      <div class="title">🏆</div>
+      <div class="sub">This certifies that</div>
+      <div class="name">${cert.recipient}</div>
+      ${cert.teamName?`<div class="for">representing team <strong>${cert.teamName}</strong></div>`:""}
+      ${cert.position?`<div class="for">achieved <strong>${cert.position} Place</strong></div>`:""}
+      <div class="for">has participated in</div>
+      <div class="event">${hack?.name||"HackFest"}</div>
+      <div class="footer">
+        ${hack?.startDate?`Held on ${hack.startDate}`:""}${hack?.location?` · ${hack.location}`:""}<br/>
+        Issued ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}<br/>
+        Verification: ${window.location.origin}/verify/${cert.token}
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:10px;">
+      <button onclick="window.print()" style="padding:10px 24px;background:#b8860b;color:#fff;border:none;borderRadius:6px;cursor:pointer;font-size:14px;">
+        🖨 Print / Save as PDF
+      </button>
+    </div>
+    </body></html>`);
+    w.document.close();
+  };
+
+  const TYPE_COLOR = { winner:"green", runner_up:"blue", participant:"neutral", judge:"purple",
+    mentor:"amber", best_innovation:"green", best_design:"blue" };
+
+  return (
+    <div>
+      <SectionHeader title="Certificates" count={`${certs.length} issued`}
+        action={
+          <div style={{ display:"flex", gap:8 }}>
+            <Btn size="sm" variant="secondary" onClick={() => issueForAll("participant")} disabled={issuing}>
+              {issuing?<Spinner/>:"🎓"} Issue Participant Certs
+            </Btn>
+            <Btn onClick={load} variant="secondary" size="sm">↻</Btn>
+          </div>
+        }
+      />
+      {!activeHackathon && <Empty icon="🎓" title="Select a hackathon" />}
+      {certs.length===0 && activeHackathon && (
+        <Empty icon="🎓" title="No certificates issued"
+          sub="Issue certificates for winners, participants, judges and mentors." />
+      )}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:10 }}>
+        {certs.map(c => (
+          <Card key={c.id} style={{ borderLeft:`4px solid ${C[TYPE_COLOR[c.type]?.replace("neutral","border")]||C.border}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+              <Chip label={c.type.replace("_"," ")} color={TYPE_COLOR[c.type]||"neutral"} />
+              {c.position && <span style={{ ...MONO, fontSize:13, fontWeight:700, color:C.text }}>{c.position}</span>}
+            </div>
+            <div style={{ ...FONT, fontSize:15, fontWeight:600, color:C.text, marginBottom:3 }}>{c.recipient}</div>
+            {c.teamName && <div style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:6 }}>{c.teamName}</div>}
+            <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:10 }}>
+              Issued {new Date(c.issuedAt).toLocaleDateString()}
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              <Btn size="sm" variant="secondary" onClick={() => printCert(c)}>🖨 Print</Btn>
+              <Btn size="sm" variant="danger" onClick={async()=>{if(!confirm("Delete?"))return;try{await DEL(`/api/certificates/${c.id}`);load();toast("Deleted");}catch(e){toast(e.message,"error");}}}>✕</Btn>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Data Export Page ──────────────────────────────────────────────────────────
+export function ExportPage({ db, toast, activeHackathon }) {
+  const [exporting, setExporting] = useState(false);
+  const hack = db.hackathons.find(h => h.id === activeHackathon);
+
+  const exportData = async format => {
+    if (!activeHackathon) { toast("Select a hackathon first","error"); return; }
+    setExporting(true);
+    try {
+      const data = await GET(`/api/export/${activeHackathon}`);
+      if (data.error) { toast(data.error,"error"); return; }
+
+      if (format === "json") {
+        const blob = new Blob([JSON.stringify(data, null, 2)],{type:"application/json"});
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+        a.download = `${hack?.name||"hackfest"}-export.json`; a.click();
+        toast("JSON exported");
+        return;
+      }
+
+      // CSV exports
+      const toCSV = (rows, cols) => {
+        if (!rows?.length) return "";
+        const headers = cols || Object.keys(rows[0]);
+        const lines = [headers.join(","), ...rows.map(r => headers.map(h => {
+          const v = r[h]; return `"${String(v||"").replace(/"/g,'""')}"`;
+        }).join(","))];
+        return lines.join("\n");
+      };
+
+      const sheets = {
+        "Rankings":      toCSV(data.teams),
+        "Registrations": toCSV(data.registrations),
+        "Submissions":   toCSV(data.submissions, ["teamName","title","track","status","githubUrl","demoUrl"]),
+        "Check-ins":     toCSV(data.checkins, ["name","email","type","teamName","checkedInAt"]),
+        "Raw Feedback":  toCSV(data.rawFeedbacks, ["teamName","judgeName","overall","submittedAt"]),
+      };
+
+      // Zip all CSVs into a single download (one big text file as fallback)
+      const combined = Object.entries(sheets).map(([name, csv]) =>
+        `\n### ${name}\n${csv}`
+      ).join("\n\n");
+      const blob = new Blob([`HackFest Hub Export — ${hack?.name}\nGenerated: ${new Date().toISOString()}\n`+combined],{type:"text/csv"});
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+      a.download = `${hack?.name||"hackfest"}-${format}-export.csv`; a.click();
+      toast("CSV exported");
+    } catch(e){toast(e.message,"error");} finally{setExporting(false);}
+  };
+
+  const EXPORTS = [
+    { id:"json",   icon:"📄", label:"Full JSON Export",        desc:"Complete data dump — all tables, all fields. Use for backup or API integration." },
+    { id:"scores", icon:"🏆", label:"Rankings CSV",            desc:"Team rankings with weighted scores per judge. Ready for sharing with stakeholders." },
+    { id:"regs",   icon:"📋", label:"Registrations CSV",       desc:"All registration applications with status, contact info, and team details." },
+    { id:"full",   icon:"📊", label:"Complete CSV Package",    desc:"All sheets combined: rankings, registrations, submissions, check-ins, feedback." },
+  ];
+
+  return (
+    <div>
+      <SectionHeader title="Data Export Center" />
+      {!activeHackathon && <Empty icon="📤" title="Select a hackathon" />}
+      {activeHackathon && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+          {EXPORTS.map(exp => (
+            <Card key={exp.id} style={{ cursor:"pointer", transition:"border 0.15s" }}
+              onClick={() => !exporting && exportData(exp.id)}>
+              <div style={{ fontSize:36, marginBottom:12 }}>{exp.icon}</div>
+              <div style={{ ...FONT, fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>{exp.label}</div>
+              <div style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.65, marginBottom:14 }}>{exp.desc}</div>
+              <Btn disabled={exporting} style={{ width:"100%" }}>
+                {exporting?<><Spinner/> Exporting…</>:"⬇ Download"}
+              </Btn>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 /* ─── PEOPLE EDITOR ──────────────────────────────────────────────────────── */
 function PeopleEditor({ title, type, hackathonId, toast }) {
   const [items,    setItems]    = useState([]);
@@ -1204,6 +1935,155 @@ function PeopleEditor({ title, type, hackathonId, toast }) {
 }
 
 
+
+
+
+/* ─── LOGIN LOGS PAGE ─────────────────────────────────────────────────────── */
+export function LoginLogsPage({ toast }) {
+  const [logs,    setLogs]    = useState([]);
+  const [total,   setTotal]   = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [filter,  setFilter]  = useState("");   // login|logout|failed|""
+  const [search,  setSearch]  = useState("");
+  const [page,    setPage]    = useState(0);
+  const PAGE = 50;
+
+  const load = async (pg=0, f=filter, s=search) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit:PAGE, offset:pg*PAGE });
+      if (f) params.set("filter", f);
+      if (s) params.set("search", s);
+      const d = await GET(`/api/login-logs?${params}`);
+      if (d.error) toast(d.error,"error");
+      else { setLogs(d.logs); setTotal(d.total); setPage(pg); }
+    } catch(e) { toast(e.message,"error"); }
+    setLoading(false);
+  };
+
+  useEffect(()=>{ load(); },[]);
+
+  const ACTION_COLOR = { login:"green", logout:"blue", failed:"red" };
+  const ACTION_ICON  = { login:"→", logout:"←", failed:"✗" };
+  const METHOD_ICON  = { email:"✉", google:"G", github:"", gitlab:"" };
+
+  const fmtTime = ts => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-US",{month:"short",day:"numeric"}) + " " +
+           d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+  };
+
+  // Stats
+  const loginCount  = logs.filter(l=>l.action==="login").length;
+  const logoutCount = logs.filter(l=>l.action==="logout").length;
+  const failedCount = logs.filter(l=>l.action==="failed").length;
+
+  return (
+    <div>
+      <SectionHeader title="Login Activity Log" count={`${total} total events`}
+        action={<Btn variant="secondary" onClick={()=>load(0)} disabled={loading}>{loading?<Spinner/>:"↻"} Refresh</Btn>}
+      />
+
+      {/* Stats strip */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[["Logins",  loginCount,  C.green],
+          ["Logouts", logoutCount, C.blue],
+          ["Failed",  failedCount, C.red]
+        ].map(([label,val,color])=>(
+          <div key={label} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.md,padding:"14px 16px",textAlign:"center"}}>
+            <div style={{...FONT,fontSize:22,fontWeight:700,color,marginBottom:2}}>{val}</div>
+            <div style={{...FONT,fontSize:12,color:C.text3}}>{label} (shown)</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <Card style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <input style={{...FONT,flex:1,minWidth:160,padding:"7px 11px",borderRadius:R.sm,
+            border:`1px solid ${C.border2}`,background:C.bg,fontSize:13,color:C.text}}
+            placeholder="Search name or email…"
+            value={search} onChange={e=>setSearch(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&load(0,filter,search)} />
+          <div style={{display:"flex",gap:6}}>
+            {["","login","logout","failed"].map(f=>(
+              <button key={f} onClick={()=>{setFilter(f);load(0,f,search);}}
+                style={{...FONT,fontSize:12,padding:"6px 12px",borderRadius:R.sm,cursor:"pointer",
+                  border:`1px solid ${filter===f?C.blue:C.border}`,
+                  background:filter===f?C.bgBlue:C.bg,
+                  color:filter===f?C.blue:C.text3,fontWeight:filter===f?600:400}}>
+                {f||"All"}{f&&` ${ACTION_ICON[f]}`}
+              </button>
+            ))}
+          </div>
+          <Btn size="sm" onClick={()=>load(0,filter,search)}>Search</Btn>
+        </div>
+      </Card>
+
+      {/* Table */}
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:C.bg2,borderBottom:`1px solid ${C.border}`}}>
+              {["Time","User","Email","Role","Action","Method","IP"].map(h=>(
+                <th key={h} style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                  padding:"10px 12px",textAlign:"left",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={7} style={{...FONT,fontSize:13,color:C.text3,textAlign:"center",padding:24}}>
+                <Spinner/> Loading…
+              </td></tr>
+            )}
+            {!loading && logs.length===0 && (
+              <tr><td colSpan={7} style={{...FONT,fontSize:13,color:C.text3,textAlign:"center",padding:24}}>
+                No log entries found.
+              </td></tr>
+            )}
+            {!loading && logs.map((log,i)=>(
+              <tr key={log.id} style={{borderBottom:`1px solid ${C.border}`,
+                background:i%2===0?C.bg:C.bg2,
+                ...(log.action==="failed"?{background:"rgba(239,68,68,0.04)"}:{})}}>
+                <td style={{...MONO,fontSize:11,color:C.text3,padding:"9px 12px",whiteSpace:"nowrap"}}>{fmtTime(log.createdAt)}</td>
+                <td style={{...FONT,fontSize:13,color:C.text,padding:"9px 12px",fontWeight:500}}>{log.name||"—"}</td>
+                <td style={{...FONT,fontSize:12,color:C.text3,padding:"9px 12px"}}>{log.email||"—"}</td>
+                <td style={{padding:"9px 12px"}}>
+                  {log.role&&<Chip label={log.role} color={log.role==="admin"?"blue":"neutral"} />}
+                </td>
+                <td style={{padding:"9px 12px"}}>
+                  <span style={{...FONT,fontSize:12,fontWeight:600,
+                    color:log.action==="login"?C.green:log.action==="logout"?C.blue:C.red}}>
+                    {ACTION_ICON[log.action]} {log.action}
+                  </span>
+                </td>
+                <td style={{padding:"9px 12px"}}>
+                  <Chip label={`${METHOD_ICON[log.method]||""} ${log.method||"?"}`} color="neutral" />
+                </td>
+                <td style={{...MONO,fontSize:11,color:C.text3,padding:"9px 12px"}}>{log.ip||"—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* Pagination */}
+      {total > PAGE && (
+        <div style={{display:"flex",justifyContent:"center",gap:8,marginTop:12}}>
+          <Btn size="sm" variant="secondary" disabled={page===0} onClick={()=>load(page-1)}>← Prev</Btn>
+          <span style={{...FONT,fontSize:13,color:C.text3,padding:"6px 10px"}}>
+            Page {page+1} of {Math.ceil(total/PAGE)}
+          </span>
+          <Btn size="sm" variant="secondary" disabled={(page+1)*PAGE>=total} onClick={()=>load(page+1)}>Next →</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 /* ─── AI COMPONENTS ──────────────────────────────────────────────────────── */

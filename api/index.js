@@ -1151,6 +1151,297 @@ Return ONLY this JSON:
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENTERPRISE FEATURES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── 1. PROJECT SUBMISSIONS ────────────────────────────────────────────────────
+app.get(["/api/submissions","/submissions"], auth, async (req,res)=>{
+  const {hackathonId,teamId,status}=req.query;
+  let sql="SELECT s.*,t.name as team_name,t.category FROM submissions s JOIN teams t ON t.id=s.team_id WHERE s.hackathon_id=$1";
+  const p=[hackathonId];
+  if(teamId){p.push(teamId);sql+=` AND s.team_id=$${p.length}`;}
+  if(status){p.push(status);sql+=` AND s.status=$${p.length}`;}
+  sql+=" ORDER BY s.submitted_at DESC NULLS LAST";
+  try{const{rows}=await q(sql,p);res.json(rows.map(camel));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/submissions","/submissions"], auth, async (req,res)=>{
+  const{hackathonId,teamId,title,tagline,description,problemStatement,solution,techStack,
+    githubUrl,demoUrl,videoUrl,deckUrl,logoUrl,screenshots,track,teamMembers}=req.body;
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  try{
+    const{rows}=await q(`INSERT INTO submissions(id,hackathon_id,team_id,title,tagline,description,problem_statement,
+      solution,tech_stack,github_url,demo_url,video_url,deck_url,logo_url,screenshots,track,team_members,status,submitted_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'submitted',NOW())
+      ON CONFLICT(hackathon_id,team_id) DO UPDATE SET title=$4,tagline=$5,description=$6,problem_statement=$7,
+      solution=$8,tech_stack=$9,github_url=$10,demo_url=$11,video_url=$12,deck_url=$13,logo_url=$14,
+      screenshots=$15,track=$16,team_members=$17,status='submitted',submitted_at=NOW(),updated_at=NOW() RETURNING *`,
+      [id,hackathonId,teamId,title,tagline,description,problemStatement,solution,techStack,
+        githubUrl,demoUrl,videoUrl,deckUrl,logoUrl,screenshots,track,teamMembers]);
+    res.status(201).json(camel(rows[0]));
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.put(["/api/submissions/:id","/submissions/:id"], admin, async (req,res)=>{
+  const{status,track}=req.body;
+  try{const{rows}=await q("UPDATE submissions SET status=$1,track=$2,updated_at=NOW() WHERE id=$3 RETURNING *",[status,track,req.params.id]);
+    res.json(camel(rows[0]));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.delete(["/api/submissions/:id","/submissions/:id"], admin, async (req,res)=>{
+  try{await q("DELETE FROM submissions WHERE id=$1",[req.params.id]);res.json({deleted:true});}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 2. JUDGE PROGRESS ─────────────────────────────────────────────────────────
+app.get(["/api/judge-progress/:hackathonId","/judge-progress/:hackathonId"], auth, async (req,res)=>{
+  try{
+    const{hackathonId}=req.params;
+    const{rows:teams}   =await q("SELECT id,name,project,category FROM teams WHERE hackathon_id=$1",[hackathonId]);
+    const{rows:judges}  =await q(`SELECT DISTINCT j.*,u.id as user_id FROM judges j JOIN users u ON u.judge_id=j.id JOIN hackathon_judges hj ON hj.user_id=u.id WHERE hj.hackathon_id=$1`,[hackathonId]);
+    const{rows:feedbacks}=await q("SELECT judge_id,team_id FROM feedbacks WHERE hackathon_id=$1",[hackathonId]);
+    const{rows:conflicts}=await q("SELECT user_id,team_id FROM judge_conflicts WHERE hackathon_id=$1",[hackathonId]).catch(()=>({rows:[]}));
+    const{rows:jta}      =await q("SELECT user_id,team_id FROM judge_team_assignments WHERE hackathon_id=$1",[hackathonId]).catch(()=>({rows:[]}));
+
+    const progress=judges.map(j=>{
+      const assignedTeams=jta.filter(a=>a.user_id===j.user_id).map(a=>a.team_id);
+      const scopedTeams=assignedTeams.length>0?teams.filter(t=>assignedTeams.includes(t.id)):teams;
+      const conflictTeams=conflicts.filter(c=>c.user_id===j.user_id).map(c=>c.team_id);
+      const eligibleTeams=scopedTeams.filter(t=>!conflictTeams.includes(t.id));
+      const scored=feedbacks.filter(f=>f.judge_id===j.id).map(f=>f.team_id);
+      const pending=eligibleTeams.filter(t=>!scored.includes(t.id));
+      return{
+        judgeId:j.id, userId:j.user_id, name:j.name, org:j.org, avatarUrl:j.avatar_url,
+        total:eligibleTeams.length, scored:scored.length,
+        pending:pending.length, conflicts:conflictTeams.length,
+        pct:eligibleTeams.length?Math.round(scored.length/eligibleTeams.length*100):0,
+        pendingTeams:pending.map(t=>({id:t.id,name:t.name,category:t.category})),
+      };
+    });
+    const overall={total:teams.length,judgesComplete:progress.filter(p=>p.pct===100).length,judgesTotal:judges.length};
+    res.json({progress,overall,teams:teams.map(camel)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 3. ANNOUNCEMENTS ──────────────────────────────────────────────────────────
+app.get(["/api/announcements","/announcements"], auth, async (req,res)=>{
+  const{hackathonId}=req.query;
+  try{const{rows}=await q("SELECT * FROM announcements WHERE hackathon_id=$1 ORDER BY pinned DESC,created_at DESC",[hackathonId]);
+    res.json(rows.map(camel));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.get(["/api/public/announcements","/public/announcements"], async (req,res)=>{
+  const{hackathonId}=req.query;
+  try{const{rows}=await q("SELECT id,title,body,priority,pinned,created_at FROM announcements WHERE hackathon_id=$1 AND (audience='all' OR audience='public') ORDER BY pinned DESC,created_at DESC",[hackathonId]);
+    res.json(rows.map(camel));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/announcements","/announcements"], admin, async (req,res)=>{
+  const{hackathonId,title,body,priority="normal",audience="all",pinned=false}=req.body;
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  try{const{rows}=await q("INSERT INTO announcements(id,hackathon_id,title,body,priority,audience,pinned,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+    [id,hackathonId,title,body,priority,audience,pinned,req.user.id]);
+    res.status(201).json(camel(rows[0]));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.put(["/api/announcements/:id","/announcements/:id"], admin, async (req,res)=>{
+  const{title,body,priority,audience,pinned}=req.body;
+  try{const{rows}=await q("UPDATE announcements SET title=$1,body=$2,priority=$3,audience=$4,pinned=$5 WHERE id=$6 RETURNING *",
+    [title,body,priority,audience,pinned,req.params.id]);res.json(camel(rows[0]));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.delete(["/api/announcements/:id","/announcements/:id"], admin, async (req,res)=>{
+  try{await q("DELETE FROM announcements WHERE id=$1",[req.params.id]);res.json({deleted:true});}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 4. MENTORS ────────────────────────────────────────────────────────────────
+app.get(["/api/mentors","/mentors"], auth, async (req,res)=>{
+  const{hackathonId}=req.query;
+  try{const{rows}=await q("SELECT m.*,COALESCE(json_agg(json_build_object('teamId',ma.team_id,'teamName',t.name)) FILTER(WHERE ma.team_id IS NOT NULL),'[]') as assignments FROM mentors m LEFT JOIN mentor_assignments ma ON ma.mentor_id=m.id LEFT JOIN teams t ON t.id=ma.team_id WHERE m.hackathon_id=$1 GROUP BY m.id ORDER BY m.name",[hackathonId]);
+    res.json(rows.map(camel));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/mentors","/mentors"], admin, async (req,res)=>{
+  const{hackathonId,name,title,org,expertise,bio,avatarUrl,linkedinUrl,email,availability}=req.body;
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  try{const{rows}=await q("INSERT INTO mentors(id,hackathon_id,name,title,org,expertise,bio,avatar_url,linkedin_url,email,availability) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *",
+    [id,hackathonId,name,title,org,expertise,bio,avatarUrl,linkedinUrl,email,availability]);
+    res.status(201).json(camel(rows[0]));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.put(["/api/mentors/:id","/mentors/:id"], admin, async (req,res)=>{
+  const{name,title,org,expertise,bio,avatarUrl,linkedinUrl,email,availability}=req.body;
+  try{const{rows}=await q("UPDATE mentors SET name=$1,title=$2,org=$3,expertise=$4,bio=$5,avatar_url=$6,linkedin_url=$7,email=$8,availability=$9 WHERE id=$10 RETURNING *",
+    [name,title,org,expertise,bio,avatarUrl,linkedinUrl,email,availability,req.params.id]);res.json(camel(rows[0]));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.delete(["/api/mentors/:id","/mentors/:id"], admin, async (req,res)=>{
+  try{await q("DELETE FROM mentors WHERE id=$1",[req.params.id]);res.json({deleted:true});}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/mentor-assignments","/mentor-assignments"], admin, async (req,res)=>{
+  const{mentorId,teamId,hackathonId,notes}=req.body;
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  try{await q("INSERT INTO mentor_assignments(id,mentor_id,team_id,hackathon_id,notes) VALUES($1,$2,$3,$4,$5) ON CONFLICT(mentor_id,team_id) DO NOTHING",[id,mentorId,teamId,hackathonId,notes]);
+    res.status(201).json({assigned:true});}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.delete(["/api/mentor-assignments/:mentorId/:teamId","/mentor-assignments/:mentorId/:teamId"], admin, async (req,res)=>{
+  try{await q("DELETE FROM mentor_assignments WHERE mentor_id=$1 AND team_id=$2",[req.params.mentorId,req.params.teamId]);res.json({deleted:true});}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 5. CONFLICT OF INTEREST ───────────────────────────────────────────────────
+app.get(["/api/conflicts","/conflicts"], auth, async (req,res)=>{
+  const{hackathonId,userId}=req.query;
+  try{const{rows}=await q("SELECT jc.*,t.name as team_name FROM judge_conflicts jc JOIN teams t ON t.id=jc.team_id WHERE jc.hackathon_id=$1" + (userId?" AND jc.user_id=$2":""), userId?[hackathonId,userId]:[hackathonId]);
+    res.json(rows.map(camel));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/conflicts","/conflicts"], auth, async (req,res)=>{
+  const{teamId,hackathonId,reason}=req.body;
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  const userId=req.user.id;
+  try{await q("INSERT INTO judge_conflicts(id,user_id,team_id,hackathon_id,reason) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id,team_id) DO NOTHING",[id,userId,teamId,hackathonId,reason]);
+    res.status(201).json({declared:true});}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.delete(["/api/conflicts/:userId/:teamId","/conflicts/:userId/:teamId"], auth, async (req,res)=>{
+  try{await q("DELETE FROM judge_conflicts WHERE user_id=$1 AND team_id=$2",[req.params.userId,req.params.teamId]);res.json({deleted:true});}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 6. CHECK-IN / ATTENDANCE ──────────────────────────────────────────────────
+app.get(["/api/checkins","/checkins"], auth, async (req,res)=>{
+  const{hackathonId}=req.query;
+  try{const{rows}=await q("SELECT c.*,t.name as team_name FROM checkins c LEFT JOIN teams t ON t.id=c.team_id WHERE c.hackathon_id=$1 ORDER BY c.checked_in_at DESC",[hackathonId]);
+    res.json(rows.map(camel));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/checkins","/checkins"], auth, async (req,res)=>{
+  const{hackathonId,name,email,type="participant",teamId,notes}=req.body;
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  try{const{rows}=await q("INSERT INTO checkins(id,hackathon_id,name,email,type,team_id,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+    [id,hackathonId,name,email,type,teamId||null,notes]);res.status(201).json(camel(rows[0]));}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+app.delete(["/api/checkins/:id","/checkins/:id"], admin, async (req,res)=>{
+  try{await q("DELETE FROM checkins WHERE id=$1",[req.params.id]);res.json({deleted:true});}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+app.get(["/api/checkins/stats/:hackathonId","/checkins/stats/:hackathonId"], auth, async (req,res)=>{
+  try{
+    const{rows}=await q("SELECT type,COUNT(*) as count FROM checkins WHERE hackathon_id=$1 GROUP BY type",[req.params.hackathonId]);
+    const{rows:total}=await q("SELECT COUNT(*) as total FROM checkins WHERE hackathon_id=$1",[req.params.hackathonId]);
+    res.json({byType:Object.fromEntries(rows.map(r=>[r.type,parseInt(r.count)])),total:parseInt(total[0].total)});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 7. CERTIFICATES ───────────────────────────────────────────────────────────
+app.get(["/api/certificates","/certificates"], auth, async (req,res)=>{
+  const{hackathonId}=req.query;
+  try{const{rows}=await q("SELECT * FROM certificates WHERE hackathon_id=$1 ORDER BY type,recipient",[hackathonId]);
+    res.json(rows.map(camel));}catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/certificates/bulk","/certificates/bulk"], admin, async (req,res)=>{
+  const{hackathonId,certs}=req.body; // [{recipient,email,type,teamName,position}]
+  const crypto=require("crypto");
+  try{
+    const inserted=[];
+    for(const c of certs){
+      const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+      const token=crypto.randomBytes(32).toString("hex");
+      const{rows}=await q("INSERT INTO certificates(id,hackathon_id,recipient,email,type,team_name,position,token) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING *",
+        [id,hackathonId,c.recipient,c.email,c.type,c.teamName,c.position,token]);
+      if(rows[0])inserted.push(camel(rows[0]));
+    }
+    res.json({issued:inserted.length,certificates:inserted});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.delete(["/api/certificates/:id","/certificates/:id"], admin, async (req,res)=>{
+  try{await q("DELETE FROM certificates WHERE id=$1",[req.params.id]);res.json({deleted:true});}
+  catch(e){res.status(500).json({error:e.message});}
+});
+
+// Certificate verification (public)
+app.get(["/api/verify-cert/:token","/verify-cert/:token"], async (req,res)=>{
+  try{
+    const{rows}=await q("SELECT c.*,h.name as hackathon_name,h.start_date,h.end_date FROM certificates c JOIN hackathons h ON h.id=c.hackathon_id WHERE c.token=$1",[req.params.token]);
+    if(!rows.length)return res.status(404).json({error:"Certificate not found"});
+    res.json(camel(rows[0]));
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 8. DATA EXPORT ────────────────────────────────────────────────────────────
+app.get(["/api/export/:hackathonId","/export/:hackathonId"], admin, async (req,res)=>{
+  const{type="all"}=req.query;
+  try{
+    const{rows:[hack]}=await q("SELECT * FROM hackathons WHERE id=$1",[req.params.hackathonId]);
+    const{rows:teams}   =await q("SELECT * FROM teams    WHERE hackathon_id=$1 ORDER BY name",[req.params.hackathonId]);
+    const{rows:judges}  =await q("SELECT j.* FROM judges j JOIN feedbacks f ON f.judge_id=j.id WHERE f.hackathon_id=$1 GROUP BY j.id ORDER BY j.name",[req.params.hackathonId]);
+    const{rows:criteria}=await q("SELECT * FROM criteria WHERE hackathon_id=$1 ORDER BY weight DESC",[req.params.hackathonId]);
+    const{rows:feedbacks}=await q("SELECT f.*,j.name as judge_name,t.name as team_name,t.category FROM feedbacks f JOIN judges j ON j.id=f.judge_id JOIN teams t ON t.id=f.team_id WHERE f.hackathon_id=$1",[req.params.hackathonId]);
+    const{rows:regs}    =await q("SELECT * FROM registrations WHERE hackathon_id=$1 ORDER BY created_at DESC",[req.params.hackathonId]).catch(()=>({rows:[]}));
+    const{rows:subs}    =await q("SELECT s.*,t.name as team_name FROM submissions s JOIN teams t ON t.id=s.team_id WHERE s.hackathon_id=$1",[req.params.hackathonId]).catch(()=>({rows:[]}));
+    const{rows:checkins}=await q("SELECT * FROM checkins WHERE hackathon_id=$1 ORDER BY checked_in_at",[req.params.hackathonId]).catch(()=>({rows:[]}));
+
+    const totalWeight=criteria.reduce((s,c)=>s+c.weight,0)||1;
+    const teamScores=teams.map(t=>{
+      const tFbs=feedbacks.filter(f=>f.team_id===t.id);
+      const avg=tFbs.length?tFbs.reduce((sum,fb)=>{
+        return sum+(criteria.reduce((s,c)=>s+((fb.scores[c.id]||0)/c.max_score)*c.weight,0)/totalWeight)*10;
+      },0)/tFbs.length:0;
+      const perJudge=Object.fromEntries(judges.map(j=>{
+        const jFb=tFbs.find(f=>f.judge_id===j.id);
+        if(!jFb)return[j.name,""];
+        const ws=(criteria.reduce((s,c)=>s+((jFb.scores[c.id]||0)/c.max_score)*c.weight,0)/totalWeight)*10;
+        return[j.name,ws.toFixed(1)];
+      }));
+      return{rank:0,team:t.name,project:t.project||"",category:t.category||"",
+        avgScore:avg.toFixed(2),reviews:tFbs.length,...perJudge};
+    }).sort((a,b)=>b.avgScore-a.avgScore).map((t,i)=>({...t,rank:i+1}));
+
+    res.json({
+      hackathon:{name:hack.name,location:hack.location,startDate:hack.start_date,endDate:hack.end_date,prizePool:hack.prize_pool},
+      exportedAt:new Date().toISOString(),
+      teams:teamScores,
+      registrations:regs.map(camel),
+      submissions:subs.map(camel),
+      checkins:checkins.map(camel),
+      rawFeedbacks:feedbacks.map(camel),
+    });
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── 9. LEADERBOARD (public when scoring_released=true) ───────────────────────
+app.get(["/api/leaderboard/:hackathonId","/leaderboard/:hackathonId"], async (req,res)=>{
+  try{
+    const{rows:[hack]}=await q("SELECT id,name,leaderboard_public,scoring_released,banner_color FROM hackathons WHERE id=$1 AND published=true",[req.params.hackathonId]);
+    if(!hack)return res.status(404).json({error:"Not found"});
+    const isAdmin=req.headers.authorization&&(()=>{try{const p=require("jsonwebtoken").verify(req.headers.authorization.replace("Bearer ",""),process.env.JWT_SECRET||JWT_SECRET);return p.role==="admin";}catch{return false;}})();
+    if(!hack.scoring_released&&!isAdmin)return res.json({released:false,message:"Results not yet released"});
+
+    const{rows:criteria}=await q("SELECT * FROM criteria WHERE hackathon_id=$1",[req.params.hackathonId]);
+    const{rows:teams}   =await q("SELECT * FROM teams WHERE hackathon_id=$1",[req.params.hackathonId]);
+    const{rows:fbs}     =await q("SELECT * FROM feedbacks WHERE hackathon_id=$1",[req.params.hackathonId]);
+    const totalWeight=criteria.reduce((s,c)=>s+c.weight,0)||1;
+    const ranked=teams.map(t=>{
+      const tFbs=fbs.filter(f=>f.team_id===t.id);
+      const avg=tFbs.length?tFbs.reduce((sum,fb)=>sum+(criteria.reduce((s,c)=>s+((fb.scores[c.id]||0)/c.max_score)*c.weight,0)/totalWeight)*10,0)/tFbs.length:0;
+      return{id:t.id,name:t.name,project:t.project,category:t.category,avgScore:+avg.toFixed(1),reviews:tFbs.length};
+    }).filter(t=>t.reviews>0).sort((a,b)=>b.avgScore-a.avgScore).map((t,i)=>({...t,rank:i+1}));
+    res.json({released:true,hackathon:{name:hack.name,accentColor:hack.banner_color},leaderboard:ranked});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
   res.status(404).json({
