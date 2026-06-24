@@ -122,100 +122,83 @@ function OAuthBtn({ provider, icon, label }) {
 }
 
 function LoginPage({ onLogin }) {
-  const [err, setErr]         = useState("");
+  const [email,   setEmail]   = useState("");
+  const [pass,    setPass]    = useState("");
+  const [err,     setErr]     = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Email/password kept for admin fallback — accessed via URL param ?adminLogin=1
-  const showAdminLogin = new URLSearchParams(window.location.search).get("adminLogin") === "1";
-  const [email, setEmail]     = useState("");
-  const [pass,  setPass]      = useState("");
-
-  const loginEmail = async e => {
+  const submit = async e => {
     e.preventDefault(); setLoading(true); setErr("");
     try {
-      const r = await fetch("/api/auth/login", { method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ email, password: pass }) }).then(r=>r.json());
+      const r = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: pass }),
+      }).then(r => r.json());
       if (r.error) setErr(r.error);
       else { localStorage.setItem("hf_token", r.token); onLogin(r.user || JSON.parse(atob(r.token.split(".")[1]))); }
     } catch(e) { setErr(e.message); }
     setLoading(false);
   };
 
-  const OAUTH = [
-    { provider:"github", label:"Continue with GitHub",  icon:"", color:"#24292e", hover:"#1a1f24" },
-    { provider:"google", label:"Continue with Google",  icon:"G", color:"#4285f4", hover:"#3367d6" },
-    { provider:"gitlab", label:"Continue with GitLab",  icon:"", color:"#fc6d26", hover:"#e24329" },
-  ];
+  const IS = { width:"100%", padding:"11px 14px", borderRadius:8,
+    border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)",
+    color:"#fff", fontSize:14, outline:"none", fontFamily:"'Inter',sans-serif" };
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)",
-      display:"flex",alignItems:"center",justifyContent:"center",padding:24,
+    <div style={{minHeight:"100vh", background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)",
+      display:"flex", alignItems:"center", justifyContent:"center", padding:24,
       fontFamily:"'Inter',sans-serif"}}>
-      <div style={{width:"100%",maxWidth:400}}>
-        {/* Logo */}
-        <div style={{textAlign:"center",marginBottom:36}}>
-          <div style={{fontSize:42,marginBottom:12}}>⚡</div>
-          <h1 style={{fontSize:26,fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:6}}>
+      <div style={{width:"100%", maxWidth:380}}>
+        <div style={{textAlign:"center", marginBottom:36}}>
+          <div style={{fontSize:44, marginBottom:12}}>⚡</div>
+          <h1 style={{fontSize:26, fontWeight:800, color:"#fff", letterSpacing:"-0.03em", marginBottom:6}}>
             HackFest Hub
           </h1>
-          <p style={{fontSize:14,color:"rgba(255,255,255,0.45)"}}>
-            Hackathon Management Platform
-          </p>
+          <p style={{fontSize:14, color:"rgba(255,255,255,0.4)"}}>Hackathon Management Platform</p>
         </div>
 
-        {/* Card */}
-        <div style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",
-          borderRadius:18,padding:28,backdropFilter:"blur(12px)"}}>
-          <div style={{fontSize:16,fontWeight:600,color:"#fff",textAlign:"center",marginBottom:20}}>
-            Sign in to continue
-          </div>
+        <div style={{background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)",
+          borderRadius:18, padding:28, backdropFilter:"blur(12px)"}}>
+          <div style={{fontSize:15, fontWeight:600, color:"#fff", marginBottom:20}}>Sign in</div>
 
-          {err&&<div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",
-            borderRadius:8,padding:"10px 14px",fontSize:13,color:"#f87171",marginBottom:16,textAlign:"center"}}>
-            {err}
-          </div>}
-
-          {/* OAuth buttons */}
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {OAUTH.map(({provider,label,icon,color,hover}) => (
-              <a key={provider} href={`/api/auth/${provider}`}
-                style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-                  padding:"12px 20px",borderRadius:10,background:color,color:"#fff",
-                  textDecoration:"none",fontSize:14,fontWeight:600,
-                  fontFamily:"'Inter',sans-serif",transition:"background 0.15s",
-                  border:"none",cursor:"pointer"}}
-                onMouseEnter={e=>e.currentTarget.style.background=hover}
-                onMouseLeave={e=>e.currentTarget.style.background=color}>
-                <span style={{fontSize:16,lineHeight:1}}>{icon}</span>
-                {label}
-              </a>
-            ))}
-          </div>
-
-          {/* Admin fallback login — hidden, access via ?adminLogin=1 */}
-          {showAdminLogin && (
-            <form onSubmit={loginEmail} style={{marginTop:20,paddingTop:20,borderTop:"1px solid rgba(255,255,255,0.1)"}}>
-              <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",textAlign:"center",marginBottom:12,textTransform:"uppercase",letterSpacing:"0.08em"}}>Admin Access</div>
-              <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required
-                style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid rgba(255,255,255,0.15)",
-                  background:"rgba(255,255,255,0.07)",color:"#fff",fontSize:14,marginBottom:10,outline:"none",
-                  fontFamily:"'Inter',sans-serif"}} />
-              <input type="password" placeholder="Password" value={pass} onChange={e=>setPass(e.target.value)} required
-                style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid rgba(255,255,255,0.15)",
-                  background:"rgba(255,255,255,0.07)",color:"#fff",fontSize:14,marginBottom:14,outline:"none",
-                  fontFamily:"'Inter',sans-serif"}} />
-              <button type="submit" disabled={loading}
-                style={{width:"100%",padding:"11px",borderRadius:8,background:"#6366f1",color:"#fff",
-                  border:"none",cursor:"pointer",fontSize:14,fontWeight:600,fontFamily:"'Inter',sans-serif"}}>
-                {loading?"Signing in…":"Sign in"}
-              </button>
-            </form>
+          {err && (
+            <div style={{background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)",
+              borderRadius:8, padding:"10px 14px", fontSize:13, color:"#f87171", marginBottom:16}}>
+              {err}
+            </div>
           )}
+
+          <form onSubmit={submit}>
+            <div style={{marginBottom:12}}>
+              <label style={{display:"block", fontSize:11, fontWeight:500, color:"rgba(255,255,255,0.5)",
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6}}>Email</label>
+              <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+                placeholder="you@example.com" style={IS}
+                onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+            </div>
+            <div style={{marginBottom:20}}>
+              <label style={{display:"block", fontSize:11, fontWeight:500, color:"rgba(255,255,255,0.5)",
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6}}>Password</label>
+              <input type="password" required value={pass} onChange={e=>setPass(e.target.value)}
+                placeholder="••••••••" style={IS}
+                onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+            </div>
+            <button type="submit" disabled={loading}
+              style={{width:"100%", padding:"12px", borderRadius:10,
+                background: loading ? "rgba(99,102,241,0.6)" : "#6366f1",
+                color:"#fff", border:"none", cursor: loading ? "not-allowed" : "pointer",
+                fontSize:15, fontWeight:700, fontFamily:"'Inter',sans-serif",
+                boxShadow:"0 4px 20px rgba(99,102,241,0.4)", transition:"background 0.15s"}}>
+              {loading ? "Signing in…" : "Sign in →"}
+            </button>
+          </form>
         </div>
 
-        <p style={{textAlign:"center",marginTop:20,fontSize:12,color:"rgba(255,255,255,0.2)"}}>
-          HackFest Hub · Secure sign-in
+        <p style={{textAlign:"center", marginTop:20, fontSize:12, color:"rgba(255,255,255,0.2)"}}>
+          HackFest Hub · Secure access
         </p>
       </div>
     </div>
