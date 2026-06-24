@@ -128,13 +128,13 @@ function LoginPage({ onLogin }) {
   const [pass,    setPass]    = useState("");
   const [err,     setErr]     = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPass, setShowPass] = useState(false);
 
   const submit = async e => {
     e.preventDefault(); setLoading(true); setErr("");
     try {
       const r = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ email, password: pass }),
       }).then(r => r.json());
       if (r.error) setErr(r.error);
@@ -143,128 +143,272 @@ function LoginPage({ onLogin }) {
     setLoading(false);
   };
 
-  const IS = { width:"100%", padding:"11px 14px", borderRadius:8,
-    border:"1px solid rgba(255,255,255,0.15)", background:"rgba(255,255,255,0.07)",
-    color:"#fff", fontSize:14, outline:"none", fontFamily:"'Inter',sans-serif" };
+  const features = [
+    { icon:"🏆", text:"Smart judging with weighted scoring" },
+    { icon:"📊", text:"Real-time leaderboard & analytics" },
+    { icon:"🤖", text:"AI-powered insights & calibration" },
+    { icon:"🎓", text:"Certificates, mentors & check-in" },
+    { icon:"🌐", text:"Beautiful public conference page" },
+  ];
 
   return (
-    <div style={{minHeight:"100vh", background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)",
-      display:"flex", alignItems:"center", justifyContent:"center", padding:24,
-      fontFamily:"'Inter',sans-serif"}}>
-      <div style={{width:"100%", maxWidth:380}}>
-        <div style={{textAlign:"center", marginBottom:36}}>
-          <div style={{fontSize:44, marginBottom:12}}>⚡</div>
-          <h1 style={{fontSize:26, fontWeight:800, color:"#fff", letterSpacing:"-0.03em", marginBottom:6}}>
-            HackFest Hub
-          </h1>
-          <p style={{fontSize:14, color:"rgba(255,255,255,0.4)"}}>Hackathon Management Platform</p>
+    <div style={{
+      minHeight:"100vh",
+      background:"#f0f2f5",
+      display:"flex",
+      alignItems:"center",
+      justifyContent:"center",
+      padding:24,
+      fontFamily:"'Inter',system-ui,sans-serif",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        * { box-sizing: border-box; }
+        input:focus { outline: none; }
+        .login-input:focus { border-color: #4f46e5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12) !important; }
+        .sign-btn:hover:not(:disabled) { background: #4338ca !important; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(79,70,229,0.35) !important; }
+        .sign-btn:active { transform: translateY(0) !important; }
+        .sign-btn { transition: all 0.18s ease !important; }
+        @keyframes slideIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+        @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
+        @keyframes float   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+      `}</style>
+
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"1fr 1fr",
+        maxWidth:920,
+        width:"100%",
+        background:"#fff",
+        borderRadius:20,
+        overflow:"hidden",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.12), 0 4px 20px rgba(0,0,0,0.06)",
+        animation:"slideIn 0.4s ease both",
+      }}>
+
+        {/* ── Left brand panel ── */}
+        <div style={{
+          background:"linear-gradient(145deg,#1e1b4b 0%,#312e81 40%,#4c1d95 100%)",
+          padding:"52px 44px",
+          display:"flex",
+          flexDirection:"column",
+          justifyContent:"space-between",
+          position:"relative",
+          overflow:"hidden",
+        }}>
+          {/* Decorative circles */}
+          <div style={{position:"absolute",top:-60,right:-60,width:240,height:240,borderRadius:"50%",
+            background:"rgba(255,255,255,0.04)",pointerEvents:"none"}}/>
+          <div style={{position:"absolute",bottom:-40,left:-40,width:180,height:180,borderRadius:"50%",
+            background:"rgba(255,255,255,0.04)",pointerEvents:"none"}}/>
+          <div style={{position:"absolute",top:"40%",right:-20,width:100,height:100,borderRadius:"50%",
+            background:"rgba(167,139,250,0.15)",pointerEvents:"none"}}/>
+
+          {/* Logo & title */}
+          <div style={{position:"relative"}}>
+            <div style={{
+              display:"inline-flex",
+              alignItems:"center",
+              gap:10,
+              background:"rgba(255,255,255,0.1)",
+              borderRadius:12,
+              padding:"8px 16px",
+              marginBottom:36,
+              border:"1px solid rgba(255,255,255,0.15)",
+            }}>
+              <span style={{fontSize:20}}>⚡</span>
+              <span style={{fontSize:14,fontWeight:700,color:"#fff",letterSpacing:"-0.01em"}}>HackFest Hub</span>
+            </div>
+
+            <h1 style={{
+              fontSize:30,
+              fontWeight:800,
+              color:"#fff",
+              lineHeight:1.2,
+              letterSpacing:"-0.03em",
+              marginBottom:12,
+            }}>
+              Run brilliant<br/>hackathons.
+            </h1>
+            <p style={{
+              fontSize:15,
+              color:"rgba(255,255,255,0.55)",
+              lineHeight:1.65,
+              marginBottom:40,
+            }}>
+              The complete platform for organizing world-class innovation events — from registration to results.
+            </p>
+
+            {/* Feature list */}
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {features.map((f,i)=>(
+                <div key={i} style={{
+                  display:"flex",alignItems:"center",gap:12,
+                  animation:`fadeIn 0.4s ease both`,
+                  animationDelay:`${0.1+i*0.07}s`,
+                }}>
+                  <div style={{
+                    width:34,height:34,borderRadius:9,flexShrink:0,
+                    background:"rgba(255,255,255,0.1)",
+                    border:"1px solid rgba(255,255,255,0.12)",
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:16,
+                  }}>{f.icon}</div>
+                  <span style={{fontSize:13,color:"rgba(255,255,255,0.7)",lineHeight:1.4}}>{f.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{position:"relative",marginTop:40}}>
+            <p style={{fontSize:11,color:"rgba(255,255,255,0.25)",lineHeight:1.6}}>
+              © {new Date().getFullYear()} HackFest Hub.<br/>
+              Enterprise Hackathon Management Platform.
+            </p>
+          </div>
         </div>
 
-        <div style={{background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)",
-          borderRadius:18, padding:28, backdropFilter:"blur(12px)"}}>
-          <div style={{fontSize:15, fontWeight:600, color:"#fff", marginBottom:20}}>Sign in</div>
+        {/* ── Right form panel ── */}
+        <div style={{
+          padding:"52px 44px",
+          display:"flex",
+          flexDirection:"column",
+          justifyContent:"center",
+        }}>
+          <div style={{marginBottom:36}}>
+            <h2 style={{fontSize:24,fontWeight:800,color:"#111827",letterSpacing:"-0.03em",marginBottom:6}}>
+              Welcome back
+            </h2>
+            <p style={{fontSize:14,color:"#6b7280"}}>
+              Sign in to your organizer account
+            </p>
+          </div>
 
           {err && (
-            <div style={{background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)",
-              borderRadius:8, padding:"10px 14px", fontSize:13, color:"#f87171", marginBottom:16}}>
-              {err}
+            <div style={{
+              display:"flex",alignItems:"flex-start",gap:10,
+              background:"#fef2f2",border:"1px solid #fecaca",
+              borderRadius:10,padding:"12px 14px",marginBottom:20,
+            }}>
+              <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
+              <span style={{fontSize:13,color:"#991b1b",lineHeight:1.5}}>{err}</span>
             </div>
           )}
 
-          <form onSubmit={submit}>
-            <div style={{marginBottom:12}}>
-              <label style={{display:"block", fontSize:11, fontWeight:500, color:"rgba(255,255,255,0.5)",
-                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6}}>Email</label>
-              <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
-                placeholder="you@example.com" style={IS}
-                onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
-                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+          <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:18}}>
+            {/* Email */}
+            <div>
+              <label style={{
+                display:"block",fontSize:13,fontWeight:600,
+                color:"#374151",marginBottom:7,
+              }}>Email address</label>
+              <div style={{position:"relative"}}>
+                <span style={{
+                  position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",
+                  fontSize:16,color:"#9ca3af",pointerEvents:"none",
+                }}>✉</span>
+                <input
+                  type="email" required autoComplete="email" autoFocus
+                  className="login-input"
+                  value={email} onChange={e=>setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  style={{
+                    width:"100%",paddingLeft:38,paddingRight:14,
+                    paddingTop:11,paddingBottom:11,
+                    borderRadius:10,fontSize:14,color:"#111827",
+                    background:"#f9fafb",
+                    border:"1.5px solid #e5e7eb",
+                    transition:"all 0.15s",
+                  }}
+                />
+              </div>
             </div>
-            <div style={{marginBottom:20}}>
-              <label style={{display:"block", fontSize:11, fontWeight:500, color:"rgba(255,255,255,0.5)",
-                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6}}>Password</label>
-              <input type="password" required value={pass} onChange={e=>setPass(e.target.value)}
-                placeholder="••••••••" style={IS}
-                onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
-                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+
+            {/* Password */}
+            <div>
+              <label style={{
+                display:"block",fontSize:13,fontWeight:600,
+                color:"#374151",marginBottom:7,
+              }}>Password</label>
+              <div style={{position:"relative"}}>
+                <span style={{
+                  position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",
+                  fontSize:16,color:"#9ca3af",pointerEvents:"none",
+                }}>🔒</span>
+                <input
+                  type={showPass?"text":"password"} required autoComplete="current-password"
+                  className="login-input"
+                  value={pass} onChange={e=>setPass(e.target.value)}
+                  placeholder="Enter your password"
+                  style={{
+                    width:"100%",paddingLeft:38,paddingRight:42,
+                    paddingTop:11,paddingBottom:11,
+                    borderRadius:10,fontSize:14,color:"#111827",
+                    background:"#f9fafb",
+                    border:"1.5px solid #e5e7eb",
+                    transition:"all 0.15s",
+                  }}
+                />
+                <button type="button" onClick={()=>setShowPass(!showPass)}
+                  style={{
+                    position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
+                    background:"none",border:"none",cursor:"pointer",
+                    fontSize:16,color:"#9ca3af",padding:2,lineHeight:1,
+                  }}>
+                  {showPass?"🙈":"👁"}
+                </button>
+              </div>
             </div>
-            <button type="submit" disabled={loading}
-              style={{width:"100%", padding:"12px", borderRadius:10,
-                background: loading ? "rgba(99,102,241,0.6)" : "#6366f1",
-                color:"#fff", border:"none", cursor: loading ? "not-allowed" : "pointer",
-                fontSize:15, fontWeight:700, fontFamily:"'Inter',sans-serif",
-                boxShadow:"0 4px 20px rgba(99,102,241,0.4)", transition:"background 0.15s"}}>
-              {loading ? "Signing in…" : "Sign in →"}
+
+            {/* Submit button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="sign-btn"
+              style={{
+                width:"100%",padding:"13px",
+                borderRadius:10,fontSize:15,fontWeight:700,
+                background: loading?"#818cf8":"#4f46e5",
+                color:"#fff",border:"none",
+                cursor:loading?"not-allowed":"pointer",
+                boxShadow:"0 4px 14px rgba(79,70,229,0.3)",
+                display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+              }}>
+              {loading
+                ? <><span style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.35)",
+                    borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",
+                    animation:"spin 0.7s linear infinite"}}/> Signing in…</>
+                : "Sign in →"
+              }
             </button>
           </form>
-        </div>
 
-        <p style={{textAlign:"center", marginTop:20, fontSize:12, color:"rgba(255,255,255,0.2)"}}>
-          HackFest Hub · Secure access
-        </p>
+          {/* Help text */}
+          <div style={{
+            marginTop:28,padding:"16px",
+            background:"#f8fafc",borderRadius:10,
+            border:"1px solid #e2e8f0",
+          }}>
+            <p style={{fontSize:12,color:"#64748b",lineHeight:1.6,margin:0}}>
+              <strong style={{color:"#475569"}}>Need access?</strong> Contact your hackathon administrator to get your login credentials.
+            </p>
+          </div>
+        </div>
       </div>
+
+      {/* Responsive mobile fix */}
+      <style>{`
+        @media(max-width:640px){
+          .login-grid{grid-template-columns:1fr!important;}
+          .login-left{display:none!important;}
+        }
+        @keyframes spin{to{transform:rotate(360deg)}}
+      `}</style>
     </div>
   );
 }
 
-
-
-// ── Admin navigation ─────────────────────────────────────────────────────────
-const ADMIN_NAV = [
-  // Overview
-  {id:"dashboard",     label:"Dashboard",        section:"overview"},
-  {id:"hackathons",    label:"Hackathons",        section:"overview"},
-  {id:"teams",         label:"Teams",             section:"overview"},
-  {id:"judges",        label:"Judges",            section:"overview"},
-  {id:"criteria",      label:"Criteria",          section:"overview"},
-  // Judging
-  {id:"feedback",      label:"Submit Feedback",   section:"judging"},
-  {id:"all-feedback",  label:"All Feedback",      section:"judging"},
-  {id:"reports",       label:"Reports",           section:"judging"},
-  {id:"best-judge",    label:"Best Judge Award",  section:"judging"},
-  // Administration
-  {id:"users",         label:"User Management",   section:"administration"},
-  {id:"public-cms",    label:"Page CMS",          section:"administration"},
-  {id:"public",        label:"Public Pages",      section:"administration"},
-  {id:"registrations", label:"Registrations",     section:"administration"},
-  {id:"login-logs",    label:"Login Activity",    section:"administration"},
-  // Event Operations
-  {id:"submissions",   label:"Submissions",       section:"operations"},
-  {id:"judge-progress",label:"Judge Progress",    section:"operations"},
-  {id:"announcements", label:"Announcements",     section:"operations"},
-  {id:"checkin",       label:"Check-in",          section:"operations"},
-  // Post-Event
-  {id:"mentors",       label:"Mentors",           section:"post-event"},
-  {id:"certificates",  label:"Certificates",      section:"post-event"},
-  {id:"export",        label:"Data Export",       section:"post-event"},
-];
-
-const SECTIONS = [
-  { id:"overview",       label:"Overview"       },
-  { id:"judging",        label:"Judging"        },
-  { id:"administration", label:"Administration" },
-  { id:"operations",     label:"Event Ops"      },
-  { id:"post-event",     label:"Post-Event"     },
-];
-
-// ── Judge navigation (based on permissions) ───────────────────────────────────
-const JUDGE_EXTRA = [
-  {id:"dashboard",    label:"Dashboard"},
-  {id:"reports",      label:"Reports"},
-  {id:"all-feedback", label:"All Feedback"},
-];
-
-function getJudgeNav(currentUser) {
-  const base = [
-    {id:"feedback",    label:"Submit Feedback", section:"judging"},
-    {id:"submissions", label:"Submissions",     section:"operations"},
-    {id:"announcements",label:"Announcements", section:"operations"},
-  ];
-  const extraPages = JUDGE_EXTRA.filter(ep =>
-    (currentUser?.permissions || []).some(p => p.page === ep.id)
-  ).map(ep => ({...ep, section:"judging"}));
-  return [...base, ...extraPages];
-}
 
 function AppShell() {
   // Initialise from localStorage only — OAuth token handled in useEffect below
