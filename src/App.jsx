@@ -410,6 +410,57 @@ function LoginPage({ onLogin }) {
 }
 
 
+// ── Navigation constants — always defined before AppShell uses them ───────────
+const ADMIN_NAV = [
+  {id:"dashboard",     label:"Dashboard",             section:"overview"},
+  {id:"hackathons",    label:"Hackathons",             section:"overview"},
+  {id:"teams",         label:"Teams",                  section:"overview"},
+  {id:"judges",        label:"Judges",                 section:"overview"},
+  {id:"criteria",      label:"Criteria",               section:"overview"},
+  {id:"feedback",      label:"Submit Feedback",        section:"judging"},
+  {id:"all-feedback",  label:"All Feedback",           section:"judging"},
+  {id:"reports",       label:"Reports",                section:"judging"},
+  {id:"best-judge",    label:"Best Judge Award",       section:"judging"},
+  {id:"users",         label:"User Management",        section:"administration"},
+  {id:"public-cms",    label:"Page CMS",               section:"administration"},
+  {id:"public",        label:"Pages & Registrations",  section:"administration"},
+  {id:"login-logs",    label:"Login Activity",         section:"administration"},
+  {id:"submissions",   label:"Submissions",            section:"operations"},
+  {id:"judge-progress",label:"Judge Progress",         section:"operations"},
+  {id:"announcements", label:"Announcements",          section:"operations"},
+  {id:"checkin",       label:"Check-in",               section:"operations"},
+  {id:"mentors",       label:"Mentors",                section:"post-event"},
+  {id:"certificates",  label:"Certificates",           section:"post-event"},
+  {id:"export",        label:"Data Export",            section:"post-event"},
+];
+
+const SECTIONS = [
+  {id:"overview",       label:"Overview"},
+  {id:"judging",        label:"Judging"},
+  {id:"administration", label:"Administration"},
+  {id:"operations",     label:"Event Ops"},
+  {id:"post-event",     label:"Post-Event"},
+];
+
+const JUDGE_EXTRA = [
+  {id:"dashboard",    label:"Dashboard"},
+  {id:"reports",      label:"Reports"},
+  {id:"all-feedback", label:"All Feedback"},
+];
+
+function getJudgeNav(user) {
+  const base = [
+    {id:"feedback",     label:"Submit Feedback", section:"judging"},
+    {id:"submissions",  label:"Submissions",     section:"operations"},
+    {id:"announcements",label:"Announcements",   section:"operations"},
+  ];
+  const extra = JUDGE_EXTRA
+    .filter(ep => (user?.permissions||[]).some(p => p.page === ep.id))
+    .map(ep => ({...ep, section:"judging"}));
+  return [...base, ...extra];
+}
+
+
 function AppShell() {
   // Initialise from localStorage only — OAuth token handled in useEffect below
   const [currentUser, setCurrentUser] = useState(() => {
