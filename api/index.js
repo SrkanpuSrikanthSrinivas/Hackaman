@@ -62,29 +62,6 @@ app.get(["/api/health", "/health"], async (_req, res) => {
   catch (e) { res.status(503).json({ status: "error", message: e.message }); }
 });
 
-// ── LOGOUT ────────────────────────────────────────────────────────────────────
-app.post(["/api/auth/logout", "/auth/logout"], auth, async (req, res) => {
-  await logEvent("logout", req.user, req, req.user?.oauthProvider || "email");
-  res.json({ ok: true });
-});
-
-// ── LOGIN AUDIT LOG (admin only) ─────────────────────────────────────────────
-app.get(["/api/login-logs", "/login-logs"], admin, async (req, res) => {
-  try {
-    const limit  = Math.min(parseInt(req.query.limit)||100, 500);
-    const offset = parseInt(req.query.offset)||0;
-    const filter = req.query.filter;
-    const search = req.query.search||"";
-    const params = [];
-    let where = "WHERE 1=1";
-    if (filter) { params.push(filter); where += ` AND action=$${params.length}`; }
-    if (search) { params.push(`%${search}%`); where += ` AND (name ILIKE $${params.length} OR email ILIKE $${params.length})`; }
-    const { rows } = await q(`SELECT * FROM login_logs ${where} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`, params).catch(()=>({rows:[]}));
-    const { rows: ct } = await q(`SELECT COUNT(*) FROM login_logs ${where}`, params).catch(()=>({rows:[{count:0}]}));
-    res.json({ logs: rows.map(camel), total: parseInt(ct[0].count) });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
 // Diagnostic — call /api/debug/routes to see registered routes + what path Vercel sends
 app.get(["/api/debug/routes", "/debug/routes"], (req, res) => {
   const routes = [];
@@ -205,7 +182,6 @@ app.get(["/api/auth/google/callback", "/auth/google/callback"], async (req, res)
     const ur = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${access_token}` } });
     const g = await ur.json();
     const user = await upsertOAuth("google", g.sub, g.name, g.email, g.picture);
-    await logEvent("login", user, req, "google");
     const payload = await buildUserPayload(user);
     res.redirect(oauthCallback(jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" })));
   } catch (e) { console.error("Google OAuth:", e.message); res.redirect(`${FRONTEND_URL}/?error=oauth_failed`); }
@@ -233,7 +209,6 @@ app.get(["/api/auth/gitlab/callback", "/auth/gitlab/callback"], async (req, res)
     const ur = await fetch("https://gitlab.com/api/v4/user", { headers: { Authorization: `Bearer ${access_token}` } });
     const g = await ur.json();
     const user = await upsertOAuth("gitlab", g.id, g.name, g.email, g.avatar_url);
-    await logEvent("login", user, req, "gitlab");
     const payload = await buildUserPayload(user);
     res.redirect(oauthCallback(jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" })));
   } catch (e) { console.error("GitLab OAuth:", e.message); res.redirect(`${FRONTEND_URL}/?error=oauth_failed`); }
