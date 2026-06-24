@@ -1206,6 +1206,155 @@ function PeopleEditor({ title, type, hackathonId, toast }) {
 
 
 
+
+/* ─── LOGIN LOGS PAGE ─────────────────────────────────────────────────────── */
+export function LoginLogsPage({ toast }) {
+  const [logs,    setLogs]    = useState([]);
+  const [total,   setTotal]   = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [filter,  setFilter]  = useState("");   // login|logout|failed|""
+  const [search,  setSearch]  = useState("");
+  const [page,    setPage]    = useState(0);
+  const PAGE = 50;
+
+  const load = async (pg=0, f=filter, s=search) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit:PAGE, offset:pg*PAGE });
+      if (f) params.set("filter", f);
+      if (s) params.set("search", s);
+      const d = await GET(`/api/login-logs?${params}`);
+      if (d.error) toast(d.error,"error");
+      else { setLogs(d.logs); setTotal(d.total); setPage(pg); }
+    } catch(e) { toast(e.message,"error"); }
+    setLoading(false);
+  };
+
+  useEffect(()=>{ load(); },[]);
+
+  const ACTION_COLOR = { login:"green", logout:"blue", failed:"red" };
+  const ACTION_ICON  = { login:"→", logout:"←", failed:"✗" };
+  const METHOD_ICON  = { email:"✉", google:"G", github:"", gitlab:"" };
+
+  const fmtTime = ts => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-US",{month:"short",day:"numeric"}) + " " +
+           d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+  };
+
+  // Stats
+  const loginCount  = logs.filter(l=>l.action==="login").length;
+  const logoutCount = logs.filter(l=>l.action==="logout").length;
+  const failedCount = logs.filter(l=>l.action==="failed").length;
+
+  return (
+    <div>
+      <SectionHeader title="Login Activity Log" count={`${total} total events`}
+        action={<Btn variant="secondary" onClick={()=>load(0)} disabled={loading}>{loading?<Spinner/>:"↻"} Refresh</Btn>}
+      />
+
+      {/* Stats strip */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[["Logins",  loginCount,  C.green],
+          ["Logouts", logoutCount, C.blue],
+          ["Failed",  failedCount, C.red]
+        ].map(([label,val,color])=>(
+          <div key={label} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.md,padding:"14px 16px",textAlign:"center"}}>
+            <div style={{...FONT,fontSize:22,fontWeight:700,color,marginBottom:2}}>{val}</div>
+            <div style={{...FONT,fontSize:12,color:C.text3}}>{label} (shown)</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <Card style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <input style={{...FONT,flex:1,minWidth:160,padding:"7px 11px",borderRadius:R.sm,
+            border:`1px solid ${C.border2}`,background:C.bg,fontSize:13,color:C.text}}
+            placeholder="Search name or email…"
+            value={search} onChange={e=>setSearch(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&load(0,filter,search)} />
+          <div style={{display:"flex",gap:6}}>
+            {["","login","logout","failed"].map(f=>(
+              <button key={f} onClick={()=>{setFilter(f);load(0,f,search);}}
+                style={{...FONT,fontSize:12,padding:"6px 12px",borderRadius:R.sm,cursor:"pointer",
+                  border:`1px solid ${filter===f?C.blue:C.border}`,
+                  background:filter===f?C.bgBlue:C.bg,
+                  color:filter===f?C.blue:C.text3,fontWeight:filter===f?600:400}}>
+                {f||"All"}{f&&` ${ACTION_ICON[f]}`}
+              </button>
+            ))}
+          </div>
+          <Btn size="sm" onClick={()=>load(0,filter,search)}>Search</Btn>
+        </div>
+      </Card>
+
+      {/* Table */}
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:C.bg2,borderBottom:`1px solid ${C.border}`}}>
+              {["Time","User","Email","Role","Action","Method","IP"].map(h=>(
+                <th key={h} style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                  padding:"10px 12px",textAlign:"left",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={7} style={{...FONT,fontSize:13,color:C.text3,textAlign:"center",padding:24}}>
+                <Spinner/> Loading…
+              </td></tr>
+            )}
+            {!loading && logs.length===0 && (
+              <tr><td colSpan={7} style={{...FONT,fontSize:13,color:C.text3,textAlign:"center",padding:24}}>
+                No log entries found.
+              </td></tr>
+            )}
+            {!loading && logs.map((log,i)=>(
+              <tr key={log.id} style={{borderBottom:`1px solid ${C.border}`,
+                background:i%2===0?C.bg:C.bg2,
+                ...(log.action==="failed"?{background:"rgba(239,68,68,0.04)"}:{})}}>
+                <td style={{...MONO,fontSize:11,color:C.text3,padding:"9px 12px",whiteSpace:"nowrap"}}>{fmtTime(log.createdAt)}</td>
+                <td style={{...FONT,fontSize:13,color:C.text,padding:"9px 12px",fontWeight:500}}>{log.name||"—"}</td>
+                <td style={{...FONT,fontSize:12,color:C.text3,padding:"9px 12px"}}>{log.email||"—"}</td>
+                <td style={{padding:"9px 12px"}}>
+                  {log.role&&<Chip label={log.role} color={log.role==="admin"?"blue":"neutral"} />}
+                </td>
+                <td style={{padding:"9px 12px"}}>
+                  <span style={{...FONT,fontSize:12,fontWeight:600,
+                    color:log.action==="login"?C.green:log.action==="logout"?C.blue:C.red}}>
+                    {ACTION_ICON[log.action]} {log.action}
+                  </span>
+                </td>
+                <td style={{padding:"9px 12px"}}>
+                  <Chip label={`${METHOD_ICON[log.method]||""} ${log.method||"?"}`} color="neutral" />
+                </td>
+                <td style={{...MONO,fontSize:11,color:C.text3,padding:"9px 12px"}}>{log.ip||"—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* Pagination */}
+      {total > PAGE && (
+        <div style={{display:"flex",justifyContent:"center",gap:8,marginTop:12}}>
+          <Btn size="sm" variant="secondary" disabled={page===0} onClick={()=>load(page-1)}>← Prev</Btn>
+          <span style={{...FONT,fontSize:13,color:C.text3,padding:"6px 10px"}}>
+            Page {page+1} of {Math.ceil(total/PAGE)}
+          </span>
+          <Btn size="sm" variant="secondary" disabled={(page+1)*PAGE>=total} onClick={()=>load(page+1)}>Next →</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 /* ─── AI COMPONENTS ──────────────────────────────────────────────────────── */
 
 // Shared AI button + result panel used across multiple pages
