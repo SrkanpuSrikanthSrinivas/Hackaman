@@ -14,6 +14,20 @@ async function q(sql, p = []) {
   const client = await pool.connect();
   try { return await client.query(sql, p); } finally { client.release(); }
 }
+
+// ── Audit log helper ─────────────────────────────────────────────────────────
+async function logEvent(action, user, req, method = "email") {
+  try {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const ip = ((req.headers["x-forwarded-for"] || "").split(",")[0] || req.socket?.remoteAddress || "").trim().slice(0, 60);
+    const ua = (req.headers["user-agent"] || "").slice(0, 300);
+    await q(
+      "INSERT INTO login_logs(id,user_id,name,email,role,action,method,ip,user_agent) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      [id, user?.id || null, user?.name || null, user?.email || null, user?.role || null, action, method, ip, ua]
+    );
+  } catch (_) { /* never break auth over a logging failure */ }
+}
+
 const toCamel = s => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 function camel(row) {
   if (!row) return null;
@@ -62,6 +76,29 @@ app.get(["/api/health", "/health"], async (_req, res) => {
   catch (e) { res.status(503).json({ status: "error", message: e.message }); }
 });
 
+// ── LOGOUT ────────────────────────────────────────────────────────────────────
+app.post(["/api/auth/logout", "/auth/logout"], auth, async (req, res) => {
+  await logEvent("logout", req.user, req, req.user?.oauthProvider || "email");
+  res.json({ ok: true });
+});
+
+// ── LOGIN AUDIT LOG (admin only) ─────────────────────────────────────────────
+app.get(["/api/login-logs", "/login-logs"], admin, async (req, res) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit)||100, 500);
+    const offset = parseInt(req.query.offset)||0;
+    const filter = req.query.filter;
+    const search = req.query.search||"";
+    const params = [];
+    let where = "WHERE 1=1";
+    if (filter) { params.push(filter); where += ` AND action=$${params.length}`; }
+    if (search) { params.push(`%${search}%`); where += ` AND (name ILIKE $${params.length} OR email ILIKE $${params.length})`; }
+    const { rows } = await q(`SELECT * FROM login_logs ${where} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`, params).catch(()=>({rows:[]}));
+    const { rows: ct } = await q(`SELECT COUNT(*) FROM login_logs ${where}`, params).catch(()=>({rows:[{count:0}]}));
+    res.json({ logs: rows.map(camel), total: parseInt(ct[0].count) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Diagnostic — call /api/debug/routes to see registered routes + what path Vercel sends
 app.get(["/api/debug/routes", "/debug/routes"], (req, res) => {
   const routes = [];
@@ -82,7 +119,11 @@ app.post(["/api/auth/login", "/auth/login"], async (req, res) => {
     const user = rows[0];
     if (!user || !user.password_hash) return res.status(401).json({ error: "Invalid email or password" });
     const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ error: "Invalid email or password" });
+    if (!ok) {
+      await logEvent("failed", user, req, "email");
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    await logEvent("login", user, req, "email");
     const payload = await buildUserPayload(user);
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
     res.json({ token, user: payload });
@@ -155,6 +196,7 @@ app.get(["/api/auth/github/callback", "/auth/github/callback"], async (req, res)
     const emails = await er.json();
     const email = (Array.isArray(emails) ? emails.find(e => e.primary)?.email : null) || ghUser.email;
     const user = await upsertOAuth("github", ghUser.id, ghUser.name || ghUser.login, email, ghUser.avatar_url);
+    await logEvent("login", user, req, "github");
     const payload = await buildUserPayload(user);
     res.redirect(oauthCallback(jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" })));
   } catch (e) { console.error("GitHub OAuth:", e.message); res.redirect(`${FRONTEND_URL}/?error=oauth_failed`); }
@@ -182,6 +224,7 @@ app.get(["/api/auth/google/callback", "/auth/google/callback"], async (req, res)
     const ur = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${access_token}` } });
     const g = await ur.json();
     const user = await upsertOAuth("google", g.sub, g.name, g.email, g.picture);
+    await logEvent("login", user, req, "google");
     const payload = await buildUserPayload(user);
     res.redirect(oauthCallback(jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" })));
   } catch (e) { console.error("Google OAuth:", e.message); res.redirect(`${FRONTEND_URL}/?error=oauth_failed`); }
@@ -209,6 +252,7 @@ app.get(["/api/auth/gitlab/callback", "/auth/gitlab/callback"], async (req, res)
     const ur = await fetch("https://gitlab.com/api/v4/user", { headers: { Authorization: `Bearer ${access_token}` } });
     const g = await ur.json();
     const user = await upsertOAuth("gitlab", g.id, g.name, g.email, g.avatar_url);
+    await logEvent("login", user, req, "gitlab");
     const payload = await buildUserPayload(user);
     res.redirect(oauthCallback(jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" })));
   } catch (e) { console.error("GitLab OAuth:", e.message); res.redirect(`${FRONTEND_URL}/?error=oauth_failed`); }
