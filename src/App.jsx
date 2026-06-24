@@ -208,6 +208,64 @@ function LoginPage({ onLogin }) {
 }
 
 
+
+// ── Admin navigation ─────────────────────────────────────────────────────────
+const ADMIN_NAV = [
+  // Overview
+  {id:"dashboard",     label:"Dashboard",        section:"overview"},
+  {id:"hackathons",    label:"Hackathons",        section:"overview"},
+  {id:"teams",         label:"Teams",             section:"overview"},
+  {id:"judges",        label:"Judges",            section:"overview"},
+  {id:"criteria",      label:"Criteria",          section:"overview"},
+  // Judging
+  {id:"feedback",      label:"Submit Feedback",   section:"judging"},
+  {id:"all-feedback",  label:"All Feedback",      section:"judging"},
+  {id:"reports",       label:"Reports",           section:"judging"},
+  {id:"best-judge",    label:"Best Judge Award",  section:"judging"},
+  // Administration
+  {id:"users",         label:"User Management",   section:"administration"},
+  {id:"public-cms",    label:"Page CMS",          section:"administration"},
+  {id:"public",        label:"Public Pages",      section:"administration"},
+  {id:"registrations", label:"Registrations",     section:"administration"},
+  {id:"login-logs",    label:"Login Activity",    section:"administration"},
+  // Event Operations
+  {id:"submissions",   label:"Submissions",       section:"operations"},
+  {id:"judge-progress",label:"Judge Progress",    section:"operations"},
+  {id:"announcements", label:"Announcements",     section:"operations"},
+  {id:"checkin",       label:"Check-in",          section:"operations"},
+  // Post-Event
+  {id:"mentors",       label:"Mentors",           section:"post-event"},
+  {id:"certificates",  label:"Certificates",      section:"post-event"},
+  {id:"export",        label:"Data Export",       section:"post-event"},
+];
+
+const SECTIONS = [
+  { id:"overview",       label:"Overview"       },
+  { id:"judging",        label:"Judging"        },
+  { id:"administration", label:"Administration" },
+  { id:"operations",     label:"Event Ops"      },
+  { id:"post-event",     label:"Post-Event"     },
+];
+
+// ── Judge navigation (based on permissions) ───────────────────────────────────
+const JUDGE_EXTRA = [
+  {id:"dashboard",    label:"Dashboard"},
+  {id:"reports",      label:"Reports"},
+  {id:"all-feedback", label:"All Feedback"},
+];
+
+function getJudgeNav(currentUser) {
+  const base = [
+    {id:"feedback",    label:"Submit Feedback", section:"judging"},
+    {id:"submissions", label:"Submissions",     section:"operations"},
+    {id:"announcements",label:"Announcements", section:"operations"},
+  ];
+  const extraPages = JUDGE_EXTRA.filter(ep =>
+    (currentUser?.permissions || []).some(p => p.page === ep.id)
+  ).map(ep => ({...ep, section:"judging"}));
+  return [...base, ...extraPages];
+}
+
 function AppShell() {
   // Initialise from localStorage only — OAuth token handled in useEffect below
   const [currentUser, setCurrentUser] = useState(() => {
