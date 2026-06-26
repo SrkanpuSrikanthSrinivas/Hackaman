@@ -220,6 +220,12 @@ export default function PublicPage({hackathonId}){
   const[data,setData]=useState(null);
   const[loading,setLoading]=useState(true);
   const[err,setErr]=useState("");
+  const[spotsTaken,setSpotsTaken]=useState(0);
+
+  useEffect(()=>{
+    fetch(`${BASE}/api/public/hackathons/${hackathonId}/registrations-count`)
+      .then(r=>r.json()).then(d=>setSpotsTaken(d.count||0)).catch(()=>{});
+  },[hackathonId]);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -276,12 +282,6 @@ export default function PublicPage({hackathonId}){
   const TIER_ORDER=["platinum","gold","silver","bronze","media","general"];
   const TIER_LABEL={platinum:"Platinum",gold:"Gold",silver:"Silver",bronze:"Bronze",media:"Media Partner",general:"Community Partner"};
   const spotsTotal = data.maxParticipants || 0;
-  const [spotsTaken, setSpotsTaken] = useState(0);
-  useEffect(()=>{
-    if(!spotsTotal)return;
-    fetch(`${BASE}/api/public/hackathons/${hackathonId}/registrations-count`)
-      .then(r=>r.json()).then(d=>setSpotsTaken(d.count||0)).catch(()=>{});
-  },[hackathonId]);
 
   const statsItems=(data.websiteStats||"").split("\n").filter(Boolean).map(l=>{const[icon,value,...rest]=l.split("|");return{icon:(icon||"").trim(),value:(value||"").trim(),label:rest.join("|").trim()};}).filter(s=>s.value);
   const galleryImages=(data.galleryImages||"").split("\n").map(s=>s.trim()).filter(Boolean);
