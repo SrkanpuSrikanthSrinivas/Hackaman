@@ -285,7 +285,7 @@ export default function PublicPage({hackathonId}){
 
   const statsItems=(data.websiteStats||"").split("\n").filter(Boolean).map(l=>{const[icon,value,...rest]=l.split("|");return{icon:(icon||"").trim(),value:(value||"").trim(),label:rest.join("|").trim()};}).filter(s=>s.value);
   const galleryImages=(data.galleryImages||"").split("\n").map(s=>s.trim()).filter(Boolean);
-  const testimonials=(data.websiteTestimonials||"").split("\n\n").filter(Boolean).map(b=>{const lines=b.split("\n");return{quote:lines[0]||"",author:lines[1]||"",role:lines[2]||""};}).filter(t=>t.quote);
+  const NLNL="\n\n"; const testimonials=(data.websiteTestimonials||"").split(NLNL).filter(Boolean).map(b=>{const lines=b.split("\n");return{quote:lines[0]||"",author:lines[1]||"",role:lines[2]||""};}).filter(t=>t.quote);
   const isPreviewMode=new URLSearchParams(window.location.search).get("preview")==="1";
 
   function scrollTo(id){document.getElementById(id)?.scrollIntoView({behavior:"smooth"});}
@@ -648,10 +648,14 @@ export default function PublicPage({hackathonId}){
 
       {/* ── PROBLEM STATEMENTS ── */}
       {data.problemStatements&&(()=>{
+        const NL="\n";
         let problems=[];
-        try{problems=JSON.parse(data.problemStatements);}catch{
-          problems=(data.problemStatements||"").split("\n").filter(Boolean).map((b,i)=>{
-            const[title,...rest]=b.split("\n"); return{id:i,title,description:rest.join("\n")};
+        try{problems=JSON.parse(data.problemStatements);}catch(_){
+          problems=(data.problemStatements||"").split(NL).filter(Boolean).map((b,i)=>{
+            const parts=b.split(NL);
+            const title=parts[0]||"";
+            const description=parts.slice(1).join(NL);
+            return{id:i,title,description};
           });
         }
         if(!problems.length)return null;
@@ -681,7 +685,7 @@ export default function PublicPage({hackathonId}){
       {data.resources&&(()=>{
         let res=[];
         try{res=JSON.parse(data.resources);}catch{
-          res=(data.resources||"").split("\n").filter(Boolean).map(l=>{
+          const NL2="\n"; res=(data.resources||"").split(NL2).filter(Boolean).map(l=>{
             const[name,...rest]=l.split("|"); return{name:name.trim(),url:rest[0]?.trim(),desc:rest[1]?.trim()};
           });
         }
