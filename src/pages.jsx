@@ -270,7 +270,7 @@ export default function PublicPage({hackathonId}){
 
   const accent=data.bannerColor||"#6366f1";
   const tracks=(data.tracks||"").split(",").map(t=>t.trim()).filter(Boolean);
-  const faqRaw=(data.faq||"").split("\n\n")).filter(Boolean);
+  const faqRaw=(data.faq||"").split("\n\n").filter(Boolean);
   const faqs=faqRaw.map(b=>{const[q,...rest]=b.split("\n");return{q:(q||"").replace(/^Q:\s*/i,""),a:rest.join("\n").replace(/^A:\s*/i,"")};}).filter(f=>f.q);
   const byTier={}; (data.partners||[]).forEach(p=>(byTier[p.tier]||(byTier[p.tier]=[])).push(p));
   const TIER_ORDER=["platinum","gold","silver","bronze","media","general"];
@@ -285,7 +285,7 @@ export default function PublicPage({hackathonId}){
 
   const statsItems=(data.websiteStats||"").split("\n").filter(Boolean).map(l=>{const[icon,value,...rest]=l.split("|");return{icon:(icon||"").trim(),value:(value||"").trim(),label:rest.join("|").trim()};}).filter(s=>s.value);
   const galleryImages=(data.galleryImages||"").split("\n").map(s=>s.trim()).filter(Boolean);
-  const testimonials=(data.websiteTestimonials||"").split("\n\n")).filter(Boolean).map(b=>{const lines=b.split("\n");return{quote:lines[0]||"",author:lines[1]||"",role:lines[2]||""};}).filter(t=>t.quote);
+  const testimonials=(data.websiteTestimonials||"").split("\n\n").filter(Boolean).map(b=>{const lines=b.split("\n");return{quote:lines[0]||"",author:lines[1]||"",role:lines[2]||""};}).filter(t=>t.quote);
   const isPreviewMode=new URLSearchParams(window.location.search).get("preview")==="1";
 
   function scrollTo(id){document.getElementById(id)?.scrollIntoView({behavior:"smooth"});}
