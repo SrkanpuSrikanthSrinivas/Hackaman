@@ -1,1103 +1,3451 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  GET, POST, PUT, DEL, PGET, PPOST,
+  fmtDate, fmtDt, calcScore, avgOf,
+  STATUS_CHIP, CAT_CHIP,
+  C, FONT, MONO, R,
+  Chip, Btn, INPUT_STYLE as IN, TA_STYLE as TA,
+  Field, Avatar, Modal, Card, SectionHeader, Stat, ScoreBar, DataTable, Spinner, Empty,
+} from "./shared.jsx";
 
-const BASE = ["localhost","127.0.0.1"].includes(window.location.hostname)
-  ? "http://localhost:3001" : "";
-
-const FF = {fontFamily:"'Inter',sans-serif"};
-const MM = {fontFamily:"'Space Mono',monospace"};
-
-function fmt(d){ if(!d)return""; const s=d.length<=10?d+"T12:00:00":d; const dt=new Date(s); return isNaN(dt)?"":dt.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}); }
-function fmtS(d){ if(!d)return""; const s=d.length<=10?d+"T12:00:00":d; const dt=new Date(s); return isNaN(dt)?"":dt.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
-function ytId(url){ const m=url?.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m?m[1]:null; }
-function vimId(url){ const m=url?.match(/vimeo\.com\/(?:video\/)?(\d+)/); return m?m[1]:null; }
-function initials(name){ return (name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(); }
-
-const COLORS=["#6366f1","#8b5cf6","#ec4899","#06b6d4","#10b981","#f59e0b","#ef4444","#f97316"];
-function avatarColor(name){ return COLORS[(name||"").charCodeAt(0)%COLORS.length]; }
-
-// ── Countdown ────────────────────────────────────────────────────────────────
-function Countdown({target}){
-  const[t,setT]=useState({d:0,h:0,m:0,s:0});
-  useEffect(()=>{
-    function tick(){const diff=new Date(target)-Date.now();if(diff<=0){setT({d:0,h:0,m:0,s:0});return;}setT({d:Math.floor(diff/864e5),h:Math.floor(diff%864e5/36e5),m:Math.floor(diff%36e5/6e4),s:Math.floor(diff%6e4/1e3)});}
-    tick(); const id=setInterval(tick,1000); return()=>clearInterval(id);
-  },[target]);
-  function Box({v,l}){return(
-    <div style={{textAlign:"center"}}>
-      <div style={{...MM,fontSize:"clamp(24px,4vw,48px)",fontWeight:700,color:"#fff",
-        background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.12)",
-        borderRadius:10,padding:"10px 16px",minWidth:64,lineHeight:1}}>
-        {String(v).padStart(2,"0")}
+/* ─── DASHBOARD ────────────────────────────────────────────────────────── */
+export function DashboardPage({ db, activeHackathon }) {
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  if (!hack) return <Empty icon="🏆" title="Select a hackathon" sub="Choose an event from the sidebar." />;
+  const teams=db.teams.filter(t=>t.hackathonId===hack.id);
+  const criteria=db.criteria.filter(c=>c.hackathonId===hack.id);
+  const fbs=db.feedbacks.filter(f=>f.hackathonId===hack.id);
+  const possible=teams.length*db.judges.length;
+  const coverage=possible>0?Math.round(fbs.length/possible*100):0;
+  const ranked=[...teams].map(t=>{const tf=fbs.filter(f=>f.teamId===t.id);return{...t,avg:avgOf(tf,criteria),count:tf.length};}).sort((a,b)=>(b.avg||0)-(a.avg||0));
+  const recent=[...fbs].sort((a,b)=>new Date(b.submittedAt)-new Date(a.submittedAt)).slice(0,6);
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}}>
+        <div><h1 style={{...FONT,fontSize:20,fontWeight:600,color:C.text,marginBottom:3}}>{hack.name}</h1>
+          <div style={{...FONT,fontSize:13,color:C.text3}}>{hack.location} · {fmtDate(hack.startDate)} – {fmtDate(hack.endDate)}</div></div>
+        <Chip label={hack.status} color={STATUS_CHIP[hack.status]||"neutral"} />
       </div>
-      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:6,
-        letterSpacing:"0.12em",textTransform:"uppercase"}}>{l}</div>
-    </div>
-  );}
-  function Sep(){return <div style={{...MM,fontSize:28,color:"rgba(255,255,255,0.2)",paddingTop:8}}>:</div>;}
-  return(
-    <div style={{display:"flex",gap:8,alignItems:"flex-start",justifyContent:"center"}}>
-      <Box v={t.d} l="Days"/><Sep/><Box v={t.h} l="Hours"/><Sep/>
-      <Box v={t.m} l="Mins"/><Sep/><Box v={t.s} l="Secs"/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:22}}>
+        <Stat label="Teams" value={teams.length} />
+        <Stat label="Judges" value={db.judges.length} />
+        <Stat label="Feedbacks" value={fbs.length} sub={`of ${possible} possible`} color={C.blue} />
+        <Stat label="Coverage" value={`${coverage}%`} color={coverage>=75?C.green:C.amber} />
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1.6fr 1fr",gap:14}}>
+        <Card>
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16,display:"flex",justifyContent:"space-between"}}>
+            <span>Leaderboard</span><span style={{fontSize:11,fontWeight:400,color:C.text3}}>{criteria.length} criteria · weighted</span>
+          </div>
+          {ranked.length===0?<div style={{...FONT,fontSize:13,color:C.text3,textAlign:"center",padding:"28px 0"}}>No teams yet.</div>
+            :ranked.map((t,i)=>(
+              <div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 0",borderBottom:i<ranked.length-1?`1px solid ${C.border}`:"none"}}>
+                <span style={{...MONO,fontSize:11,color:C.text3,minWidth:18,textAlign:"right"}}>{i+1}</span>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                    <span style={{...FONT,fontSize:13,fontWeight:500,color:C.text}}>{t.name}</span>
+                    <Chip label={t.category} color={CAT_CHIP[t.category]||"neutral"} />
+                  </div>
+                  <div style={{...FONT,fontSize:11,color:C.text3,marginBottom:5}}>{t.project} · {t.count} review{t.count!==1?"s":""}</div>
+                  <ScoreBar value={t.avg||0} />
+                </div>
+                <span style={{...MONO,fontSize:18,fontWeight:600,minWidth:40,textAlign:"right",
+                  color:t.avg==null?C.text3:t.avg>=8?C.green:t.avg>=6?C.blue:C.amber}}>{t.avg??"—"}</span>
+              </div>
+            ))
+          }
+        </Card>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Card>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>Recent Activity</div>
+            {recent.length===0?<div style={{...FONT,fontSize:12,color:C.text3,textAlign:"center",padding:"12px 0"}}>No feedback yet.</div>
+              :recent.map((fb,i)=>{
+                const team=db.teams.find(t=>t.id===fb.teamId);const judge=db.judges.find(j=>j.id===fb.judgeId);
+                const s=calcScore(fb.scores,criteria);
+                return <div key={fb.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<recent.length-1?`1px solid ${C.border}`:"none"}}>
+                  <div><div style={{...FONT,fontSize:12,fontWeight:500,color:C.text}}>{team?.name}</div>
+                    <div style={{...FONT,fontSize:11,color:C.text3}}>by {judge?.name?.split(" ").at(-1)} · {fmtDt(fb.submittedAt)}</div></div>
+                  <span style={{...MONO,fontSize:13,fontWeight:500,color:s==null?C.text3:s>=8?C.green:C.blue}}>{s??"—"}</span>
+                </div>;
+              })
+            }
+          </Card>
+          <Card style={{background:"#111827",border:"1px solid #1f2937"}}>
+            <div style={{...FONT,fontSize:11,fontWeight:500,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Criteria Weights</div>
+            {criteria.length===0?<div style={{...FONT,fontSize:12,color:"#4b5563",textAlign:"center",padding:"8px 0"}}>None defined.</div>
+              :criteria.map(c=>(
+                <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                  <span style={{...FONT,fontSize:12,color:"#9ca3af",minWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                  <div style={{flex:1,background:"#1f2937",borderRadius:2,height:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${c.weight}%`,background:"#3b82f6",borderRadius:2}} />
+                  </div>
+                  <span style={{...MONO,fontSize:11,color:"#3b82f6",minWidth:30,textAlign:"right"}}>{c.weight}%</span>
+                </div>
+              ))
+            }
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
 
-// ── PersonCard ───────────────────────────────────────────────────────────────
-function PersonCard({person,size}){
-  const sz=size==="lg"?96:72;
-  return(
-    <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",
-      borderRadius:14,padding:size==="lg"?24:18,textAlign:"center",transition:"transform 0.2s"}}
-      onMouseEnter={e=>e.currentTarget.style.transform="translateY(-3px)"}
-      onMouseLeave={e=>e.currentTarget.style.transform="none"}>
-      <div style={{width:sz,height:sz,borderRadius:"50%",margin:"0 auto 12px",overflow:"hidden",
-        border:"3px solid rgba(255,255,255,0.1)",
-        background:person.avatarUrl?"transparent":avatarColor(person.name),
-        display:"flex",alignItems:"center",justifyContent:"center"}}>
-        {person.avatarUrl
-          ?<img src={person.avatarUrl} alt={person.name} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"} />
-          :<span style={{...MM,fontSize:sz*0.3,fontWeight:700,color:"#fff"}}>{initials(person.name)}</span>}
-      </div>
-      <div style={{...FF,fontSize:size==="lg"?15:13,fontWeight:600,color:"#fff",marginBottom:4}}>{person.name}</div>
-      {person.title&&<div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.45)",marginBottom:2}}>{person.title}</div>}
-      {person.org&&<div style={{...FF,fontSize:12,color:"#818cf8",fontWeight:500,marginBottom:4}}>{person.org}</div>}
-      {person.sessionTopic&&<div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.35)",fontStyle:"italic",marginBottom:6}}>"{person.sessionTopic}"</div>}
-      {person.bio&&<p style={{...FF,fontSize:11,color:"rgba(255,255,255,0.35)",lineHeight:1.6,marginBottom:6,textAlign:"left"}}>{person.bio.slice(0,120)}{person.bio.length>120?"…":""}</p>}
-      {(person.linkedinUrl||person.twitterUrl)&&(
-        <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:4}}>
-          {person.linkedinUrl&&<a href={person.linkedinUrl} target="_blank" rel="noopener" style={{...FF,fontSize:11,color:"#818cf8",textDecoration:"none",padding:"2px 8px",border:"1px solid #818cf844",borderRadius:4}}>in</a>}
-          {person.twitterUrl&&<a href={person.twitterUrl} target="_blank" rel="noopener" style={{...FF,fontSize:11,color:"#38bdf8",textDecoration:"none",padding:"2px 8px",border:"1px solid #38bdf844",borderRadius:4}}>𝕏</a>}
+/* ─── HACKATHONS ───────────────────────────────────────────────────────── */
+export function HackathonsPage({ db, reload, toast, setActive, setPage }) {
+  const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [expand,setExpand]=useState(null);
+  const f=k=>e=>setForm(p=>({...p,[k]:typeof e==="object"&&e?.target?e.target.value:e}));
+  const hackStats=db.hackathons.map(h=>{
+    const teams=db.teams.filter(t=>t.hackathonId===h.id);
+    const criteria=db.criteria.filter(c=>c.hackathonId===h.id);
+    const fbs=db.feedbacks.filter(f=>f.hackathonId===h.id);
+    const possible=teams.length*db.judges.length;
+    const coverage=possible>0?Math.round(fbs.length/possible*100):0;
+    const ranked=[...teams].map(t=>({...t,avg:avgOf(fbs.filter(f=>f.teamId===t.id),criteria)})).sort((a,b)=>(b.avg||0)-(a.avg||0));
+    const vals=ranked.map(t=>t.avg).filter(Boolean);
+    const eventAvg=vals.length?+(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1):null;
+    return{...h,teams,criteria,fbs,possible,coverage,ranked,leader:ranked[0]||null,eventAvg};
+  });
+  const open=(h,e)=>{e?.stopPropagation();setForm(h?{...h,published:!!h.published}:{status:"upcoming",published:false});setModal(h||"new");};
+  const close=()=>setModal(null);
+  const save=async()=>{
+    if(!form.name?.trim())return toast("Name is required","error");setSaving(true);
+    try{if(modal==="new")await POST("/api/hackathons",form);else await PUT(`/api/hackathons/${modal.id}`,form);await reload();toast(modal==="new"?"Hackathon created":"Updated");close();}
+    catch(e){toast(e.message,"error");}setSaving(false);
+  };
+  const del=async(id,e)=>{e?.stopPropagation();if(!confirm("Delete this hackathon and all its data?"))return;
+    try{await DEL(`/api/hackathons/${id}`);await reload();toast("Deleted");}catch(e){toast(e.message,"error");}};
+  const togglePublish=async(h,e)=>{e?.stopPropagation();
+    try{await PUT(`/api/hackathons/${h.id}`,{...h,published:!h.published});await reload();toast(h.published?"Unpublished":"Published — now live publicly");}
+    catch(e){toast(e.message,"error");}};
+  return (
+    <div>
+      <SectionHeader title="Hackathons" count={`${db.hackathons.length} events`} action={<Btn onClick={e=>open(null,e)}>+ New Hackathon</Btn>} />
+      {db.hackathons.length>1&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+          <Stat label="Total Events" value={db.hackathons.length} />
+          <Stat label="Active" value={db.hackathons.filter(h=>h.status==="active").length} color={C.green} />
+          <Stat label="Published" value={db.hackathons.filter(h=>h.published).length} color={C.blue} />
+          <Stat label="Total Feedback" value={db.feedbacks.length} />
         </div>
+      )}
+      {db.hackathons.length===0?<Empty icon="🏆" title="No hackathons" sub="Create your first event to get started." action={<Btn onClick={e=>open(null,e)}>Create Hackathon</Btn>} />
+        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {hackStats.map(h=>{
+            const isExp=expand===h.id;
+            return(
+              <Card key={h.id} pad={0} style={{overflow:"hidden"}}>
+                <div style={{display:"grid",gridTemplateColumns:"2.2fr 80px 150px 90px 100px 110px 200px",alignItems:"center",padding:"14px 16px",cursor:"pointer",gap:0}} onClick={()=>setExpand(isExp?null:h.id)}>
+                  <div style={{paddingRight:16}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <span style={{...FONT,fontSize:14,fontWeight:600,color:C.text}}>{h.name}</span>
+                      <Chip label={h.status} color={STATUS_CHIP[h.status]||"neutral"} />
+                      {h.published&&<Chip label="live" color="green" />}
+                    </div>
+                    <div style={{...FONT,fontSize:12,color:C.text3}}>{h.location} · {fmtDate(h.startDate)} – {fmtDate(h.endDate)}</div>
+                  </div>
+                  {[
+                    {label:"TEAMS",v:<span style={{...MONO,fontSize:18,fontWeight:500,color:C.text}}>{h.teams.length}</span>},
+                    {label:"COVERAGE",v:<div><div style={{display:"flex",alignItems:"center",gap:5}}><div style={{flex:1,background:C.bg3,borderRadius:3,height:4,overflow:"hidden"}}><div style={{height:"100%",width:`${h.coverage}%`,background:h.coverage>=75?C.green:h.coverage>=40?C.blue:C.amber,borderRadius:3}} /></div><span style={{...MONO,fontSize:11,color:C.text2}}>{h.coverage}%</span></div><div style={{...FONT,fontSize:10,color:C.text3,marginTop:2}}>{h.fbs.length}/{h.possible}</div></div>},
+                    {label:"CRITERIA",v:<span style={{...MONO,fontSize:18,fontWeight:500,color:C.text}}>{h.criteria.length}</span>},
+                    {label:"AVG SCORE",v:<span style={{...MONO,fontSize:18,fontWeight:500,color:h.eventAvg==null?C.text3:h.eventAvg>=8?C.green:h.eventAvg>=6?C.blue:C.amber}}>{h.eventAvg??"—"}</span>},
+                    {label:"LEADER",v:h.leader?<div><div style={{...FONT,fontSize:12,fontWeight:500,color:C.text}}>{h.leader.name}</div><div style={{...MONO,fontSize:11,color:C.green}}>{h.leader.avg}</div></div>:<span style={{...FONT,fontSize:12,color:C.text3}}>—</span>},
+                  ].map(({label,v})=>(
+                    <div key={label} style={{borderLeft:`1px solid ${C.border}`,paddingLeft:12}}>
+                      <div style={{...FONT,fontSize:10,color:C.text3,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</div>
+                      {v}
+                    </div>
+                  ))}
+                  <div style={{borderLeft:`1px solid ${C.border}`,paddingLeft:12,display:"flex",flexDirection:"column",gap:6}}>
+                    <Btn size="sm" variant="blue" onClick={e=>{e.stopPropagation();setActive(h.id);setPage("dashboard");}}>Open Dashboard</Btn>
+                    <div style={{display:"flex",gap:5}}>
+                      <Btn size="sm" variant="secondary" onClick={e=>open(h,e)}>Edit</Btn>
+                      <Btn size="sm" variant={h.published?"secondary":"success"} onClick={e=>togglePublish(h,e)}>{h.published?"Unpublish":"Publish"}</Btn>
+                      <Btn size="sm" variant="danger" onClick={e=>del(h.id,e)}>Del</Btn>
+                    </div>
+                  </div>
+                </div>
+                {isExp&&(
+                  <div style={{borderTop:`1px solid ${C.border}`,background:C.bg2,padding:"14px 16px"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+                      <div>
+                        <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Team Rankings</div>
+                        {h.ranked.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>No teams.</div>
+                          :h.ranked.map((t,i)=>(
+                            <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                              <span style={{...MONO,fontSize:11,color:C.text3,minWidth:14}}>{i+1}</span>
+                              <div style={{flex:1}}><div style={{...FONT,fontSize:12,fontWeight:500,color:C.text,marginBottom:2}}>{t.name}</div>
+                                <div style={{background:C.border,borderRadius:2,height:4,overflow:"hidden"}}><div style={{height:"100%",width:`${(t.avg||0)*10}%`,background:t.avg>=8?C.green:t.avg>=6?C.blue:C.amber,borderRadius:2}} /></div></div>
+                              <span style={{...MONO,fontSize:12,fontWeight:500,color:t.avg==null?C.text3:C.blue}}>{t.avg??"—"}</span>
+                            </div>
+                          ))
+                        }
+                      </div>
+                      <div>
+                        <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Judge Coverage</div>
+                        {db.judges.map(j=>{const cnt=h.fbs.filter(f=>f.judgeId===j.id).length;const done=cnt===h.teams.length&&h.teams.length>0;return(
+                          <div key={j.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                            <span style={{...FONT,fontSize:12,color:C.text2}}>{j.name}</span>
+                            <div style={{display:"flex",alignItems:"center",gap:5}}>
+                              <span style={{...MONO,fontSize:11,color:done?C.green:C.text3}}>{cnt}/{h.teams.length}</span>
+                              {done&&<span style={{color:C.green,fontSize:12}}>✓</span>}
+                            </div>
+                          </div>
+                        );})}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      }
+      {modal&&(
+        <Modal title={modal==="new"?"New Hackathon":"Edit Hackathon"} onClose={close} width={600}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Event Name" required><input style={IN} value={form.name||""} onChange={f("name")} placeholder="HackFest 2025" /></Field>
+            <Field label="Tagline"><input style={IN} value={form.tagline||""} onChange={f("tagline")} placeholder="Build the future in 48 hrs" /></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+            <Field label="Start Date"><input type="date" style={IN} value={form.startDate?.slice(0,10)||""} onChange={f("startDate")} /></Field>
+            <Field label="End Date"><input type="date" style={IN} value={form.endDate?.slice(0,10)||""} onChange={f("endDate")} /></Field>
+            <Field label="Status"><select style={IN} value={form.status||"upcoming"} onChange={f("status")}><option value="upcoming">Upcoming</option><option value="active">Active</option><option value="completed">Completed</option></select></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Location"><input style={IN} value={form.location||""} onChange={f("location")} placeholder="City, State" /></Field>
+            <Field label="Prize Pool"><input style={IN} value={form.prizePool||""} onChange={f("prizePool")} placeholder="$25,000 in prizes" /></Field>
+          </div>
+          <Field label="Tracks" hint="Comma-separated"><input style={IN} value={form.tracks||""} onChange={f("tracks")} placeholder="AI/ML, Sustainability, Security" /></Field>
+          <Field label="Description"><textarea style={TA} value={form.description||""} onChange={f("description")} /></Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Banner Color" hint="Accent color for the public page hero">
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input type="color" value={form.bannerColor||"#1e3a8a"} onChange={f("bannerColor")} style={{width:40,height:34,borderRadius:R.sm,border:`1px solid ${C.border}`,cursor:"pointer",padding:2}} />
+                <input style={{...IN,flex:1}} value={form.bannerColor||"#1e3a8a"} onChange={f("bannerColor")} placeholder="#1e3a8a" />
+              </div>
+            </Field>
+            <div />
+          </div>
+                    <Field label="Schedule" hint="One item per line. Format: 9:00 AM | Opening Ceremony">
+            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.schedule||""} onChange={f("schedule")} placeholder="9:00 AM | Registration & Check-in&#10;10:00 AM | Kickoff & Announcements&#10;11:00 AM | Hacking Begins" />
+          </Field>
+          <Field label="FAQ" hint="Separate Q&amp;A blocks with a blank line. Use Q: and A: prefixes">
+            <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.faq||""} onChange={f("faq")} placeholder="Q: Who can participate?&#10;A: Anyone 18+ with a laptop.&#10;&#10;Q: Is it free?&#10;A: Yes, completely free." />
+          </Field>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,padding:"10px 12px",background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+            <input type="checkbox" id="pub" checked={!!form.published} onChange={e=>setForm(p=>({...p,published:e.target.checked}))} style={{accentColor:C.blue,cursor:"pointer",width:14,height:14}} />
+            <label htmlFor="pub" style={{...FONT,fontSize:13,color:C.text,cursor:"pointer"}}>Publish — make visible publicly and accept registrations</label>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+            <Btn variant="secondary" onClick={close}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
       )}
     </div>
   );
 }
 
-// ── FAQItem ──────────────────────────────────────────────────────────────────
-function FAQItem({q,a,accent}){
-  const[open,setOpen]=useState(false);
-  return(
-    <div style={{borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
-      <button onClick={()=>setOpen(!open)} style={{width:"100%",textAlign:"left",background:"none",
-        border:"none",cursor:"pointer",padding:"16px 0",display:"flex",
-        justifyContent:"space-between",alignItems:"center",gap:16,...FF}}>
-        <span style={{fontSize:15,fontWeight:600,color:"#fff"}}>{q}</span>
-        <span style={{fontSize:22,color:accent,transition:"transform 0.2s",flexShrink:0,
-          transform:open?"rotate(45deg)":"none"}}>+</span>
-      </button>
-      {open&&<div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.5)",paddingBottom:16,lineHeight:1.75}}>{a}</div>}
+/* ─── TEAMS / JUDGES / CRITERIA — concise CRUD pages ─────────────────── */
+function CrudPage({ title, icon, items, hackId, emptyMsg, renderRow, saveItem, delItem, modalBody, initForm }) {
+  const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const open=item=>{setForm(item?{...item}:initForm||{});setModal(item||"new");};
+  const close=()=>setModal(null);
+  const save=async()=>{setSaving(true);try{await saveItem(modal==="new"?null:modal.id,form);close();}catch{}setSaving(false);};
+  return (
+    <div>
+      <SectionHeader title={title} count={`${items.length} total`} action={<Btn onClick={()=>open(null)}>+ Add</Btn>} />
+      {items.length===0?<Empty icon={icon} title={emptyMsg} action={<Btn onClick={()=>open(null)}>Add {title.slice(0,-1)}</Btn>} />
+        :<DataTable cols={[...renderRow(null,open,delItem)]} rows={items} />
+      }
+      {modal&&<Modal title={modal==="new"?`Add ${title.slice(0,-1)}`:`Edit ${title.slice(0,-1)}`} onClose={close}>
+        {modalBody(form,f)}
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:4}}>
+          <Btn variant="secondary" onClick={close}>Cancel</Btn>
+          <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+        </div>
+      </Modal>}
     </div>
   );
 }
 
-// ── RegistrationForm ─────────────────────────────────────────────────────────
-function RegForm({hackathonId,accent,deadline}){
-  const[type,setType]=useState("team");
-  const[form,setForm]=useState({});
-  const[busy,setBusy]=useState(false);
-  const[done,setDone]=useState(false);
-  const[err,setErr]=useState("");
-  function sf(k){return e=>setForm(p=>({...p,[k]:e.target.value}));}
-  const IS={...FF,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",
-    borderRadius:8,padding:"10px 14px",fontSize:14,color:"#fff",width:"100%",outline:"none"};
-  async function submit(e){
-    e.preventDefault(); if(!form.name?.trim()||!form.email?.trim())return;
-    setBusy(true); setErr("");
+export function TeamsPage({ db, reload, toast, activeHackathon }) {
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
+  if (!activeHackathon) return <Empty icon="👥" title="Select a hackathon" />;
+  return <CrudPage title="Teams" icon="👥" items={teams} hackId={activeHackathon} emptyMsg="No teams yet"
+    initForm={{hackathonId:activeHackathon}}
+    saveItem={async(id,form)=>{try{id?await PUT(`/api/teams/${id}`,form):await POST("/api/teams",form);await reload();toast(id?"Updated":"Added");}catch(e){toast(e.message,"error");throw e;}}}
+    delItem={async id=>{try{await DEL(`/api/teams/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}}}
+    renderRow={(_,open,del)=>[
+      {key:"name",label:"Team / Project",render:(v,r)=><div><div style={{fontWeight:500}}>{v}</div><div style={{fontSize:12,color:C.text3}}>{r.project}</div></div>},
+      {key:"category",label:"Category",render:v=><Chip label={v||"—"} color={CAT_CHIP[v]||"neutral"} />},
+      {key:"members",label:"Members",render:v=><span style={{fontSize:12,color:C.text3}}>{v}</span>},
+      {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+        <Btn size="sm" variant="secondary" onClick={()=>open(r)}>Edit</Btn>
+        <Btn size="sm" variant="danger" onClick={()=>del(r.id)}>Remove</Btn>
+      </div>},
+    ]}
+    modalBody={(form,f)=><>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Field label="Team Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
+        <Field label="Project Name"><input style={IN} value={form.project||""} onChange={f("project")} /></Field>
+      </div>
+      <Field label="Category"><select style={IN} value={form.category||""} onChange={f("category")}><option value="">Select...</option>{["AI/ML","Sustainability","Security","Social Impact","EdTech","FinTech","Health","Other"].map(c=><option key={c}>{c}</option>)}</select></Field>
+      <Field label="Members" hint="Comma-separated"><input style={IN} value={form.members||""} onChange={f("members")} placeholder="Alice, Bob, Carol" /></Field>
+    </>}
+  />;
+}
+
+export function JudgesPage({ db, reload, toast }) {
+  const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [uploading,setUploading]=useState(false);
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const fileRef=useRef(null);
+
+  const open=j=>{setForm(j?{...j}:{});setModal(j||"new");};
+  const close=()=>setModal(null);
+
+  const handlePhotoUpload=async(e)=>{
+    const file=e.target.files?.[0]; if(!file) return;
+    if(file.size>2*1024*1024){toast("Photo must be under 2MB. Try compressing it first.","error");return;}
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=ev=>{ setForm(p=>({...p,avatarUrl:ev.target.result})); setUploading(false); };
+    reader.readAsDataURL(file);
+  };
+
+  const save=async()=>{
+    if(!form.name?.trim())return toast("Name required","error");setSaving(true);
     try{
-      const r=await fetch(`${BASE}/api/public/register`,{method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({...form,hackathonId,type})}).then(r=>r.json());
-      if(r.error)setErr(r.error); else setDone(true);
-    }catch(e){setErr(e.message);}
-    setBusy(false);
-  }
-  // Check if deadline has passed
-  const deadlinePassed = deadline && (() => {
-    const d = new Date(deadline);
-    return !isNaN(d) && d < new Date();
-  })();
+      if(modal==="new")await POST("/api/judges",form);
+      else await PUT(`/api/judges/${modal.id}`,form);
+      await reload();toast(modal==="new"?"Judge added":"Updated");close();
+    }catch(e){toast(e.message,"error");}setSaving(false);
+  };
+  const del=async id=>{try{await DEL(`/api/judges/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}};
 
-  if(done)return(
-    <div style={{textAlign:"center",padding:"48px 0"}}>
-      <div style={{fontSize:52,marginBottom:12}}>🎉</div>
-      <div style={{...FF,fontSize:20,fontWeight:700,color:"#fff",marginBottom:8}}>Application Received!</div>
-      <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.5)"}}>We'll be in touch at <strong style={{color:"#fff"}}>{form.email}</strong> soon.</div>
+  return (
+    <div>
+      <SectionHeader title="Judges" count={`${db.judges.length} registered`} action={<Btn onClick={()=>open(null)}>+ Add Judge</Btn>} />
+      {db.judges.length===0?<Empty icon="👨‍⚖️" title="No judges registered" sub="Add judges who will evaluate teams." action={<Btn onClick={()=>open(null)}>Add Judge</Btn>} />
+        :<DataTable cols={[
+          {key:"name",label:"Name",render:(v,r)=>(
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              {r.avatarUrl
+                ?<img src={r.avatarUrl} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.border}`,flexShrink:0}} />
+                :<Avatar name={v} size={36}/>
+              }
+              <div><div style={{fontWeight:500,color:C.text}}>{v}</div><div style={{fontSize:11,color:C.text3}}>{r.org}</div></div>
+            </div>
+          )},
+          {key:"role",label:"Role"},
+          {key:"avatarUrl",label:"Photo",render:v=><Chip label={v?"✓ Set":"No photo"} color={v?"green":"neutral"} />},
+          {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+            <Btn size="sm" variant="secondary" onClick={()=>open(r)}>Edit</Btn>
+            <Btn size="sm" variant="danger" onClick={()=>del(r.id)}>Remove</Btn>
+          </div>},
+        ]} rows={db.judges} empty="No judges." />
+      }
+      {modal&&(
+        <Modal title={modal==="new"?"Add Judge":"Edit Judge"} onClose={close} width={560}>
+          {/* ── Photo Upload ── */}
+          <div style={{marginBottom:20}}>
+            <div style={{...FONT,fontSize:12,fontWeight:600,color:C.text,marginBottom:10}}>Judge Photo</div>
+            <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+              {/* Preview */}
+              <div style={{flexShrink:0,width:80,height:80,borderRadius:"50%",overflow:"hidden",
+                border:`2px dashed ${form.avatarUrl?C.bdGreen:C.border2}`,
+                background:form.avatarUrl?"transparent":C.bg3,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {form.avatarUrl
+                  ?<img src={form.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}} />
+                  :<span style={{fontSize:28,opacity:0.35}}>👤</span>
+                }
+              </div>
+              {/* Controls */}
+              <div style={{flex:1}}>
+                {/* Upload button */}
+                <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 14px",
+                  borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",
+                  background:C.bg,color:C.text2,...FONT,fontSize:13,fontWeight:500,
+                  marginBottom:10,userSelect:"none",
+                  opacity:uploading?0.6:1}}>
+                  {uploading
+                    ? <><Spinner size={12}/> Uploading...</>
+                    : <><span>📷</span> {form.avatarUrl ? "Change Photo" : "Upload Photo"}</>
+                  }
+                  <input type="file" ref={fileRef} accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={handlePhotoUpload} style={{display:"none"}} disabled={uploading} />
+                </label>
+                {/* URL input */}
+                <div style={{...FONT,fontSize:11,color:C.text3,marginBottom:5}}>Or paste a photo URL:</div>
+                <input style={{...IN,fontSize:12}}
+                  value={form.avatarUrl && !form.avatarUrl.startsWith("data:") ? form.avatarUrl : ""}
+                  onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))}
+                  placeholder="https://linkedin.com/... or any image URL" />
+                {form.avatarUrl && (
+                  <button onClick={()=>setForm(p=>({...p,avatarUrl:""}))}
+                    style={{...FONT,fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginTop:5,padding:0}}>
+                    ✕ Remove photo
+                  </button>
+                )}
+                <div style={{...FONT,fontSize:11,color:C.text3,marginTop:6}}>Accepts JPG, PNG, WebP · Max 2MB · Shown on public event page</div>
+              </div>
+            </div>
+          </div>
+          <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Organization"><input style={IN} value={form.org||""} onChange={f("org")} /></Field>
+            <Field label="Role / Title"><input style={IN} value={form.role||""} onChange={f("role")} /></Field>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+            <Btn variant="secondary" onClick={close}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
+      )}
     </div>
   );
+}
 
-  if(deadlinePassed)return(
-    <div style={{textAlign:"center",padding:"40px 0"}}>
-      <div style={{fontSize:44,marginBottom:12}}>🔒</div>
-      <div style={{...FF,fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>Registration Closed</div>
-      <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.4)",lineHeight:1.6}}>
-        The registration deadline has passed.<br/>
-        Contact us at {hackathonId} for late applications.
+export function CriteriaPage({ db, reload, toast, activeHackathon }) {
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
+  const totalW=criteria.reduce((a,c)=>a+c.weight,0);
+  if (!activeHackathon) return <Empty icon="📋" title="Select a hackathon" />;
+  return <CrudPage title="Criteria" icon="📋" items={criteria} emptyMsg="No criteria defined"
+    initForm={{hackathonId:activeHackathon,maxScore:10,weight:20}}
+    saveItem={async(id,form)=>{try{id?await PUT(`/api/criteria/${id}`,form):await POST("/api/criteria",form);await reload();toast(id?"Updated":"Added");}catch(e){toast(e.message,"error");throw e;}}}
+    delItem={async id=>{try{await DEL(`/api/criteria/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}}}
+    renderRow={(_,open,del)=>[
+      {key:"name",label:"Criterion",render:(v,r)=><div><div style={{fontWeight:500}}>{v}</div><div style={{fontSize:12,color:C.text3}}>{r.description}</div></div>},
+      {key:"maxScore",label:"Max",render:v=><span style={MONO}>{v}</span>},
+      {key:"weight",label:"Weight",render:v=><div style={{display:"flex",alignItems:"center",gap:8,minWidth:120}}><div style={{flex:1,background:C.bg3,borderRadius:2,height:5,overflow:"hidden"}}><div style={{height:"100%",width:`${v}%`,background:C.blue,borderRadius:2}} /></div><span style={{...MONO,fontSize:12,color:C.blue,minWidth:32}}>{v}%</span></div>},
+      {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+        <Btn size="sm" variant="secondary" onClick={()=>open(r)}>Edit</Btn>
+        <Btn size="sm" variant="danger" onClick={()=>del(r.id)}>Remove</Btn>
+      </div>},
+    ]}
+    modalBody={(form,f)=><>
+      {totalW!==100&&criteria.length>0&&<div style={{...FONT,background:C.bgAmber,border:`1px solid ${C.bdAmber}`,borderRadius:R.sm,padding:"9px 12px",fontSize:12,color:C.amber,marginBottom:12}}>⚠ Weights sum to {totalW}%</div>}
+      <Field label="Name" required><input style={IN} value={form.name||""} onChange={f("name")} placeholder="e.g. Innovation & Creativity" /></Field>
+      <Field label="Description"><textarea style={TA} value={form.description||""} onChange={f("description")} /></Field>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Field label="Max Score"><input type="number" style={IN} value={form.maxScore||10} onChange={f("maxScore")} /></Field>
+        <Field label="Weight %"><input type="number" style={IN} value={form.weight||20} onChange={f("weight")} /></Field>
+      </div>
+    </>}
+  />;
+}
+
+/* ─── SUBMIT FEEDBACK (custom form with project metadata) ──────────────── */
+export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }) {
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  const allTeams=db.teams.filter(t=>t.hackathonId===activeHackathon);
+  // If judge has specific team assignments, only show those teams
+  const assignedTeamIds = currentUser?.role==="judge" ? (currentUser?.assignedTeams||[]) : [];
+  const teams = assignedTeamIds.length>0
+    ? allTeams.filter(t=>assignedTeamIds.includes(t.id))
+    : allTeams;
+  const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
+  const [teamId,setTeamId]=useState(teams[0]?.id||"");
+  // Judges see only their own linked record. Admins get a dropdown defaulting to first judge.
+  const defaultJudgeId = currentUser?.role === "judge"
+    ? (currentUser?.judgeId || "")          // judge: use THEIR id, never fall back
+    : (db.judges[0]?.id || "");             // admin: default to first judge
+  const [judgeId,setJudgeId] = useState(defaultJudgeId);
+  // Re-sync ONLY when db loads AND user is admin (judges must use their own id)
+  useEffect(() => {
+    if (!judgeId && db.judges.length && currentUser?.role !== "judge") {
+      setJudgeId(db.judges[0]?.id || "");
+    }
+  }, [db.judges.length]);
+  const [scores,setScores]=useState({});
+  const [comments,setComments]=useState({});
+  const [overall,setOverall]=useState("");
+  const [meta,setMeta]=useState({submissionNumber:"",demoVideoLink:"NA",githubRepo:"",liveProjectLink:"NA",pptsPhotos:"NA"});
+  const [saving,setSaving]=useState(false);const [savedOk,setSavedOk]=useState(false);
+  const isJudge=currentUser?.role==="judge";
+  const existing=db.feedbacks.find(f=>f.teamId===teamId&&f.judgeId===judgeId&&f.hackathonId===activeHackathon);
+
+  useEffect(()=>{
+    if(existing){
+      setScores(existing.scores||{});setComments(existing.comments||{});setOverall(existing.overall||"");
+      setMeta({submissionNumber:existing.submissionNumber||"",demoVideoLink:existing.demoVideoLink||"NA",githubRepo:existing.githubRepo||"",liveProjectLink:existing.liveProjectLink||"NA",pptsPhotos:existing.pptsPhotos||"NA"});
+    } else { setScores({});setComments({});setOverall("");setMeta({submissionNumber:"",demoVideoLink:"NA",githubRepo:"",liveProjectLink:"NA",pptsPhotos:"NA"}); }
+    setSavedOk(false);
+  },[teamId,judgeId]);
+
+  const score=calcScore(scores,criteria);
+  const fm=k=>e=>setMeta(p=>({...p,[k]:e.target.value}));
+
+  const submit=async()=>{
+    if(isJudge && !judgeId) return toast("Your account is not linked to a judge record. Contact an admin.","error");
+    if(!criteria.every(c=>scores[c.id]!=null))return toast("Please score all criteria before submitting","error");
+    setSaving(true);
+    try{
+      await POST("/api/feedbacks",{hackathonId:activeHackathon,teamId,judgeId,scores,comments,overall,...meta});
+      await reload();toast("Feedback saved successfully");setSavedOk(true);
+    }catch(e){toast(e.message,"error");}
+    setSaving(false);
+  };
+
+  if(!activeHackathon) return <Empty icon="✍️" title="Select a hackathon" />;
+  if(!criteria.length) return <Empty icon="📋" title="No criteria defined" sub="An admin needs to add evaluation criteria first." />;
+  if(!teams.length && allTeams.length>0) return <Empty icon="👥" title="No teams assigned to you"
+    sub="An admin needs to assign specific teams to your account in User Management → Team Assignments." />;
+  if(!teams.length)    return <Empty icon="👥" title="No teams registered" sub="An admin needs to add teams first." />;
+
+  const judge=db.judges.find(j=>j.id===judgeId);
+
+  return (
+    <div>
+      <SectionHeader title="Submit Feedback" count={hack?.name} />
+      {/* Judge + Team selectors */}
+      <Card style={{marginBottom:14,background:"#f8faff",border:`1px solid ${C.bdBlue}`}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Field label="Team">
+            <select style={IN} value={teamId} onChange={e=>setTeamId(e.target.value)}>
+              {teams.map(t=><option key={t.id} value={t.id}>{t.name} — {t.project}</option>)}
+            </select>
+          </Field>
+          <Field label="Judge">
+            {isJudge
+              ? judgeId && judge
+                ? <div style={{...IN,background:C.bg2,color:C.text,cursor:"default",display:"flex",alignItems:"center",gap:8,fontWeight:500}}>
+                    <Avatar name={judge.name} src={judge.avatarUrl} size={22}/>{judge.name}
+                    <span style={{...FONT,fontSize:11,color:C.text3,fontWeight:400}}>· {judge.org}</span>
+                  </div>
+                : <div style={{...IN,background:"#fffbeb",border:"1px solid #fde68a",color:C.amber,cursor:"default",fontSize:12,lineHeight:1.5}}>
+                    ⚠ Your account is not linked to a judge profile.<br/>
+                    Ask an admin: User Management → select your user → Link to Judge Record.
+                  </div>
+              : <select style={IN} value={judgeId} onChange={e=>setJudgeId(e.target.value)}>
+                  {db.judges.map(j=><option key={j.id} value={j.id}>{j.name} ({j.org})</option>)}
+                </select>
+            }
+          </Field>
+        </div>
+      </Card>
+
+      {existing&&<div style={{...FONT,background:C.bgBlue,border:`1px solid ${C.bdBlue}`,borderRadius:R.sm,padding:"9px 13px",fontSize:12,color:C.blue,marginBottom:14}}>
+        ✏️ Editing existing submission — last saved {fmtDt(existing.submittedAt)}. Saving will overwrite.
+      </div>}
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:16}}>
+        <div>
+          {/* Project Metadata Section */}
+          <Card style={{marginBottom:14}}>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:14,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
+              📋 Project Details
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Submission Project Number">
+                <input style={IN} value={meta.submissionNumber} onChange={fm("submissionNumber")} placeholder="e.g. SUB-001" />
+              </Field>
+              <Field label="Judge ID">
+                <input style={{...IN,background:C.bg2,color:C.text3}} value={judgeId} readOnly />
+              </Field>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Demo Video Link" hint="Enter NA if not available">
+                <input style={IN} value={meta.demoVideoLink} onChange={fm("demoVideoLink")} placeholder="https://youtube.com/... or NA" />
+              </Field>
+              <Field label="GitHub Repository">
+                <input style={IN} value={meta.githubRepo} onChange={fm("githubRepo")} placeholder="https://github.com/..." />
+              </Field>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Live Project Link" hint="Enter NA if not available">
+                <input style={IN} value={meta.liveProjectLink} onChange={fm("liveProjectLink")} placeholder="https://... or NA" />
+              </Field>
+              <Field label="PPTs & Photos">
+                <input style={IN} value={meta.pptsPhotos} onChange={fm("pptsPhotos")} placeholder="Drive link or NA" />
+              </Field>
+            </div>
+          </Card>
+
+          {/* Scoring Section */}
+          <Card>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
+              ⭐ Scoring Criteria
+            </div>
+            {criteria.map(c=>{
+              const s=scores[c.id]??0;const has=scores[c.id]!=null;
+              const sc=has?(s>=8?C.green:s>=6?C.blue:s>=4?C.amber:C.red):C.text3;
+              return(
+                <div key={c.id} style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                    <div>
+                      <div style={{...FONT,fontSize:14,fontWeight:600,color:C.text}}>{c.name}</div>
+                      <div style={{...FONT,fontSize:12,color:C.text3,marginTop:1}}>{c.description}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{...MONO,fontSize:24,fontWeight:600,color:sc,lineHeight:1}}>{has?s:"—"}</div>
+                      <div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>/ {c.maxScore} pts · {c.weight}%</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                    <input type="range" min={0} max={c.maxScore} value={s} style={{flex:1,accentColor:"#2563eb",cursor:"pointer"}} onChange={e=>setScores(p=>({...p,[c.id]:+e.target.value}))} />
+                    <div style={{display:"flex",gap:4}}>
+                      {[0,2,4,6,8,10].filter(v=>v<=c.maxScore).map(v=>(
+                        <button key={v} onClick={()=>setScores(p=>({...p,[c.id]:v}))}
+                          style={{...MONO,width:28,height:24,fontSize:11,border:`1px solid ${scores[c.id]===v?C.blue:C.border}`,borderRadius:4,cursor:"pointer",background:scores[c.id]===v?C.bgBlue:C.bg,color:scores[c.id]===v?C.blue:C.text3}}>
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <textarea style={{...TA,minHeight:56}} placeholder={`Detailed comments on ${c.name}...`} value={comments[c.id]||""} onChange={e=>setComments(p=>({...p,[c.id]:e.target.value}))} />
+                </div>
+              );
+            })}
+          </Card>
+        </div>
+
+        {/* Summary panel */}
+        <div style={{position:"sticky",top:20,alignSelf:"start"}}>
+          <Card>
+            <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:16}}>Score Summary</div>
+            <div style={{textAlign:"center",padding:"16px 0 20px",borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
+              <div style={{...MONO,fontSize:56,fontWeight:500,lineHeight:1,color:score==null?C.border:score>=8?C.green:score>=6?C.blue:C.amber}}>{score??"—"}</div>
+              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:6}}>weighted score / 10</div>
+            </div>
+            {criteria.map(c=>(
+              <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{flex:1}}>
+                  <div style={{...FONT,fontSize:12,color:C.text2}}>{c.name}</div>
+                  <div style={{...FONT,fontSize:10,color:C.text3}}>{c.weight}% weight</div>
+                </div>
+                <span style={{...MONO,fontSize:12,color:scores[c.id]!=null?C.text:C.text3}}>
+                  {scores[c.id]!=null?`${scores[c.id]}/${c.maxScore}`:"—"}
+                </span>
+              </div>
+            ))}
+            <div style={{borderTop:`1px solid ${C.border}`,marginTop:14,paddingTop:14}}>
+              <Field label="Overall Summary">
+                <textarea style={{...TA,minHeight:72}} value={overall} onChange={e=>setOverall(e.target.value)} placeholder="Overall assessment of this team..." />
+              </Field>
+              <Btn full size="lg" onClick={submit} disabled={saving}>{saving&&<Spinner/>} {existing?"Update Feedback":"Submit Feedback"}</Btn>
+              {savedOk&&<div style={{...FONT,textAlign:"center",fontSize:12,color:C.green,marginTop:10}}>✓ Saved to database</div>}
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );
+}
 
-  return(
-    <>
-      {deadline&&(
-        <div style={{...FF,textAlign:"center",fontSize:13,marginBottom:16,
-          padding:"10px 16px",borderRadius:8,
-          background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.25)"}}>
-          ⏳ Registration closes: <strong style={{color:accent}}>{deadline}</strong>
+/* ─── ALL FEEDBACK ─────────────────────────────────────────────────────── */
+export function AllFeedbackPage({ db, reload, toast, activeHackathon, currentUser }) {
+  const isJudge = currentUser?.role === "judge";
+  const [ft,setFt]=useState("all");
+  const [fj,setFj]=useState(isJudge ? (currentUser?.judgeId||"all") : "all");
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
+  const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
+  const fbs=db.feedbacks.filter(f=>
+    f.hackathonId===activeHackathon&&
+    (ft==="all"||f.teamId===ft)&&
+    (fj==="all"||f.judgeId===fj)
+  );
+  const del=async id=>{try{await DEL(`/api/feedbacks/${id}`);await reload();toast("Deleted");}catch(e){toast(e.message,"error");}};
+  if(!activeHackathon) return <Empty icon="📊" title="Select a hackathon" />;
+  return (
+    <div>
+      <SectionHeader title="All Feedback" count={`${fbs.length} submissions · ${hack?.name||""}`} />
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <select style={{...IN,width:"auto"}} value={ft} onChange={e=>setFt(e.target.value)}><option value="all">All Teams</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
+        {!isJudge && <select style={{...IN,width:"auto"}} value={fj} onChange={e=>setFj(e.target.value)}><option value="all">All Judges</option>{db.judges.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}</select>}
+      </div>
+      {fbs.length===0?<Empty icon="📝" title="No feedback" sub="No submissions match the current filters." />
+        :fbs.map((fb,i)=>{
+          const team=db.teams.find(t=>t.id===fb.teamId);const judge=db.judges.find(j=>j.id===fb.judgeId);
+          const s=calcScore(fb.scores,criteria);
+          return(
+            <Card key={fb.id} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                    <span style={{...FONT,fontSize:14,fontWeight:600,color:C.text}}>{team?.name}</span>
+                    <span style={{...FONT,fontSize:13,color:C.text3}}>—</span>
+                    <span style={{...FONT,fontSize:13,color:C.text2}}>{team?.project}</span>
+                    <Chip label={team?.category||""} color={CAT_CHIP[team?.category]||"neutral"} />
+                  </div>
+                  <div style={{...FONT,fontSize:12,color:C.text3}}>
+                    <strong style={{color:C.text2}}>{judge?.name}</strong> · {judge?.org} · {fmtDt(fb.submittedAt)}
+                    {fb.submissionNumber&&<span style={{marginLeft:8}}> · Sub #{fb.submissionNumber}</span>}
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:5,flexWrap:"wrap"}}>
+                    {fb.demoVideoLink&&fb.demoVideoLink!=="NA"&&<a href={fb.demoVideoLink} target="_blank" style={{...FONT,fontSize:11,color:C.blue,textDecoration:"none"}}>▶ Demo</a>}
+                    {fb.githubRepo&&<a href={fb.githubRepo} target="_blank" style={{...FONT,fontSize:11,color:C.text2,textDecoration:"none"}}>⑄ GitHub</a>}
+                    {fb.liveProjectLink&&fb.liveProjectLink!=="NA"&&<a href={fb.liveProjectLink} target="_blank" style={{...FONT,fontSize:11,color:C.green,textDecoration:"none"}}>↗ Live</a>}
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{...MONO,fontSize:24,fontWeight:500,color:s==null?C.text3:s>=8?C.green:s>=6?C.blue:C.amber}}>{s??"—"}</div>
+                    <div style={{...FONT,fontSize:10,color:C.text3}}>/10</div>
+                  </div>
+                  <Btn size="sm" variant="danger" onClick={()=>del(fb.id)}>Delete</Btn>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8,marginBottom:fb.overall?10:0}}>
+                {criteria.map(c=>(
+                  <div key={c.id} style={{background:C.bg2,borderRadius:R.sm,padding:"10px 11px"}}>
+                    <div style={{...FONT,fontSize:11,color:C.text3,marginBottom:6}}>{c.name} <span style={{color:C.blue}}>({c.weight}%)</span></div>
+                    <ScoreBar value={fb.scores?.[c.id]||0} max={c.maxScore} />
+                    {fb.comments?.[c.id]&&<p style={{...FONT,fontSize:11,color:C.text3,marginTop:5,lineHeight:1.5}}>{fb.comments[c.id]}</p>}
+                  </div>
+                ))}
+              </div>
+              {fb.overall&&<div style={{background:C.bg2,borderRadius:R.sm,padding:"9px 12px",...FONT,fontSize:12,color:C.text2,fontStyle:"italic",borderLeft:`3px solid ${C.border2}`}}>"{fb.overall}"</div>}
+            </Card>
+          );
+        })
+      }
+    </div>
+  );
+}
+
+/* ─── REPORTS ──────────────────────────────────────────────────────────── */
+export function ReportPage({ db, activeHackathon }) {
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
+  const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
+  const allFbs=db.feedbacks.filter(f=>f.hackathonId===activeHackathon);
+  const ranked=[...teams].map(t=>({...t,avg:avgOf(allFbs.filter(f=>f.teamId===t.id),criteria)??0,count:allFbs.filter(f=>f.teamId===t.id).length})).sort((a,b)=>b.avg-a.avg);
+  const [sel,setSel]=useState(ranked[0]?.id||"");
+  const team=db.teams.find(t=>t.id===sel);
+  const teamFbs=allFbs.filter(f=>f.teamId===sel);
+  const avg=avgOf(teamFbs,criteria);
+  const critBreak=criteria.map(c=>{const v=teamFbs.map(f=>f.scores?.[c.id]).filter(x=>x!=null);return{...c,avg:v.length?+(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1):null};});
+  if(!activeHackathon) return <Empty icon="📄" title="Select a hackathon" />;
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
+        <div><h1 style={{...FONT,fontSize:18,fontWeight:600,color:C.text,marginBottom:2}}>Reports</h1><p style={{...FONT,fontSize:12,color:C.text3}}>{hack?.name}</p></div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <select style={{...IN,width:"auto"}} value={sel} onChange={e=>setSel(e.target.value)}>{ranked.map((t,i)=><option key={t.id} value={t.id}>{i+1}. {t.name}</option>)}</select>
+          <Btn variant="secondary" onClick={()=>window.print()}>Print / PDF</Btn>
+        </div>
+      </div>
+      {team&&(
+        <div>
+          <Card style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{marginBottom:8}}><Chip label={team.category} color={CAT_CHIP[team.category]||"neutral"} /></div>
+                <h2 style={{...FONT,fontSize:20,fontWeight:600,color:C.text,marginBottom:4}}>{team.name}</h2>
+                <p style={{...FONT,fontSize:14,color:C.blue,fontWeight:500,marginBottom:5}}>{team.project}</p>
+                <p style={{...FONT,fontSize:12,color:C.text3}}>Members: {team.members}</p>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{...MONO,fontSize:56,fontWeight:500,lineHeight:1,color:avg==null?C.text3:avg>=8?C.green:avg>=6?C.blue:C.amber}}>{avg??"—"}</div>
+                <div style={{...FONT,fontSize:12,color:C.text3}}>avg / 10 · {teamFbs.length} judges</div>
+              </div>
+            </div>
+          </Card>
+          <Card style={{marginBottom:14}}>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:14}}>Criteria Breakdown</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:10}}>
+              {critBreak.map(c=>{const color=c.avg==null?C.text3:c.avg>=8?C.green:c.avg>=6?C.blue:c.avg>=4?C.amber:C.red;return(
+                <div key={c.id} style={{background:C.bg2,borderRadius:R.sm,padding:14}}>
+                  <div style={{...FONT,fontSize:11,color:C.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.04em"}}>{c.name} · {c.weight}%</div>
+                  <div style={{...MONO,fontSize:26,fontWeight:500,color,marginBottom:8}}>{c.avg??"—"}<span style={{fontSize:12,color:C.text3}}>/{c.maxScore}</span></div>
+                  <div style={{background:C.bg3,borderRadius:3,height:5,overflow:"hidden"}}><div style={{height:"100%",width:`${c.avg?c.avg/c.maxScore*100:0}%`,background:color,borderRadius:3}} /></div>
+                </div>
+              );})}
+            </div>
+          </Card>
+          {teamFbs.length>0&&(
+            <Card style={{marginBottom:14}}>
+              <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:14}}>Judge Reviews</div>
+              {teamFbs.map((fb,i)=>{const judge=db.judges.find(j=>j.id===fb.judgeId);const s=calcScore(fb.scores,criteria);return(
+                <div key={fb.id} style={{paddingBottom:i<teamFbs.length-1?16:0,marginBottom:i<teamFbs.length-1?16:0,borderBottom:i<teamFbs.length-1?`1px solid ${C.border}`:"none"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <Avatar name={judge?.name} size={32}/>
+                      <div><div style={{...FONT,fontSize:13,fontWeight:500,color:C.text}}>{judge?.name}</div><div style={{...FONT,fontSize:11,color:C.text3}}>{judge?.org} · {judge?.role}</div></div>
+                    </div>
+                    <span style={{...MONO,fontSize:18,fontWeight:600,color:s>=8?C.green:s>=6?C.blue:C.amber}}>{s}</span>
+                  </div>
+                  {(fb.githubRepo||fb.demoVideoLink||fb.liveProjectLink)&&(
+                    <div style={{display:"flex",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                      {fb.submissionNumber&&<span style={{...FONT,fontSize:11,color:C.text3}}>Sub #{fb.submissionNumber}</span>}
+                      {fb.demoVideoLink&&fb.demoVideoLink!=="NA"&&<a href={fb.demoVideoLink} target="_blank" style={{...FONT,fontSize:11,color:C.blue,textDecoration:"none"}}>▶ Demo</a>}
+                      {fb.githubRepo&&<a href={fb.githubRepo} target="_blank" style={{...FONT,fontSize:11,color:C.text2,textDecoration:"none"}}>⑄ Repo</a>}
+                      {fb.liveProjectLink&&fb.liveProjectLink!=="NA"&&<a href={fb.liveProjectLink} target="_blank" style={{...FONT,fontSize:11,color:C.green,textDecoration:"none"}}>↗ Live</a>}
+                    </div>
+                  )}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
+                    {criteria.map(c=><span key={c.id} style={{...FONT,fontSize:11,background:C.bg2,border:`1px solid ${C.border}`,borderRadius:4,padding:"3px 8px",color:C.text3}}>{c.name}: <span style={{...MONO,color:C.text}}>{fb.scores?.[c.id]??"—"}</span></span>)}
+                  </div>
+                  {fb.overall&&<p style={{...FONT,fontSize:12,color:C.text2,fontStyle:"italic",borderLeft:`2px solid ${C.border2}`,paddingLeft:10}}>"{fb.overall}"</p>}
+                </div>
+              );})}
+            </Card>
+          )}
+          <Card>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:14}}>Full Rankings</div>
+            {ranked.map((t,i)=>{const isSel=t.id===sel;return(
+              <div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 10px",borderRadius:R.sm,background:isSel?"#eff6ff":"transparent",borderBottom:i<ranked.length-1?`1px solid ${C.border}`:"none"}}>
+                <span style={{...MONO,fontSize:12,color:C.text3,minWidth:18}}>{i+1}</span>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:1}}>
+                    <span style={{...FONT,fontSize:13,fontWeight:isSel?600:400,color:C.text}}>{t.name}</span>
+                    {isSel&&<Chip label="selected" color="blue" />}
+                  </div>
+                  <span style={{...FONT,fontSize:11,color:C.text3}}>{t.project}</span>
+                </div>
+                <div style={{width:100,background:C.bg3,borderRadius:3,height:5,overflow:"hidden"}}><div style={{height:"100%",width:`${t.avg*10}%`,background:t.avg>=8?C.green:t.avg>=6?C.blue:C.amber,borderRadius:3}} /></div>
+                <span style={{...MONO,fontSize:14,fontWeight:500,minWidth:36,textAlign:"right",color:t.avg>=8?C.green:t.avg>=6?C.blue:t.avg>0?C.amber:C.text3}}>{t.avg||"—"}</span>
+              </div>
+            );})}
+          </Card>
         </div>
       )}
-      <div style={{display:"flex",gap:2,marginBottom:20,background:"rgba(255,255,255,0.05)",
-        borderRadius:10,padding:3,border:"1px solid rgba(255,255,255,0.08)"}}>
-        {["team","judge"].map(t=>(
-          <button key={t} onClick={()=>setType(t)} style={{flex:1,padding:"8px",fontSize:13,
-            fontWeight:600,borderRadius:7,border:"none",cursor:"pointer",...FF,
-            background:type===t?accent:"transparent",
-            color:type===t?"#fff":"rgba(255,255,255,0.4)"}}>
-            {t==="team"?"🚀 Register as Team":"⭐ Apply as Judge"}
+    </div>
+  );
+}
+
+/* ─── USER MANAGEMENT ──────────────────────────────────────────────────── */
+const EXTRA_PAGES=[{id:"dashboard",label:"Dashboard"},{id:"reports",label:"Reports"},{id:"all-feedback",label:"All Feedback"}];
+
+export function UserManagementPage({ db, reload, toast }) {
+  const [users,setUsers]=useState([]);const [sel,setSel]=useState(null);
+  const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);
+  const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const loadUsers=useCallback(async()=>{try{setUsers(await GET("/api/users"));}catch(e){toast(e.message,"error");};},[]);
+  useEffect(()=>{loadUsers();},[]);
+  const selUser=users.find(u=>u.id===sel)||null;
+  const open=u=>{setForm(u?{...u,password:""}:{role:"judge"});setModal(u||"new");};
+  const close=()=>setModal(null);
+  const save=async()=>{
+    if(!form.name?.trim()||!form.email?.trim())return toast("Name and email required","error");
+    if(modal==="new"&&!form.password?.trim())return toast("Password required for new users","error");
+    setSaving(true);
+    try{if(modal==="new")await POST("/api/users",form);else await PUT(`/api/users/${modal.id}`,form);await loadUsers();toast(modal==="new"?"User created":"Updated");close();}
+    catch(e){toast(e.message,"error");}setSaving(false);
+  };
+  const del=async id=>{if(!confirm("Delete this user?"))return;try{await DEL(`/api/users/${id}`);await loadUsers();setSel(null);toast("Deleted");}catch(e){toast(e.message,"error");}};
+  const toggleAssign=async(hackathonId,assigned)=>{
+    try{
+      if(assigned)await DEL(`/api/assignments/${hackathonId}/${selUser.id}`);
+      else await POST("/api/assignments",{hackathonId,userId:selUser.id});
+      await loadUsers();
+    }catch(e){toast(e.message,"error");}
+  };
+  const togglePerm=async(hackathonId,page,existing)=>{
+    try{if(existing)await DEL(`/api/permissions/${existing.id}`);else await POST("/api/permissions",{userId:selUser.id,hackathonId,page});await loadUsers();}
+    catch(e){toast(e.message,"error");}
+  };
+  const admins=users.filter(u=>u.role==="admin"),judges=users.filter(u=>u.role==="judge");
+  return(
+    <div>
+      <SectionHeader title="User Management" count={`${users.length} users`} action={<Btn onClick={()=>open(null)}>+ Add User</Btn>} />
+      <div style={{display:"grid",gridTemplateColumns:"270px 1fr",gap:14,alignItems:"start"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {[{label:"Admins",list:admins},{label:"Judges",list:judges}].map(({label,list})=>(
+            <Card key={label} pad={0} style={{overflow:"hidden"}}>
+              <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,letterSpacing:"0.05em",textTransform:"uppercase",padding:"8px 14px",background:C.bg2,borderBottom:`1px solid ${C.border}`}}>{label}</div>
+              {list.length===0?<div style={{...FONT,fontSize:12,color:C.text3,padding:"10px 14px",fontStyle:"italic"}}>None yet.</div>
+                :list.map(u=>(
+                  <div key={u.id} onClick={()=>setSel(u.id)}
+                    style={{padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,background:sel===u.id?"#eff6ff":"transparent",transition:"background 0.1s"}}
+                    onMouseEnter={e=>{if(sel!==u.id)e.currentTarget.style.background=C.bg2;}}
+                    onMouseLeave={e=>{if(sel!==u.id)e.currentTarget.style.background="transparent";}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <Avatar name={u.name} src={u.avatarUrl} size={28}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{...FONT,fontSize:13,fontWeight:500,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</div>
+                          {u.oauthProvider&&<span style={{fontSize:10,color:C.purple}}>●</span>}
+                        </div>
+                        <div style={{...FONT,fontSize:11,color:C.text3}}>{u.email}</div>
+                        {u.role==="judge"&&!(u.assignedHackathons||[]).length&&(
+                          <div style={{...FONT,fontSize:10,color:C.amber,fontWeight:500}}>⚠ Not assigned</div>
+                        )}
+                        {u.role==="judge"&&!u.judgeId&&(u.assignedHackathons||[]).length>0&&(
+                          <div style={{...FONT,fontSize:10,color:C.amber,fontWeight:500}}>⚠ No judge profile linked</div>
+                        )}
+                      </div>
+                    </div>
+                    {u.role==="judge"&&(u.assignedHackathons||[]).length>0&&(
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:5}}>
+                        {(u.assignedHackathons||[]).map(hid=>{const h=db.hackathons.find(h=>h.id===hid);return h?<span key={hid} style={{...FONT,fontSize:10,background:"#f0fdf4",border:"1px solid #bbf7d0",color:C.green,padding:"1px 6px",borderRadius:4}}>{h.name}</span>:null;})}
+                      </div>
+                    )}
+                  </div>
+                ))
+              }
+            </Card>
+          ))}
+        </div>
+        {selUser?(
+          <div>
+            <Card style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <Avatar name={selUser.name} src={selUser.avatarUrl} size={44}/>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                      <span style={{...FONT,fontSize:15,fontWeight:600,color:C.text}}>{selUser.name}</span>
+                      <button title="Click to toggle role"
+                        onClick={async()=>{
+                          const newRole=selUser.role==="admin"?"judge":"admin";
+                          if(!confirm(`Change ${selUser.name} to ${newRole}?`))return;
+                          try{await PUT(`/api/users/${selUser.id}`,{...selUser,role:newRole,judgeId:selUser.judgeId||undefined});await loadUsers();toast(`Role changed to ${newRole}`);}
+                          catch(e){toast(e.message,"error");}
+                        }}
+                        style={{...FONT,display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:500,
+                          padding:"2px 8px",borderRadius:9999,cursor:"pointer",transition:"opacity 0.15s",
+                          background:selUser.role==="admin"?C.bgBlue:C.bg3,
+                          color:selUser.role==="admin"?C.blue:C.text3,
+                          border:`1px solid ${selUser.role==="admin"?C.bdBlue:C.border}`}}
+                        onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+                        onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                        {selUser.role} ✎
+                      </button>
+                      {selUser.oauthProvider&&<Chip label={`via ${selUser.oauthProvider}`} color="purple" />}
+                    </div>
+                    <div style={{...FONT,fontSize:12,color:C.text3}}>{selUser.email}</div>
+                    {selUser.judgeId&&<div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>Linked to: {db.judges?.find(j=>j.id===selUser.judgeId)?.name||selUser.judgeId}</div>}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <Btn size="sm" variant="secondary" onClick={()=>open(selUser)}>Edit</Btn>
+                  <Btn size="sm" variant="danger" onClick={()=>del(selUser.id)}>Delete</Btn>
+                </div>
+              </div>
+            </Card>
+            {selUser.role==="judge"&&(
+              <>
+                <Card style={{marginBottom:12}}>
+                  <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:4}}>Hackathon Assignments</div>
+                  <p style={{...FONT,fontSize:12,color:C.text3,marginBottom:14}}>This judge can only view and score teams in assigned hackathons.</p>
+                  {db.hackathons.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>No hackathons exist yet.</div>
+                    :db.hackathons.map(h=>{const assigned=(selUser.assignedHackathons||[]).includes(h.id);return(
+                      <div key={h.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:R.sm,marginBottom:6,background:assigned?"#f0fdf4":C.bg2,border:`1px solid ${assigned?"#bbf7d0":C.border}`}}>
+                        <div><div style={{...FONT,fontSize:13,fontWeight:500,color:C.text}}>{h.name}</div>
+                          <div style={{display:"flex",gap:6,marginTop:3}}><Chip label={h.status} color={STATUS_CHIP[h.status]||"neutral"} /><span style={{...FONT,fontSize:11,color:C.text3}}>{h.location}</span></div></div>
+                        <Btn size="sm" variant={assigned?"danger":"primary"} onClick={()=>toggleAssign(h.id,assigned)}>{assigned?"Remove":"Assign"}</Btn>
+                      </div>
+                    );})}
+                </Card>
+                <Card>
+                  <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:4}}>Additional Page Access</div>
+                  <p style={{...FONT,fontSize:12,color:C.text3,marginBottom:14}}>By default judges only see Submit Feedback. Grant access to extra pages per hackathon.</p>
+                  {(selUser.assignedHackathons||[]).length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>Assign a hackathon first.</div>
+                    :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+                      {db.hackathons.filter(h=>(selUser.assignedHackathons||[]).includes(h.id)).map(h=>(
+                        <div key={h.id} style={{border:`1px solid ${C.border}`,borderRadius:R.sm,overflow:"hidden"}}>
+                          <div style={{...FONT,background:C.bg2,borderBottom:`1px solid ${C.border}`,padding:"7px 12px",fontSize:11,fontWeight:500,color:C.text3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h.name}</div>
+                          {EXTRA_PAGES.map(p=>{const ex=(selUser.permissions||[]).find(x=>x.hackathonId===h.id&&x.page===p.id);return(
+                            <label key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+                              <span style={{...FONT,fontSize:12,color:C.text}}>{p.label}</span>
+                              <input type="checkbox" checked={!!ex} onChange={()=>togglePerm(h.id,p.id,ex)} style={{accentColor:"#2563eb",cursor:"pointer"}} />
+                            </label>
+                          );})}
+                        </div>
+                      ))}
+                    </div>
+                  }
+                </Card>
+
+                {/* ── Team Assignments ── */}
+                <Card>
+                  <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:4}}>Team Assignments</div>
+                  <p style={{...FONT,fontSize:12,color:C.text3,marginBottom:14}}>
+                    By default a judge sees <strong>all teams</strong> in assigned hackathons.
+                    Assign specific teams to limit what they can review.
+                  </p>
+                  {(selUser.assignedHackathons||[]).length===0
+                    ? <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>Assign a hackathon first.</div>
+                    : db.hackathons.filter(h=>(selUser.assignedHackathons||[]).includes(h.id)).map(h=>{
+                        const hackTeams = db.teams.filter(t=>t.hackathonId===h.id);
+                        const assignedTeamIds = selUser.assignedTeams||[];
+                        const hasSpecific = hackTeams.some(t=>assignedTeamIds.includes(t.id));
+                        return(
+                          <div key={h.id} style={{marginBottom:16}}>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                              padding:"8px 12px",background:C.bg2,borderRadius:R.sm,
+                              border:`1px solid ${C.border}`,marginBottom:8}}>
+                              <div style={{...FONT,fontSize:12,fontWeight:600,color:C.text}}>{h.name}</div>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                {hasSpecific
+                                  ? <Chip label={`${hackTeams.filter(t=>assignedTeamIds.includes(t.id)).length} of ${hackTeams.length} teams`} color="blue" />
+                                  : <Chip label="All teams visible" color="green" />
+                                }
+                                {hasSpecific&&(
+                                  <Btn size="sm" variant="secondary" onClick={async()=>{
+                                    for(const t of hackTeams.filter(t=>assignedTeamIds.includes(t.id))){
+                                      await DEL(`/api/judge-teams/${selUser.id}/${t.id}`).catch(()=>{});
+                                    }
+                                    await loadUsers();toast("Team restrictions cleared — judge sees all teams");
+                                  }}>Clear All</Btn>
+                                )}
+                              </div>
+                            </div>
+                            {hackTeams.length===0
+                              ? <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic",paddingLeft:4}}>No teams in this hackathon yet.</div>
+                              : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:6}}>
+                                  {hackTeams.map(t=>{
+                                    const isAssigned=assignedTeamIds.includes(t.id);
+                                    const toggleTeam=async()=>{
+                                      try{
+                                        if(isAssigned) await DEL(`/api/judge-teams/${selUser.id}/${t.id}`);
+                                        else await POST("/api/judge-teams",{userId:selUser.id,teamId:t.id,hackathonId:h.id});
+                                        await loadUsers();
+                                      }catch(e){toast(e.message,"error");}
+                                    };
+                                    return(
+                                      <label key={t.id} onClick={toggleTeam}
+                                        style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                                          borderRadius:R.sm,cursor:"pointer",userSelect:"none",
+                                          border:`1px solid ${isAssigned?C.bdBlue:C.border}`,
+                                          background:isAssigned?C.bgBlue:C.bg,transition:"all 0.15s"}}>
+                                        <div style={{width:16,height:16,borderRadius:4,flexShrink:0,
+                                          background:isAssigned?C.blue:C.bg3,
+                                          border:`2px solid ${isAssigned?C.blue:C.border2}`,
+                                          display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                          {isAssigned&&<span style={{color:"#fff",fontSize:10,fontWeight:700,lineHeight:1}}>✓</span>}
+                                        </div>
+                                        <div style={{minWidth:0}}>
+                                          <div style={{...FONT,fontSize:12,fontWeight:500,color:C.text,
+                                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</div>
+                                          {t.project&&<div style={{...FONT,fontSize:11,color:C.text3,
+                                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.project}</div>}
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                            }
+                            {hackTeams.length>0&&!hasSpecific&&(
+                              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:6,paddingLeft:2}}>
+                                💡 Check specific teams to restrict this judge. Unchecked = all teams visible.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                  }
+                </Card>
+              </>
+            )}
+          </div>
+        ):<Empty icon="👆" title="Select a user" sub="Click a user on the left to manage their access and hackathon assignments." />}
+      </div>
+      {modal&&(
+        <Modal title={modal==="new"?"Add User":"Edit User"} onClose={close}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
+            <Field label="Role"><select style={IN} value={form.role||"judge"} onChange={f("role")}><option value="judge">Judge</option><option value="admin">Admin</option></select></Field>
+          </div>
+          <Field label="Email" required><input type="email" style={IN} value={form.email||""} onChange={f("email")} /></Field>
+          <Field label={modal==="new"?"Password":"New Password"} hint={modal!=="new"?"Leave blank to keep current password":undefined}>
+            <input type="password" style={IN} value={form.password||""} onChange={f("password")} placeholder={modal==="new"?"Required":"Leave blank to keep current"} />
+          </Field>
+          {form.role==="judge"&&(
+            <Field label="Link to Judge Record" hint="Connects this login to a judge profile for feedback attribution">
+              <select style={IN} value={form.judgeId||""} onChange={f("judgeId")}><option value="">None</option>{(db.judges||[]).map(j=><option key={j.id} value={j.id}>{j.name} — {j.org}</option>)}</select>
+            </Field>
+          )}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+            <Btn variant="secondary" onClick={close}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ENTERPRISE PAGES
+══════════════════════════════════════════════════════════════════════════ */
+
+// ── Submissions Page ─────────────────────────────────────────────────────────
+export function SubmissionsPage({ db, toast, activeHackathon, isAdmin }) {
+  const [subs,    setSubs]    = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [modal,   setModal]   = useState(null);
+  const [form,    setForm]    = useState({});
+  const [filter,  setFilter]  = useState("all");
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/submissions?hackathonId=${activeHackathon}`)
+      .then(d => setSubs(Array.isArray(d) ? d : []))
+      .catch(() => setSubs([]))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const STATUS_COLOR = { draft:"neutral", submitted:"blue", shortlisted:"purple", winner:"green" };
+
+  const save = async () => {
+    if (!form.teamId || !form.title?.trim()) { toast("Team and title required", "error"); return; }
+    try {
+      await POST("/api/submissions", { ...form, hackathonId: activeHackathon });
+      load(); toast("Submission saved"); setModal(null);
+    } catch(e) { toast(e.message, "error"); }
+  };
+
+  const updateStatus = async (id, status) => {
+    try { await PUT(`/api/submissions/${id}`, { status }); load(); toast(`Marked as ${status}`); }
+    catch(e) { toast(e.message, "error"); }
+  };
+
+  const filtered = filter === "all" ? subs : subs.filter(s => s.status === filter);
+
+  return (
+    <div>
+      <SectionHeader title="Project Submissions"
+        count={`${subs.filter(s=>s.status==="submitted").length} submitted`}
+        action={isAdmin && <Btn onClick={() => { setForm({ hackathonId: activeHackathon }); setModal("new"); }}>+ Add Submission</Btn>}
+      />
+      {/* Filters */}
+      <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+        {["all","draft","submitted","shortlisted","winner"].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ ...FONT, fontSize:12, padding:"5px 12px", borderRadius:R.sm, cursor:"pointer",
+              border:`1px solid ${filter===f?C.blue:C.border}`,
+              background:filter===f?C.bgBlue:C.bg, color:filter===f?C.blue:C.text3,
+              textTransform:"capitalize" }}>
+            {f} ({f==="all"?subs.length:subs.filter(s=>s.status===f).length})
           </button>
         ))}
       </div>
-      {err&&<div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",
-        borderRadius:8,padding:"10px 14px",fontSize:13,color:"#f87171",marginBottom:12}}>⚠ {err}</div>}
-      <form onSubmit={submit}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-          <div>
-            <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Full Name *</div>
-            <input style={IS} value={form.name||""} onChange={sf("name")} required
-              onFocus={e=>e.target.style.borderColor=accent}
-              onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
-          </div>
-          <div>
-            <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Email *</div>
-            <input type="email" style={IS} value={form.email||""} onChange={sf("email")} required
-              onFocus={e=>e.target.style.borderColor=accent}
-              onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
-          </div>
-        </div>
-        <div style={{marginBottom:10}}>
-          <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Organization</div>
-          <input style={IS} value={form.org||""} onChange={sf("org")} placeholder="Optional"
-            onFocus={e=>e.target.style.borderColor=accent}
-            onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
-        </div>
-        {type==="team"&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-            <div>
-              <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Team Name</div>
-              <input style={IS} value={form.teamName||""} onChange={sf("teamName")}
-                onFocus={e=>e.target.style.borderColor=accent}
-                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
+      {loading && <div style={{ ...FONT, fontSize:13, color:C.text3, padding:24, textAlign:"center" }}>Loading…</div>}
+      {!loading && filtered.length === 0 && <Empty icon="📦" title="No submissions yet" sub="Teams haven't submitted their projects yet." />}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:12 }}>
+        {filtered.map(s => (
+          <Card key={s.id}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+              <div>
+                <div style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text, marginBottom:3 }}>{s.title}</div>
+                <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{s.teamName} · {s.track||"No track"}</div>
+              </div>
+              <Chip label={s.status} color={STATUS_COLOR[s.status]||"neutral"} />
             </div>
-            <div>
-              <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Team Size</div>
-              <input type="number" min={1} max={10} style={IS} value={form.teamSize||""}
-                onChange={sf("teamSize")}
-                onFocus={e=>e.target.style.borderColor=accent}
-                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
+            {s.tagline && <div style={{ ...FONT, fontSize:12, color:C.text2, fontStyle:"italic", marginBottom:8 }}>"{s.tagline}"</div>}
+            {s.description && <div style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6, marginBottom:10 }}>{s.description?.slice(0,120)}…</div>}
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:10 }}>
+              {s.githubUrl && <a href={s.githubUrl} target="_blank" rel="noopener" style={{ ...FONT, fontSize:11, color:C.blue }}>GitHub →</a>}
+              {s.demoUrl   && <a href={s.demoUrl}   target="_blank" rel="noopener" style={{ ...FONT, fontSize:11, color:C.green }}>Demo →</a>}
+              {s.videoUrl  && <a href={s.videoUrl}  target="_blank" rel="noopener" style={{ ...FONT, fontSize:11, color:C.purple }}>Video →</a>}
             </div>
+            {s.techStack && <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:8 }}>
+              {s.techStack.split(",").map(t => <span key={t} style={{ display:"inline-block", padding:"2px 7px", borderRadius:9999, background:C.bg3, marginRight:4, marginBottom:3 }}>{t.trim()}</span>)}
+            </div>}
+            {isAdmin && (
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {["shortlisted","winner"].map(st => (
+                  <Btn key={st} size="sm" variant={s.status===st?"primary":"secondary"} onClick={() => updateStatus(s.id, st)}>
+                    {st==="winner"?"🏆 Winner":"⭐ Shortlist"}
+                  </Btn>
+                ))}
+                {s.status!=="submitted"&&<Btn size="sm" variant="secondary" onClick={()=>updateStatus(s.id,"submitted")}>Reset</Btn>}
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+      {modal && (
+        <Modal title="Add Submission" onClose={() => setModal(null)} width={580}>
+          <Field label="Team" required>
+            <select style={IN} value={form.teamId||""} onChange={sf("teamId")}>
+              <option value="">Select team…</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Project Title" required><input style={IN} value={form.title||""} onChange={sf("title")} /></Field>
+            <Field label="Tagline"><input style={IN} value={form.tagline||""} onChange={sf("tagline")} /></Field>
           </div>
-        )}
-        <div style={{marginBottom:16}}>
-          <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>
-            {type==="team"?"Project Idea":"Expertise & Experience"}
+          <Field label="Description"><textarea style={{...TA,minHeight:72}} value={form.description||""} onChange={sf("description")} /></Field>
+          <Field label="Problem Statement"><textarea style={{...TA,minHeight:60}} value={form.problemStatement||""} onChange={sf("problemStatement")} /></Field>
+          <Field label="Solution"><textarea style={{...TA,minHeight:60}} value={form.solution||""} onChange={sf("solution")} /></Field>
+          <Field label="Tech Stack" hint="Comma-separated"><input style={IN} value={form.techStack||""} onChange={sf("techStack")} placeholder="React, Node.js, PostgreSQL" /></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="GitHub URL"><input style={IN} value={form.githubUrl||""} onChange={sf("githubUrl")} /></Field>
+            <Field label="Demo URL"><input style={IN} value={form.demoUrl||""} onChange={sf("demoUrl")} /></Field>
+            <Field label="Video URL"><input style={IN} value={form.videoUrl||""} onChange={sf("videoUrl")} /></Field>
+            <Field label="Deck URL"><input style={IN} value={form.deckUrl||""} onChange={sf("deckUrl")} /></Field>
           </div>
-          <textarea style={{...IS,resize:"vertical",minHeight:72}} value={form.message||""}
-            onChange={sf("message")}
-            onFocus={e=>e.target.style.borderColor=accent}
-            onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
-        </div>
-        <button type="submit" disabled={busy} style={{...FF,width:"100%",background:accent,
-          color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:15,
-          fontWeight:700,cursor:"pointer",opacity:busy?0.7:1}}>
-          {busy?"Submitting…":type==="team"?"Submit Team Application →":"Submit Judge Application →"}
-        </button>
-      </form>
-    </>
+          <Field label="Track">
+            <select style={IN} value={form.track||""} onChange={sf("track")}>
+              <option value="">Select track…</option>
+              {(db.hackathons.find(h=>h.id===activeHackathon)?.tracks||"").split(",").map(t=>t.trim()).filter(Boolean).map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:8 }}>
+            <Btn variant="secondary" onClick={() => setModal(null)}>Cancel</Btn>
+            <Btn onClick={save}>Save Submission</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
   );
 }
 
-// ── MAIN ─────────────────────────────────────────────────────────────────────
-export default function PublicPage({hackathonId}){
-  const[data,setData]=useState(null);
-  const[loading,setLoading]=useState(true);
-  const[err,setErr]=useState("");
+// ── Judge Progress Tracker ────────────────────────────────────────────────────
+export function JudgeProgressPage({ db, toast, activeHackathon }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
-  useEffect(()=>{
-    const params=new URLSearchParams(window.location.search);
-    const isPreview=params.get("preview")==="1";
-    const token=params.get("token");
-    const url=isPreview
-      ?`${BASE}/api/pubpage/preview/${hackathonId}`
-      :`${BASE}/api/pubpage/${hackathonId}`;
-    const opts=isPreview&&token?{headers:{Authorization:`Bearer ${token}`}}:{};
-    fetch(url,opts)
-      .then(async r=>{
-        const d=await r.json();
-        if(!r.ok||d.error){setErr(d.error||`Server error ${r.status}`);}
-        else{setData(d);}
-        if(isPreview)window.history.replaceState({},"",window.location.pathname);
-        setLoading(false);
-      })
-      .catch(e=>{setErr(e.message);setLoading(false);});
-  },[hackathonId]);
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/judge-progress/${activeHackathon}`)
+      .then(d => setData(d))
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
+  };
 
-  if(loading)return(
-    <div style={{minHeight:"100vh",background:"#070b14",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{width:40,height:40,border:"3px solid rgba(255,255,255,0.1)",
-        borderTopColor:"#6366f1",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
-    </div>
-  );
+  useEffect(() => { load(); }, [activeHackathon]);
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, [autoRefresh, activeHackathon]);
 
-  if(err)return(
-    <div style={{minHeight:"100vh",background:"#070b14",display:"flex",flexDirection:"column",
-      alignItems:"center",justifyContent:"center",color:"#fff",...FF,padding:24,textAlign:"center"}}>
-      <div style={{fontSize:48,marginBottom:16}}>🔒</div>
-      <div style={{fontSize:20,fontWeight:700,marginBottom:8}}>Page Not Available</div>
-      <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",maxWidth:400,lineHeight:1.6,marginBottom:16}}>{err}</div>
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.25)"}}>ID: {hackathonId} · <a href="/" style={{color:"rgba(255,255,255,0.4)"}}>Admin</a></div>
-    </div>
-  );
+  if (!activeHackathon) return <Empty icon="📊" title="Select a hackathon" />;
 
-  // Derive event status from data + dates
-  const now = new Date();
-  const startDate = data.startDate ? new Date(data.startDate) : null;
-  const endDate   = data.endDate   ? new Date(data.endDate)   : null;
-  const regDeadline = data.registrationDeadline ? new Date(data.registrationDeadline) : null;
+  const overall = data?.overall || {};
+  const progress = data?.progress || [];
 
-  const isCompleted = data.status === "completed" || (endDate && endDate < now);
-  const isUpcoming  = data.status === "upcoming"  || (startDate && startDate > now);
-  const regClosed   = regDeadline ? regDeadline < now : isCompleted;
-
-  const accent=data.bannerColor||"#6366f1";
-  const tracks=(data.tracks||"").split(",").map(t=>t.trim()).filter(Boolean);
-  const faqRaw=(data.faq||"").split("\n\n").filter(Boolean);
-  const faqs=faqRaw.map(b=>{const[q,...rest]=b.split("\n");return{q:(q||"").replace(/^Q:\s*/i,""),a:rest.join("\n").replace(/^A:\s*/i,"")};}).filter(f=>f.q);
-  const byTier={}; (data.partners||[]).forEach(p=>(byTier[p.tier]||(byTier[p.tier]=[])).push(p));
-  const TIER_ORDER=["platinum","gold","silver","bronze","media","general"];
-  const TIER_LABEL={platinum:"Platinum",gold:"Gold",silver:"Silver",bronze:"Bronze",media:"Media Partner",general:"Community Partner"};
-  const spotsTotal = data.maxParticipants || 0;
-  const [spotsTaken, setSpotsTaken] = useState(0);
-  useEffect(()=>{
-    if(!spotsTotal)return;
-    fetch(`${BASE}/api/public/hackathons/${hackathonId}/registrations-count`)
-      .then(r=>r.json()).then(d=>setSpotsTaken(d.count||0)).catch(()=>{});
-  },[hackathonId]);
-
-  const statsItems=(data.websiteStats||"").split("\n").filter(Boolean).map(l=>{const[icon,value,...rest]=l.split("|");return{icon:(icon||"").trim(),value:(value||"").trim(),label:rest.join("|").trim()};}).filter(s=>s.value);
-  const galleryImages=(data.galleryImages||"").split("\n").map(s=>s.trim()).filter(Boolean);
-  const NLNL="\n\n"; const testimonials=(data.websiteTestimonials||"").split(NLNL).filter(Boolean).map(b=>{const lines=b.split("\n");return{quote:lines[0]||"",author:lines[1]||"",role:lines[2]||""};}).filter(t=>t.quote);
-  const isPreviewMode=new URLSearchParams(window.location.search).get("preview")==="1";
-
-  function scrollTo(id){document.getElementById(id)?.scrollIntoView({behavior:"smooth"});}
-
-  const TRACK_ICONS=["🤖","🌱","🔐","🌍","📚","💳","❤️","🛠️","🔓","⚡","🚀","🎨"];
-  const TRACK_COLORS=["#6366f1","#10b981","#f59e0b","#ec4899","#06b6d4","#8b5cf6","#ef4444","#f97316","#84cc16","#eab308","#3b82f6","#e11d48"];
-
-  return(
-    <div style={{...FF,background:"#070b14",color:"#fff",overflowX:"hidden"}}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
-        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-        html{scroll-behavior:smooth;scroll-padding-top:68px;}
-        ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-track{background:#070b14;} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
-        input::placeholder,textarea::placeholder{color:rgba(255,255,255,0.2);}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
-      `}</style>
-
-      {/* Preview banner */}
-      {isPreviewMode&&(
-        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:999,
-          background:"#d97706",color:"#fff",textAlign:"center",
-          padding:"10px 16px",...FF,fontSize:13,fontWeight:600}}>
-          👁 Preview Mode — not yet published publicly
+  return (
+    <div>
+      <SectionHeader title="Judge Progress Tracker"
+        action={
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <label style={{ ...FONT, fontSize:12, color:C.text3, display:"flex", alignItems:"center", gap:6 }}>
+              <input type="checkbox" checked={autoRefresh} onChange={e=>setAutoRefresh(e.target.checked)} />
+              Auto-refresh (30s)
+            </label>
+            <Btn variant="secondary" onClick={load} disabled={loading}>{loading?<Spinner/>:"↻"} Refresh</Btn>
+          </div>
+        }
+      />
+      {/* Overall stats */}
+      {data && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:16 }}>
+          <Stat label="Total Teams"     value={overall.total||0}         />
+          <Stat label="Judges Complete" value={`${overall.judgesComplete||0}/${overall.judgesTotal||0}`} color={C.green} />
+          <Stat label="Total Reviews"   value={data.progress.reduce((s,p)=>s+p.scored,0)} color={C.blue} />
+          <Stat label="Coverage"        value={`${overall.total&&overall.judgesTotal?Math.round(data.progress.reduce((s,p)=>s+p.scored,0)/(overall.total*overall.judgesTotal)*100):0}%`} color={C.purple} />
         </div>
       )}
-
-      {/* ── NAV ── */}
-      <Nav accent={accent} data={data} scrollTo={scrollTo}
-        tracks={tracks} galleryImages={galleryImages}
-        onRegister={()=>scrollTo("register")} />
-
-      {/* ── HERO ── */}
-      <section style={{minHeight:"100vh",display:"flex",flexDirection:"column",
-        alignItems:"center",justifyContent:"center",textAlign:"center",
-        padding:"100px 24px 60px",position:"relative",overflow:"hidden"}}>
-        <div style={{position:"absolute",inset:0,background:`linear-gradient(135deg,#070b14 0%,${accent}22 50%,#070b14 100%)`}}/>
-        <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse 80% 50% at 50% -5%,rgba(99,102,241,0.15) 0%,transparent 70%)"}}/>
-        <div style={{position:"absolute",inset:0,opacity:0.025,backgroundImage:"linear-gradient(rgba(255,255,255,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.5) 1px,transparent 1px)",backgroundSize:"60px 60px"}}/>
-        <div style={{position:"relative",zIndex:1,maxWidth:860,animation:"fadeUp 0.8s ease both"}}>
-          <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.07)",
-            border:"1px solid rgba(255,255,255,0.12)",borderRadius:9999,
-            padding:"5px 16px",fontSize:11,fontWeight:600,color:"rgba(255,255,255,0.7)",
-            letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:24}}>
-            <span style={{width:6,height:6,borderRadius:"50%",
-              background: isCompleted?"#10b981": regClosed?"#f59e0b": accent,
-              animation:"pulse 2s infinite",display:"inline-block"}}/>
-            {isCompleted?"Event Concluded Successfully ✓": regClosed?"Registration Closed": isUpcoming?"Coming Soon":"Registration Open"}
-          </div>
-          {data.eventLogoUrl&&<div style={{marginBottom:16}}><img src={data.eventLogoUrl} alt={data.name} style={{maxHeight:72,maxWidth:280,objectFit:"contain"}} /></div>}
-          <h1 style={{fontSize:"clamp(32px,6.5vw,76px)",fontWeight:800,lineHeight:1.05,
-            letterSpacing:"-0.03em",marginBottom:16,
-            background:"linear-gradient(135deg,#fff 0%,rgba(255,255,255,0.6) 100%)",
-            WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
-            {data.name}
-          </h1>
-          {data.tagline&&<p style={{fontSize:"clamp(14px,2vw,20px)",color:"rgba(255,255,255,0.5)",
-            marginBottom:32,lineHeight:1.7,maxWidth:560,margin:"0 auto 32px"}}>{data.tagline}</p>}
-          <div style={{display:"flex",justifyContent:"center",gap:8,flexWrap:"wrap",marginBottom:40}}>
-            {data.startDate&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9999,color:"rgba(255,255,255,0.75)"}}>📅 {fmtS(data.startDate)}{data.endDate?` – ${fmtS(data.endDate)}`:""}</span>}
-            {data.location&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9999,color:"rgba(255,255,255,0.75)"}}>📍 {data.location}</span>}
-            {data.prizePool&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:`${accent}22`,border:`1px solid ${accent}55`,borderRadius:9999,color:accent}}>🏆 {data.prizePool}</span>}
-            {data.registrationDeadline&&!regClosed&&!isCompleted&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:9999,color:"#fbbf24"}}>⏳ Deadline: {data.registrationDeadline}</span>}
-            {regClosed&&!isCompleted&&<span style={{display:"inline-flex",alignItems:"center",padding:"7px 16px",fontSize:13,background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:9999,color:"#f87171"}}>🔒 Registration Closed</span>}
-          </div>
-          {/* Countdown — adapts to event state */}
-          {isCompleted ? (
-            <div style={{marginBottom:36,padding:"20px 32px",
-              background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",
-              borderRadius:16,display:"inline-block"}}>
-              <div style={{fontSize:32,marginBottom:8}}>🎊</div>
-              <div style={{...FF,fontSize:16,fontWeight:700,color:"#10b981",marginBottom:4}}>Event Completed Successfully!</div>
-              <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.45)"}}>
-                {startDate&&endDate?`${fmtS(startDate)} – ${fmtS(endDate)}`:startDate?`Held on ${fmt(startDate)}`:""}
+      {loading && !data && <div style={{ ...FONT, fontSize:13, color:C.text3, padding:24, textAlign:"center" }}>Loading…</div>}
+      {progress.map(judge => (
+        <Card key={judge.judgeId} style={{ marginBottom:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:16, alignItems:"center" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <Avatar name={judge.name} src={judge.avatarUrl} size={44} />
+              <div>
+                <div style={{ ...FONT, fontSize:14, fontWeight:600, color:C.text }}>{judge.name}</div>
+                <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{judge.org}</div>
+                <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:2 }}>
+                  {judge.scored}/{judge.total} teams scored
+                  {judge.conflicts > 0 && ` · ${judge.conflicts} conflict(s)`}
+                </div>
               </div>
             </div>
-          ) : isUpcoming && startDate ? (
-            <div style={{marginBottom:40}}>
-              <div style={{...MM,fontSize:10,color:"rgba(255,255,255,0.25)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>Event starts in</div>
-              <Countdown target={data.startDate}/>
+            <div style={{ textAlign:"center", minWidth:80 }}>
+              <div style={{ ...MONO, fontSize:22, fontWeight:700,
+                color:judge.pct===100?C.green:judge.pct>=50?C.blue:C.amber }}>{judge.pct}%</div>
+              <Chip label={judge.pct===100?"Complete":judge.pending===0?"No Teams":"In Progress"}
+                color={judge.pct===100?"green":judge.pct>=50?"blue":"amber"} />
             </div>
-          ) : regDeadline && !regClosed ? (
-            <div style={{marginBottom:40}}>
-              <div style={{...MM,fontSize:10,color:"rgba(255,255,255,0.25)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>Registration closes in</div>
-              <Countdown target={data.registrationDeadline}/>
-            </div>
-          ) : startDate && startDate > now ? (
-            <div style={{marginBottom:40}}>
-              <div style={{...MM,fontSize:10,color:"rgba(255,255,255,0.25)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>Event starts in</div>
-              <Countdown target={data.startDate}/>
-            </div>
-          ) : null}
-          <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
-            <button onClick={()=>scrollTo("register")} style={{...FF,background:accent,color:"#fff",
-              border:"none",borderRadius:10,padding:"13px 32px",fontSize:15,fontWeight:700,
-              cursor:"pointer",boxShadow:`0 8px 28px ${accent}55`}}>
-              Register Now →
-            </button>
-            <button onClick={()=>scrollTo("about")} style={{...FF,background:"rgba(255,255,255,0.07)",
-              color:"rgba(255,255,255,0.8)",border:"1px solid rgba(255,255,255,0.12)",
-              borderRadius:10,padding:"13px 24px",fontSize:15,fontWeight:600,cursor:"pointer"}}>
-              Learn More
-            </button>
           </div>
+          {/* Progress bar */}
+          <div style={{ margin:"10px 0 0", background:C.bg3, borderRadius:4, height:6, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${judge.pct}%`, borderRadius:4, transition:"width 0.4s",
+              background:judge.pct===100?C.green:C.blue }} />
+          </div>
+          {/* Pending teams */}
+          {judge.pendingTeams?.length > 0 && (
+            <div style={{ marginTop:8, display:"flex", gap:6, flexWrap:"wrap" }}>
+              <span style={{ ...FONT, fontSize:11, color:C.text3 }}>Pending:</span>
+              {judge.pendingTeams.slice(0,8).map(t => (
+                <span key={t.id} style={{ ...FONT, fontSize:11, padding:"2px 8px", borderRadius:9999,
+                  background:C.bgAmber, color:C.amber, border:`1px solid ${C.bdAmber}` }}>{t.name}</span>
+              ))}
+              {judge.pendingTeams.length > 8 && <span style={{ ...FONT, fontSize:11, color:C.text3 }}>+{judge.pendingTeams.length-8} more</span>}
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ── Announcements Page ────────────────────────────────────────────────────────
+export function AnnouncementsPage({ db, toast, activeHackathon }) {
+  const [anns,   setAnns]  = useState([]);
+  const [modal,  setModal] = useState(null);
+  const [form,   setForm]  = useState({});
+  const [saving, setSaving]= useState(false);
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  const load = () => {
+    if (!activeHackathon) return;
+    GET(`/api/announcements?hackathonId=${activeHackathon}`)
+      .then(d => setAnns(Array.isArray(d) ? d : [])).catch(() => {});
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const save = async () => {
+    if (!form.title?.trim() || !form.body?.trim()) { toast("Title and message required", "error"); return; }
+    setSaving(true);
+    try {
+      if (modal === "new") await POST("/api/announcements", { ...form, hackathonId: activeHackathon });
+      else await PUT(`/api/announcements/${modal.id}`, form);
+      load(); toast(modal==="new"?"Announcement posted":"Updated"); setModal(null);
+    } catch(e) { toast(e.message, "error"); } finally { setSaving(false); }
+  };
+
+  const del = async id => {
+    if (!confirm("Delete this announcement?")) return;
+    try { await DEL(`/api/announcements/${id}`); load(); toast("Deleted"); } catch(e) { toast(e.message,"error"); }
+  };
+
+  const PRIORITY_COLOR = { low:"neutral", normal:"blue", high:"amber", urgent:"red" };
+  const AUDIENCE_ICON  = { all:"🌐", judges:"⭐", teams:"🚀", public:"📢" };
+
+  return (
+    <div>
+      <SectionHeader title="Announcements"
+        action={<Btn onClick={() => { setForm({ priority:"normal", audience:"all", pinned:false }); setModal("new"); }}>+ New Announcement</Btn>}
+      />
+      {!activeHackathon && <Empty icon="📢" title="Select a hackathon" />}
+      {anns.length === 0 && activeHackathon && <Empty icon="📢" title="No announcements yet" sub="Post an update to participants, judges, or teams." />}
+      {anns.map(ann => (
+        <Card key={ann.id} style={{ marginBottom:10, border:`1px solid ${ann.pinned?C.bdBlue:C.border}`,
+          background:ann.pinned?C.bgBlue:C.bg }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              {ann.pinned && <span style={{ fontSize:14 }}>📌</span>}
+              <span style={{ ...FONT, fontSize:15, fontWeight:600, color:C.text }}>{ann.title}</span>
+              <Chip label={ann.priority} color={PRIORITY_COLOR[ann.priority]} />
+              <Chip label={`${AUDIENCE_ICON[ann.audience]} ${ann.audience}`} color="neutral" />
+            </div>
+            <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+              <Btn size="sm" variant="secondary" onClick={() => { setForm({...ann}); setModal(ann); }}>Edit</Btn>
+              <Btn size="sm" variant="danger"    onClick={() => del(ann.id)}>Delete</Btn>
+            </div>
+          </div>
+          <div style={{ ...FONT, fontSize:13, color:C.text2, lineHeight:1.7, marginBottom:6 }}>{ann.body}</div>
+          <div style={{ ...FONT, fontSize:11, color:C.text3 }}>
+            {new Date(ann.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+          </div>
+        </Card>
+      ))}
+      {modal && (
+        <Modal title={modal==="new"?"New Announcement":"Edit Announcement"} onClose={() => setModal(null)} width={540}>
+          <Field label="Title" required><input style={IN} value={form.title||""} onChange={sf("title")} /></Field>
+          <Field label="Message" required><textarea style={{...TA,minHeight:100}} value={form.body||""} onChange={sf("body")} /></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Priority">
+              <select style={IN} value={form.priority||"normal"} onChange={sf("priority")}>
+                {["low","normal","high","urgent"].map(p=><option key={p} value={p} style={{textTransform:"capitalize"}}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="Audience">
+              <select style={IN} value={form.audience||"all"} onChange={sf("audience")}>
+                {["all","judges","teams","public"].map(a=><option key={a} value={a} style={{textTransform:"capitalize"}}>{AUDIENCE_ICON[a]} {a}</option>)}
+              </select>
+            </Field>
+          </div>
+          <label style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, cursor:"pointer" }}>
+            <input type="checkbox" checked={!!form.pinned} onChange={e=>setForm(p=>({...p,pinned:e.target.checked}))} />
+            <span style={{ ...FONT, fontSize:13, color:C.text }}>📌 Pin to top</span>
+          </label>
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
+            <Btn variant="secondary" onClick={() => setModal(null)}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} {modal==="new"?"Post":"Update"}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Mentors Page ──────────────────────────────────────────────────────────────
+export function MentorsPage({ db, toast, activeHackathon }) {
+  const [mentors, setMentors] = useState([]);
+  const [modal,   setModal]   = useState(null);
+  const [form,    setForm]    = useState({});
+  const [saving,  setSaving]  = useState(false);
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    GET(`/api/mentors?hackathonId=${activeHackathon}`)
+      .then(d => setMentors(Array.isArray(d) ? d : [])).catch(() => {});
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const save = async () => {
+    if (!form.name?.trim()) { toast("Name required","error"); return; }
+    setSaving(true);
+    try {
+      if (modal==="new") await POST("/api/mentors",{...form,hackathonId:activeHackathon});
+      else await PUT(`/api/mentors/${modal.id}`,form);
+      load(); toast(modal==="new"?"Mentor added":"Updated"); setModal(null);
+    } catch(e){toast(e.message,"error");} finally{setSaving(false);}
+  };
+
+  const assignTeam = async (mentorId, teamId) => {
+    try { await POST("/api/mentor-assignments",{mentorId,teamId,hackathonId:activeHackathon}); load(); toast("Team assigned"); }
+    catch(e){toast(e.message,"error");}
+  };
+
+  const unassign = async (mentorId, teamId) => {
+    try { await DEL(`/api/mentor-assignments/${mentorId}/${teamId}`); load(); toast("Unassigned"); }
+    catch(e){toast(e.message,"error");}
+  };
+
+  return (
+    <div>
+      <SectionHeader title="Mentor Management" count={`${mentors.length} mentors`}
+        action={<Btn onClick={() => { setForm({}); setModal("new"); }}>+ Add Mentor</Btn>}
+      />
+      {!activeHackathon && <Empty icon="🎓" title="Select a hackathon" />}
+      {mentors.length===0 && activeHackathon && <Empty icon="🎓" title="No mentors yet" sub="Add mentors to support participating teams." />}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12 }}>
+        {mentors.map(m => (
+          <Card key={m.id}>
+            <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:10 }}>
+              <Avatar name={m.name} src={m.avatarUrl} size={44} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ ...FONT, fontSize:14, fontWeight:600, color:C.text }}>{m.name}</div>
+                <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{m.title} · {m.org}</div>
+                {m.availability && <div style={{ ...FONT, fontSize:11, color:C.blue, marginTop:2 }}>🕐 {m.availability}</div>}
+              </div>
+              <div style={{ display:"flex", gap:4 }}>
+                <Btn size="sm" variant="secondary" onClick={() => { setForm({...m}); setModal(m); }}>Edit</Btn>
+                <Btn size="sm" variant="danger" onClick={async()=>{if(!confirm("Delete?"))return;try{await DEL(`/api/mentors/${m.id}`);load();toast("Deleted");}catch(e){toast(e.message,"error");}}}>✕</Btn>
+              </div>
+            </div>
+            {m.expertise && <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:8 }}>
+              {m.expertise.split(",").map(e=><span key={e} style={{display:"inline-block",padding:"2px 7px",borderRadius:9999,background:C.bgBlue,color:C.blue,marginRight:3,marginBottom:3,fontSize:10}}>{e.trim()}</span>)}
+            </div>}
+            {/* Team assignments */}
+            <div style={{ ...FONT, fontSize:11, color:C.text3, fontWeight:600, marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>Assigned Teams</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
+              {(m.assignments||[]).filter(a=>a.teamId).map(a=>(
+                <span key={a.teamId} style={{ ...FONT, fontSize:11, padding:"3px 9px", borderRadius:9999,
+                  background:C.bg3, color:C.text2, display:"flex", alignItems:"center", gap:5 }}>
+                  {a.teamName}
+                  <button onClick={() => unassign(m.id, a.teamId)} style={{ background:"none", border:"none",
+                    cursor:"pointer", color:C.text3, fontSize:13, lineHeight:1, padding:0 }}>×</button>
+                </span>
+              ))}
+              {(m.assignments||[]).filter(a=>a.teamId).length === 0 && <span style={{ ...FONT, fontSize:11, color:C.text3, fontStyle:"italic" }}>None assigned</span>}
+            </div>
+            <select style={{ ...IN, fontSize:12 }} value="" onChange={e => { if(e.target.value) assignTeam(m.id, e.target.value); }}>
+              <option value="">+ Assign team…</option>
+              {teams.filter(t => !(m.assignments||[]).find(a=>a.teamId===t.id)).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </Card>
+        ))}
+      </div>
+      {modal && (
+        <Modal title={modal==="new"?"Add Mentor":"Edit Mentor"} onClose={()=>setModal(null)} width={520}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={sf("name")} /></Field>
+            <Field label="Email"><input type="email" style={IN} value={form.email||""} onChange={sf("email")} /></Field>
+            <Field label="Title / Position"><input style={IN} value={form.title||""} onChange={sf("title")} /></Field>
+            <Field label="Organization"><input style={IN} value={form.org||""} onChange={sf("org")} /></Field>
+          </div>
+          <Field label="Expertise" hint="Comma-separated skills">
+            <input style={IN} value={form.expertise||""} onChange={sf("expertise")} placeholder="AI/ML, Product, Design" />
+          </Field>
+          <Field label="Availability"><input style={IN} value={form.availability||""} onChange={sf("availability")} placeholder="Sat 10am-4pm, Sun 11am-2pm" /></Field>
+          <Field label="Bio"><textarea style={{...TA,minHeight:64}} value={form.bio||""} onChange={sf("bio")} /></Field>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="LinkedIn URL"><input style={IN} value={form.linkedinUrl||""} onChange={sf("linkedinUrl")} /></Field>
+            <Field label="Photo URL"><input style={IN} value={form.avatarUrl||""} onChange={sf("avatarUrl")} /></Field>
+          </div>
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:8 }}>
+            <Btn variant="secondary" onClick={()=>setModal(null)}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>{saving&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Check-in Page ─────────────────────────────────────────────────────────────
+export function CheckinPage({ db, toast, activeHackathon }) {
+  const [checkins, setCheckins] = useState([]);
+  const [stats,    setStats]    = useState({});
+  const [form,     setForm]     = useState({ type:"participant" });
+  const [saving,   setSaving]   = useState(false);
+  const [search,   setSearch]   = useState("");
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    GET(`/api/checkins?hackathonId=${activeHackathon}`).then(d => setCheckins(Array.isArray(d)?d:[])).catch(()=>{});
+    GET(`/api/checkins/stats/${activeHackathon}`).then(d => setStats(d||{})).catch(()=>{});
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const checkin = async e => {
+    e.preventDefault();
+    if (!form.name?.trim()) { toast("Name required","error"); return; }
+    setSaving(true);
+    try {
+      await POST("/api/checkins",{ ...form, hackathonId:activeHackathon });
+      setForm({ type:"participant" }); load(); toast(`✓ ${form.name} checked in!`);
+    } catch(err){toast(err.message,"error");} finally{setSaving(false);}
+  };
+
+  const filtered = checkins.filter(c =>
+    !search || c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.email?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const TYPE_ICON = { participant:"👤", judge:"⭐", mentor:"🎓", organizer:"🔧", volunteer:"🙋", sponsor:"💎" };
+  const TYPE_COLOR= { participant:"neutral",judge:"blue",mentor:"purple",organizer:"green",volunteer:"amber",sponsor:"red" };
+
+  return (
+    <div>
+      <SectionHeader title="Check-in / Attendance" count={`${stats.total||0} checked in`}
+        action={<Btn variant="secondary" onClick={load}>↻ Refresh</Btn>}
+      />
+      {/* Stats */}
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+        {Object.entries(stats.byType||{}).map(([type,count])=>(
+          <div key={type} style={{ padding:"10px 16px", background:C.bg2, border:`1px solid ${C.border}`,
+            borderRadius:R.md, textAlign:"center", minWidth:90 }}>
+            <div style={{ fontSize:20, marginBottom:3 }}>{TYPE_ICON[type]||"👤"}</div>
+            <div style={{ ...MONO, fontSize:20, fontWeight:700, color:C.text }}>{count}</div>
+            <div style={{ ...FONT, fontSize:11, color:C.text3, textTransform:"capitalize" }}>{type}s</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:20, alignItems:"start" }}>
+        {/* Check-in form */}
+        <Card>
+          <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:14 }}>Check In</div>
+          <form onSubmit={checkin}>
+            <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={sf("name")} autoFocus /></Field>
+            <Field label="Email"><input type="email" style={IN} value={form.email||""} onChange={sf("email")} /></Field>
+            <Field label="Type">
+              <select style={IN} value={form.type||"participant"} onChange={sf("type")}>
+                {["participant","judge","mentor","organizer","volunteer","sponsor"].map(t=>(
+                  <option key={t} value={t}>{TYPE_ICON[t]} {t}</option>
+                ))}
+              </select>
+            </Field>
+            {form.type==="participant"&&<Field label="Team (optional)">
+              <select style={IN} value={form.teamId||""} onChange={sf("teamId")}>
+                <option value="">No team / walk-in</option>
+                {teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </Field>}
+            <Btn type="submit" disabled={saving} style={{ width:"100%", marginTop:4 }}>
+              {saving?<Spinner/>:"✓ Check In"}
+            </Btn>
+          </form>
+        </Card>
+        {/* Attendance list */}
+        <div>
+          <input style={{ ...IN, marginBottom:10, width:"100%" }} value={search}
+            onChange={e=>setSearch(e.target.value)} placeholder="Search by name or email…" />
+          <Card style={{ padding:0, overflow:"hidden" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:C.bg2, borderBottom:`1px solid ${C.border}` }}>
+                  {["Name","Email","Type","Team","Time"].map(h=>(
+                    <th key={h} style={{ ...FONT, fontSize:11, color:C.text3, padding:"9px 12px",
+                      textAlign:"left", textTransform:"uppercase", letterSpacing:"0.05em" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0,50).map((c,i)=>(
+                  <tr key={c.id} style={{ borderBottom:`1px solid ${C.border}`, background:i%2?C.bg2:C.bg }}>
+                    <td style={{ ...FONT, fontSize:13, fontWeight:500, color:C.text, padding:"8px 12px" }}>{c.name}</td>
+                    <td style={{ ...FONT, fontSize:12, color:C.text3, padding:"8px 12px" }}>{c.email||"—"}</td>
+                    <td style={{ padding:"8px 12px" }}><Chip label={`${TYPE_ICON[c.type]||""} ${c.type}`} color={TYPE_COLOR[c.type]||"neutral"} /></td>
+                    <td style={{ ...FONT, fontSize:12, color:C.text3, padding:"8px 12px" }}>{c.teamName||"—"}</td>
+                    <td style={{ ...MONO, fontSize:11, color:C.text3, padding:"8px 12px" }}>
+                      {new Date(c.checkedInAt).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}
+                    </td>
+                  </tr>
+                ))}
+                {filtered.length===0&&<tr><td colSpan={5} style={{ ...FONT, fontSize:13, color:C.text3, textAlign:"center", padding:20 }}>No check-ins yet</td></tr>}
+              </tbody>
+            </table>
+          </Card>
         </div>
-      </section>
+      </div>
+    </div>
+  );
+}
 
-      {/* ── STATS ── */}
-      {statsItems.length>0&&(
-        <div style={{background:`${accent}0d`,borderTop:`1px solid ${accent}22`,borderBottom:`1px solid ${accent}22`,padding:"24px"}}>
-          <div style={{maxWidth:1100,margin:"0 auto",display:"grid",
-            gridTemplateColumns:`repeat(${Math.min(statsItems.length,5)},1fr)`,gap:8}}>
-            {statsItems.map((s,i)=>(
-              <div key={i} style={{textAlign:"center",padding:"16px 8px"}}>
-                <div style={{fontSize:24,marginBottom:6}}>{s.icon}</div>
-                <div style={{...MM,fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:"#fff",lineHeight:1,marginBottom:4}}>{s.value}</div>
-                <div style={{...FF,fontSize:12,color:"rgba(255,255,255,0.4)"}}>{s.label}</div>
+// ── Certificates Page ─────────────────────────────────────────────────────────
+export function CertificatesPage({ db, toast, activeHackathon }) {
+  const [certs,   setCerts]   = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+  const teams = db.teams.filter(t => t.hackathonId === activeHackathon);
+  const hack  = db.hackathons.find(h => h.id === activeHackathon);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/certificates?hackathonId=${activeHackathon}`)
+      .then(d => setCerts(Array.isArray(d)?d:[])).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const issueForAll = async type => {
+    if (!confirm(`Issue "${type}" certificates for all ${type==="participant"?`teams (${teams.length})`:"relevant people"}?`)) return;
+    setIssuing(true);
+    const certList = type==="participant"
+      ? teams.map(t => ({ recipient:t.name, email:"", type, teamName:t.name }))
+      : [];
+    try {
+      const r = await POST("/api/certificates/bulk",{ hackathonId:activeHackathon, certs:certList });
+      load(); toast(`${r.issued} certificates issued`);
+    } catch(e){toast(e.message,"error");} finally{setIssuing(false);}
+  };
+
+  const printCert = cert => {
+    const w = window.open("","_blank");
+    w.document.write(`<!DOCTYPE html><html><head><title>Certificate</title>
+    <style>
+      body{margin:0;padding:0;font-family:'Georgia',serif;background:#fff;}
+      .cert{width:800px;height:560px;margin:20px auto;border:12px double #b8860b;padding:40px;
+        text-align:center;background:linear-gradient(135deg,#fffef0 0%,#fff9e6 100%);
+        position:relative;box-sizing:border-box;}
+      .cert::before{content:"";position:absolute;inset:18px;border:2px solid #d4a017;pointer-events:none;}
+      .eyebrow{font-size:13px;color:#8b6914;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:12px;}
+      .title{font-size:42px;color:#b8860b;margin:0 0 8px;font-weight:bold;}
+      .sub{font-size:16px;color:#555;margin-bottom:20px;}
+      .name{font-size:32px;color:#1a1a1a;border-bottom:2px solid #b8860b;display:inline-block;padding-bottom:6px;margin-bottom:16px;}
+      .for{font-size:15px;color:#666;margin-bottom:6px;}
+      .event{font-size:20px;color:#333;font-weight:bold;margin-bottom:20px;}
+      .footer{font-size:11px;color:#999;margin-top:20px;}
+      .seal{font-size:48px;margin:10px 0;}
+      @media print{body{margin:0;}button{display:none!important;}}
+    </style></head><body>
+    <div class="cert">
+      <div class="eyebrow">Certificate of ${cert.type.replace("_"," ")}</div>
+      <div class="title">🏆</div>
+      <div class="sub">This certifies that</div>
+      <div class="name">${cert.recipient}</div>
+      ${cert.teamName?`<div class="for">representing team <strong>${cert.teamName}</strong></div>`:""}
+      ${cert.position?`<div class="for">achieved <strong>${cert.position} Place</strong></div>`:""}
+      <div class="for">has participated in</div>
+      <div class="event">${hack?.name||"HackFest"}</div>
+      <div class="footer">
+        ${hack?.startDate?`Held on ${hack.startDate}`:""}${hack?.location?` · ${hack.location}`:""}<br/>
+        Issued ${new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}<br/>
+        Verification: ${window.location.origin}/verify/${cert.token}
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:10px;">
+      <button onclick="window.print()" style="padding:10px 24px;background:#b8860b;color:#fff;border:none;borderRadius:6px;cursor:pointer;font-size:14px;">
+        🖨 Print / Save as PDF
+      </button>
+    </div>
+    </body></html>`);
+    w.document.close();
+  };
+
+  const TYPE_COLOR = { winner:"green", runner_up:"blue", participant:"neutral", judge:"purple",
+    mentor:"amber", best_innovation:"green", best_design:"blue" };
+
+  return (
+    <div>
+      <SectionHeader title="Certificates" count={`${certs.length} issued`}
+        action={
+          <div style={{ display:"flex", gap:8 }}>
+            <Btn size="sm" variant="secondary" onClick={() => issueForAll("participant")} disabled={issuing}>
+              {issuing?<Spinner/>:"🎓"} Issue Participant Certs
+            </Btn>
+            <Btn onClick={load} variant="secondary" size="sm">↻</Btn>
+          </div>
+        }
+      />
+      {!activeHackathon && <Empty icon="🎓" title="Select a hackathon" />}
+      {certs.length===0 && activeHackathon && (
+        <Empty icon="🎓" title="No certificates issued"
+          sub="Issue certificates for winners, participants, judges and mentors." />
+      )}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:10 }}>
+        {certs.map(c => (
+          <Card key={c.id} style={{ borderLeft:`4px solid ${C[TYPE_COLOR[c.type]?.replace("neutral","border")]||C.border}` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+              <Chip label={c.type.replace("_"," ")} color={TYPE_COLOR[c.type]||"neutral"} />
+              {c.position && <span style={{ ...MONO, fontSize:13, fontWeight:700, color:C.text }}>{c.position}</span>}
+            </div>
+            <div style={{ ...FONT, fontSize:15, fontWeight:600, color:C.text, marginBottom:3 }}>{c.recipient}</div>
+            {c.teamName && <div style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:6 }}>{c.teamName}</div>}
+            <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:10 }}>
+              Issued {new Date(c.issuedAt).toLocaleDateString()}
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              <Btn size="sm" variant="secondary" onClick={() => printCert(c)}>🖨 Print</Btn>
+              <Btn size="sm" variant="danger" onClick={async()=>{if(!confirm("Delete?"))return;try{await DEL(`/api/certificates/${c.id}`);load();toast("Deleted");}catch(e){toast(e.message,"error");}}}>✕</Btn>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Data Export Page ──────────────────────────────────────────────────────────
+export function ExportPage({ db, toast, activeHackathon }) {
+  const [exporting, setExporting] = useState(false);
+  const hack = db.hackathons.find(h => h.id === activeHackathon);
+
+  const exportData = async format => {
+    if (!activeHackathon) { toast("Select a hackathon first","error"); return; }
+    setExporting(true);
+    try {
+      const data = await GET(`/api/export/${activeHackathon}`);
+      if (data.error) { toast(data.error,"error"); return; }
+
+      if (format === "json") {
+        const blob = new Blob([JSON.stringify(data, null, 2)],{type:"application/json"});
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+        a.download = `${hack?.name||"hackfest"}-export.json`; a.click();
+        toast("JSON exported");
+        return;
+      }
+
+      // CSV exports
+      const toCSV = (rows, cols) => {
+        if (!rows?.length) return "";
+        const headers = cols || Object.keys(rows[0]);
+        const lines = [headers.join(","), ...rows.map(r => headers.map(h => {
+          const v = r[h]; return `"${String(v||"").replace(/"/g,'""')}"`;
+        }).join(","))];
+        return lines.join("\n");
+      };
+
+      const sheets = {
+        "Rankings":      toCSV(data.teams),
+        "Registrations": toCSV(data.registrations),
+        "Submissions":   toCSV(data.submissions, ["teamName","title","track","status","githubUrl","demoUrl"]),
+        "Check-ins":     toCSV(data.checkins, ["name","email","type","teamName","checkedInAt"]),
+        "Raw Feedback":  toCSV(data.rawFeedbacks, ["teamName","judgeName","overall","submittedAt"]),
+      };
+
+      // Zip all CSVs into a single download (one big text file as fallback)
+      const combined = Object.entries(sheets).map(([name, csv]) =>
+        `\n### ${name}\n${csv}`
+      ).join("\n\n");
+      const blob = new Blob([`HackFest Hub Export — ${hack?.name}\nGenerated: ${new Date().toISOString()}\n`+combined],{type:"text/csv"});
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+      a.download = `${hack?.name||"hackfest"}-${format}-export.csv`; a.click();
+      toast("CSV exported");
+    } catch(e){toast(e.message,"error");} finally{setExporting(false);}
+  };
+
+  const EXPORTS = [
+    { id:"json",   icon:"📄", label:"Full JSON Export",        desc:"Complete data dump — all tables, all fields. Use for backup or API integration." },
+    { id:"scores", icon:"🏆", label:"Rankings CSV",            desc:"Team rankings with weighted scores per judge. Ready for sharing with stakeholders." },
+    { id:"regs",   icon:"📋", label:"Registrations CSV",       desc:"All registration applications with status, contact info, and team details." },
+    { id:"full",   icon:"📊", label:"Complete CSV Package",    desc:"All sheets combined: rankings, registrations, submissions, check-ins, feedback." },
+  ];
+
+  return (
+    <div>
+      <SectionHeader title="Data Export Center" />
+      {!activeHackathon && <Empty icon="📤" title="Select a hackathon" />}
+      {activeHackathon && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+          {EXPORTS.map(exp => (
+            <Card key={exp.id} style={{ cursor:"pointer", transition:"border 0.15s" }}
+              onClick={() => !exporting && exportData(exp.id)}>
+              <div style={{ fontSize:36, marginBottom:12 }}>{exp.icon}</div>
+              <div style={{ ...FONT, fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>{exp.label}</div>
+              <div style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.65, marginBottom:14 }}>{exp.desc}</div>
+              <Btn disabled={exporting} style={{ width:"100%" }}>
+                {exporting?<><Spinner/> Exporting…</>:"⬇ Download"}
+              </Btn>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ─── PEOPLE EDITOR ──────────────────────────────────────────────────────── */
+function PeopleEditor({ title, type, hackathonId, toast }) {
+  const [items,    setItems]    = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [modal,    setModal]    = useState(null);
+  const [form,     setForm]     = useState({});
+  const [saving,   setSaving]   = useState(false);
+  const [uploading,setUploading]= useState(false);
+
+  const loadItems = () => {
+    if (!hackathonId) return;
+    setLoading(true);
+    GET(`/api/speakers?hackathonId=${hackathonId}&type=${type}`)
+      .then(d => setItems(Array.isArray(d) ? d : []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { loadItems(); }, [hackathonId, type]);
+
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const openNew  = () => { setForm({ hackathonId, type, sortOrder: items.length }); setModal("new"); };
+  const openEdit = item => { setForm({ ...item }); setModal(item); };
+  const closeModal = () => { setModal(null); setForm({}); };
+
+  const handlePhoto = e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (file.size > 2*1024*1024) { toast("Photo must be under 2MB","error"); return; }
+    setUploading(true);
+    const r = new FileReader();
+    r.onload = ev => { setForm(p => ({ ...p, avatarUrl: ev.target.result })); setUploading(false); };
+    r.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    if (!form.name?.trim()) { toast("Name is required","error"); return; }
+    setSaving(true);
+    try {
+      if (modal === "new") await POST("/api/speakers", form);
+      else await PUT(`/api/speakers/${modal.id}`, form);
+      loadItems();
+      toast(modal === "new" ? "Added successfully" : "Updated successfully");
+      closeModal();
+    } catch(e) {
+      toast(e.message || "Save failed","error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async id => {
+    if (!confirm("Remove this person?")) return;
+    try { await DEL(`/api/speakers/${id}`); setItems(prev => prev.filter(x => x.id !== id)); toast("Removed"); }
+    catch(e) { toast(e.message || "Delete failed","error"); }
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>
+          {title} <span style={{...FONT,fontSize:12,fontWeight:400,color:C.text3}}>({items.length})</span>
+        </div>
+        <Btn size="sm" onClick={openNew}>+ Add</Btn>
+      </div>
+      {loading && <div style={{...FONT,fontSize:13,color:C.text3,padding:"10px 0"}}>Loading…</div>}
+      {!loading && items.length === 0 && (
+        <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic",padding:"8px 0"}}>
+          No {title.toLowerCase()} yet. Click + Add to begin.
+        </div>
+      )}
+      {!loading && items.length > 0 && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+          {items.map(item => (
+            <div key={item.id} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.md,padding:14}}>
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+                {item.avatarUrl
+                  ? <img src={item.avatarUrl} style={{width:40,height:40,borderRadius:"50%",objectFit:"cover",flexShrink:0}} onError={e=>e.target.style.display="none"} />
+                  : <Avatar name={item.name} size={40} />}
+                <div style={{minWidth:0}}>
+                  <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                  <div style={{...FONT,fontSize:11,color:C.text3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.org||item.title||"—"}</div>
+                </div>
               </div>
+              <div style={{display:"flex",gap:6}}>
+                <Btn size="sm" variant="secondary" onClick={()=>openEdit(item)}>Edit</Btn>
+                <Btn size="sm" variant="danger"    onClick={()=>remove(item.id)}>Remove</Btn>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {modal && (
+        <Modal title={modal==="new" ? `Add to ${title}` : `Edit`} onClose={closeModal} width={540}>
+          <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:16,padding:14,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+            <div style={{width:64,height:64,borderRadius:"50%",overflow:"hidden",flexShrink:0,
+              background:form.avatarUrl?"transparent":C.bg3,border:`2px dashed ${form.avatarUrl?C.bdGreen:C.border2}`,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {form.avatarUrl
+                ? <img src={form.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                : <span style={{fontSize:22,opacity:0.3}}>👤</span>}
+            </div>
+            <div style={{flex:1}}>
+              <label style={{...FONT,display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,
+                padding:"6px 12px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",
+                background:C.bg,color:C.text2,marginBottom:6,opacity:uploading?0.6:1,userSelect:"none"}}>
+                {uploading ? <><Spinner size={10}/> Uploading…</> : <>📷 {form.avatarUrl?"Change":"Upload"} Photo</>}
+                <input type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}} disabled={uploading} />
+              </label>
+              <input style={{...IN,fontSize:12,display:"block"}}
+                value={form.avatarUrl&&!form.avatarUrl.startsWith("data:")?form.avatarUrl:""}
+                onChange={e=>setForm(p=>({...p,avatarUrl:e.target.value}))}
+                placeholder="Or paste image URL…" />
+            </div>
+          </div>
+          <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={sf("name")} placeholder="Dr. Jane Smith" /></Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Title / Position"><input style={IN} value={form.title||""} onChange={sf("title")} placeholder="CEO, Professor…" /></Field>
+            <Field label="Organization"><input style={IN} value={form.org||""} onChange={sf("org")} placeholder="Company / University" /></Field>
+          </div>
+          <Field label="Session Topic" hint="Optional — shown as subtitle on public page">
+            <input style={IN} value={form.sessionTopic||""} onChange={sf("sessionTopic")} placeholder="Talk title or topic" />
+          </Field>
+          <Field label="Bio" hint="1-2 sentences"><textarea style={{...TA,minHeight:64}} value={form.bio||""} onChange={sf("bio")} /></Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="LinkedIn URL"><input style={IN} value={form.linkedinUrl||""} onChange={sf("linkedinUrl")} placeholder="https://linkedin.com/in/…" /></Field>
+            <Field label="Twitter / X"><input style={IN} value={form.twitterUrl||""} onChange={sf("twitterUrl")} placeholder="https://twitter.com/…" /></Field>
+          </div>
+          <Field label="Sort Order" hint="Lower number = appears first">
+            <input type="number" style={IN} value={form.sortOrder||0} onChange={sf("sortOrder")} />
+          </Field>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+            <Btn variant="secondary" onClick={closeModal}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving||uploading}>{(saving||uploading)&&<Spinner/>} Save</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+
+
+
+
+/* ─── LOGIN LOGS PAGE ─────────────────────────────────────────────────────── */
+export function LoginLogsPage({ toast }) {
+  const [logs,    setLogs]    = useState([]);
+  const [total,   setTotal]   = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [filter,  setFilter]  = useState("");   // login|logout|failed|""
+  const [search,  setSearch]  = useState("");
+  const [page,    setPage]    = useState(0);
+  const PAGE = 50;
+
+  const load = async (pg=0, f=filter, s=search) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit:PAGE, offset:pg*PAGE });
+      if (f) params.set("filter", f);
+      if (s) params.set("search", s);
+      const d = await GET(`/api/login-logs?${params}`);
+      if (d.error) toast(d.error,"error");
+      else { setLogs(d.logs); setTotal(d.total); setPage(pg); }
+    } catch(e) { toast(e.message,"error"); }
+    setLoading(false);
+  };
+
+  useEffect(()=>{ load(); },[]);
+
+  const ACTION_COLOR = { login:"green", logout:"blue", failed:"red" };
+  const ACTION_ICON  = { login:"→", logout:"←", failed:"✗" };
+  const METHOD_ICON  = { email:"✉", google:"G", github:"", gitlab:"" };
+
+  const fmtTime = ts => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return d.toLocaleDateString("en-US",{month:"short",day:"numeric"}) + " " +
+           d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+  };
+
+  // Stats
+  const loginCount  = logs.filter(l=>l.action==="login").length;
+  const logoutCount = logs.filter(l=>l.action==="logout").length;
+  const failedCount = logs.filter(l=>l.action==="failed").length;
+
+  return (
+    <div>
+      <SectionHeader title="Login Activity Log" count={`${total} total events`}
+        action={<Btn variant="secondary" onClick={()=>load(0)} disabled={loading}>{loading?<Spinner/>:"↻"} Refresh</Btn>}
+      />
+
+      {/* Stats strip */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+        {[["Logins",  loginCount,  C.green],
+          ["Logouts", logoutCount, C.blue],
+          ["Failed",  failedCount, C.red]
+        ].map(([label,val,color])=>(
+          <div key={label} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.md,padding:"14px 16px",textAlign:"center"}}>
+            <div style={{...FONT,fontSize:22,fontWeight:700,color,marginBottom:2}}>{val}</div>
+            <div style={{...FONT,fontSize:12,color:C.text3}}>{label} (shown)</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <Card style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <input style={{...FONT,flex:1,minWidth:160,padding:"7px 11px",borderRadius:R.sm,
+            border:`1px solid ${C.border2}`,background:C.bg,fontSize:13,color:C.text}}
+            placeholder="Search name or email…"
+            value={search} onChange={e=>setSearch(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&load(0,filter,search)} />
+          <div style={{display:"flex",gap:6}}>
+            {["","login","logout","failed"].map(f=>(
+              <button key={f} onClick={()=>{setFilter(f);load(0,f,search);}}
+                style={{...FONT,fontSize:12,padding:"6px 12px",borderRadius:R.sm,cursor:"pointer",
+                  border:`1px solid ${filter===f?C.blue:C.border}`,
+                  background:filter===f?C.bgBlue:C.bg,
+                  color:filter===f?C.blue:C.text3,fontWeight:filter===f?600:400}}>
+                {f||"All"}{f&&` ${ACTION_ICON[f]}`}
+              </button>
             ))}
           </div>
+          <Btn size="sm" onClick={()=>load(0,filter,search)}>Search</Btn>
+        </div>
+      </Card>
+
+      {/* Table */}
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:C.bg2,borderBottom:`1px solid ${C.border}`}}>
+              {["Time","User","Email","Role","Action","Method","IP"].map(h=>(
+                <th key={h} style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                  padding:"10px 12px",textAlign:"left",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={7} style={{...FONT,fontSize:13,color:C.text3,textAlign:"center",padding:24}}>
+                <Spinner/> Loading…
+              </td></tr>
+            )}
+            {!loading && logs.length===0 && (
+              <tr><td colSpan={7} style={{...FONT,fontSize:13,color:C.text3,textAlign:"center",padding:24}}>
+                No log entries found.
+              </td></tr>
+            )}
+            {!loading && logs.map((log,i)=>(
+              <tr key={log.id} style={{borderBottom:`1px solid ${C.border}`,
+                background:i%2===0?C.bg:C.bg2,
+                ...(log.action==="failed"?{background:"rgba(239,68,68,0.04)"}:{})}}>
+                <td style={{...MONO,fontSize:11,color:C.text3,padding:"9px 12px",whiteSpace:"nowrap"}}>{fmtTime(log.createdAt)}</td>
+                <td style={{...FONT,fontSize:13,color:C.text,padding:"9px 12px",fontWeight:500}}>{log.name||"—"}</td>
+                <td style={{...FONT,fontSize:12,color:C.text3,padding:"9px 12px"}}>{log.email||"—"}</td>
+                <td style={{padding:"9px 12px"}}>
+                  {log.role&&<Chip label={log.role} color={log.role==="admin"?"blue":"neutral"} />}
+                </td>
+                <td style={{padding:"9px 12px"}}>
+                  <span style={{...FONT,fontSize:12,fontWeight:600,
+                    color:log.action==="login"?C.green:log.action==="logout"?C.blue:C.red}}>
+                    {ACTION_ICON[log.action]} {log.action}
+                  </span>
+                </td>
+                <td style={{padding:"9px 12px"}}>
+                  <Chip label={`${METHOD_ICON[log.method]||""} ${log.method||"?"}`} color="neutral" />
+                </td>
+                <td style={{...MONO,fontSize:11,color:C.text3,padding:"9px 12px"}}>{log.ip||"—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* Pagination */}
+      {total > PAGE && (
+        <div style={{display:"flex",justifyContent:"center",gap:8,marginTop:12}}>
+          <Btn size="sm" variant="secondary" disabled={page===0} onClick={()=>load(page-1)}>← Prev</Btn>
+          <span style={{...FONT,fontSize:13,color:C.text3,padding:"6px 10px"}}>
+            Page {page+1} of {Math.ceil(total/PAGE)}
+          </span>
+          <Btn size="sm" variant="secondary" disabled={(page+1)*PAGE>=total} onClick={()=>load(page+1)}>Next →</Btn>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* ── ABOUT ── */}
-      <section id="about" style={{padding:"80px 24px",background:"#06091a"}}>
-        <div style={{maxWidth:1100,margin:"0 auto"}}>
-          <SecHead eyebrow="About the Event" title={data.name} accent={accent}/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:56,alignItems:"start"}}>
+
+
+/* ─── EMAIL CENTER PAGE ──────────────────────────────────────────────────── */
+export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
+  const [status,   setStatus]   = useState(null);
+  const [sending,  setSending]  = useState("");
+  const [winners,  setWinners]  = useState([{name:"",email:"",teamName:"",position:"1st",prizeInfo:""}]);
+  const [audience, setAudience] = useState("all");
+  const hack = db.hackathons.find(h => h.id === activeHackathon);
+
+  useEffect(() => {
+    GET("/api/email/status")
+      .then(d => setStatus(d))
+      .catch(() => setStatus({ configured: false }));
+  }, []);
+
+  const send = async (action, body = {}) => {
+    setSending(action);
+    try {
+      const r = await POST(`/api/email/${action}`, { hackathonId: activeHackathon, ...body });
+      if (r.error) toast(r.error, "error");
+      else if (r.skipped) toast(`Skipped: ${r.skipped}`, "error");
+      else toast(`✓ Email sent${r.sent > 1 ? ` to ${r.sent} recipients` : ""}!`);
+    } catch(e) { toast(e.message, "error"); }
+    setSending("");
+  };
+
+  const ActionCard = ({ icon, title, desc, action, body, disabled, extra }) => (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+            <span style={{ fontSize:22 }}>{icon}</span>
+            <span style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text }}>{title}</span>
+          </div>
+          <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.65 }}>{desc}</p>
+          {extra}
+        </div>
+        <Btn disabled={sending===action || disabled} onClick={() => send(action, body)}
+          style={{ flexShrink:0, whiteSpace:"nowrap" }}>
+          {sending===action ? <><Spinner/> Sending…</> : "Send ✉"}
+        </Btn>
+      </div>
+    </Card>
+  );
+
+  return (
+    <div>
+      <SectionHeader title="Email Center" count={hack?.name} />
+
+      {/* Status banner */}
+      <Card style={{ marginBottom:20, background: status?.configured ? C.bgGreen : C.bgAmber,
+        border:`1px solid ${status?.configured ? C.bdGreen : C.bdAmber}` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:20 }}>{status?.configured ? "✅" : "⚠️"}</span>
             <div>
-              <p style={{...FF,fontSize:15,color:"rgba(255,255,255,0.55)",lineHeight:1.85,marginBottom:24}}>{data.websiteAbout||data.description||"Details coming soon."}</p>
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {[["📅","Date",data.startDate?`${fmt(data.startDate)}${data.endDate?" – "+fmt(data.endDate):""}`:null],
-                  ["📍","Location",data.location],["🏆","Prize Pool",data.prizePool],
-                  ["📩","Contact",data.contactEmail]].filter(([,,v])=>v).map(([ic,lb,vl])=>(
-                  <div key={lb} style={{display:"flex",gap:12,alignItems:"center"}}>
-                    <span style={{fontSize:15}}>{ic}</span>
-                    <span style={{...FF,fontSize:12,color:"rgba(255,255,255,0.3)",minWidth:64}}>{lb}</span>
-                    <span style={{...FF,fontSize:14,color:"rgba(255,255,255,0.8)",fontWeight:500}}>{vl}</span>
-                  </div>
-                ))}
+              <div style={{ ...FONT, fontSize:13, fontWeight:600, color:status?.configured?C.green:C.amber }}>
+                {status?.configured ? "Resend API connected — emails are live" : "Resend API not configured"}
+              </div>
+              <div style={{ ...FONT, fontSize:12, color:C.text3 }}>
+                {status?.configured
+                  ? `Sending from: ${status.from}`
+                  : "Add RESEND_API_KEY to Vercel → Settings → Environment Variables"}
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {[["🚀","Innovation","Push beyond the obvious and think differently"],
-                ["🤝","Community","Collaborate with brilliant minds worldwide"],
-                ["🎓","Mentorship","Learn from industry experts in real time"],
-                ["🌍","Impact","Build solutions that matter to real people"]].map(([ic,t,d])=>(
-                <div key={t} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:18}}>
-                  <div style={{fontSize:24,marginBottom:8}}>{ic}</div>
-                  <div style={{...FF,fontSize:13,fontWeight:600,color:"#fff",marginBottom:5}}>{t}</div>
-                  <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",lineHeight:1.6}}>{d}</div>
-                </div>
-              ))}
-            </div>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            {!status?.configured && (
+              <a href="https://resend.com" target="_blank" rel="noopener"
+                style={{ ...FONT, fontSize:12, padding:"7px 14px", borderRadius:R.sm,
+                  background:C.amber, color:"#fff", textDecoration:"none", fontWeight:600 }}>
+                Get Free API Key →
+              </a>
+            )}
+            <Btn size="sm" variant="secondary" disabled={sending==="test"} onClick={() => send("test")}>
+              {sending==="test" ? <><Spinner/> Sending…</> : "Send Test Email"}
+            </Btn>
           </div>
         </div>
-      </section>
+      </Card>
 
-      {/* ── VIDEO ── */}
-      {data.promoVideoUrl&&(()=>{
-        const yt=ytId(data.promoVideoUrl); const vi=vimId(data.promoVideoUrl);
-        const src=yt?`https://www.youtube.com/embed/${yt}?rel=0`:vi?`https://player.vimeo.com/video/${vi}`:null;
-        return src?(
-          <section style={{padding:"80px 24px",background:"#0a0d1a"}}>
-            <div style={{maxWidth:1100,margin:"0 auto"}}>
-              <SecHead eyebrow="Watch" title="Event Highlights" accent={accent}/>
-              <div style={{maxWidth:800,margin:"0 auto",position:"relative",paddingTop:"56.25%",
-                borderRadius:14,overflow:"hidden",border:"1px solid rgba(255,255,255,0.08)"}}>
-                <iframe src={src} style={{position:"absolute",inset:0,width:"100%",height:"100%",border:"none"}}
-                  allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture"
-                  allowFullScreen title="Event Video"/>
-              </div>
-            </div>
-          </section>
-        ):null;
-      })()}
+      {!activeHackathon && <Empty icon="✉" title="Select a hackathon" />}
 
-      {/* ── TRACKS ── */}
-      {tracks.length>0&&(
-        <section id="tracks" style={{padding:"80px 24px",background:"#06091a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Challenge Areas" title="Hackathon Tracks" accent={accent} sub="Choose your domain and build something the world needs."/>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:10}}>
-              {tracks.map((t,i)=>(
-                <div key={t} style={{background:`${TRACK_COLORS[i%TRACK_COLORS.length]}14`,
-                  border:`1px solid ${TRACK_COLORS[i%TRACK_COLORS.length]}33`,
-                  borderRadius:12,padding:"20px 16px",textAlign:"center",transition:"transform 0.2s"}}
-                  onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
-                  onMouseLeave={e=>e.currentTarget.style.transform="none"}>
-                  <div style={{fontSize:32,marginBottom:10}}>{TRACK_ICONS[i%TRACK_ICONS.length]}</div>
-                  <div style={{...FF,fontSize:13,fontWeight:600,color:TRACK_COLORS[i%TRACK_COLORS.length]}}>{t}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── SCHEDULE ── */}
-      {data.schedule&&(
-        <section id="schedule" style={{padding:"80px 24px",background:"#0a0d1a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Agenda" title="Event Schedule" accent={accent}/>
-            <div style={{maxWidth:680,margin:"0 auto"}}>
-              {(data.schedule||"").split("\n").filter(Boolean).map((line,i)=>{
-                if(!line.includes("|"))return(
-                  <div key={i} style={{...MM,fontSize:11,color:accent,letterSpacing:"0.15em",
-                    textTransform:"uppercase",marginTop:i>0?28:0,marginBottom:12,
-                    paddingBottom:8,borderBottom:`1px solid ${accent}33`}}>{line}</div>
-                );
-                const[time,...rest]=line.split("|");
-                return(
-                  <div key={i} style={{display:"flex",gap:18,marginBottom:14,alignItems:"flex-start"}}>
-                    <div style={{...MM,fontSize:11,color:"rgba(255,255,255,0.3)",minWidth:76,flexShrink:0,paddingTop:2}}>{time.trim()}</div>
-                    <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                      <div style={{width:7,height:7,borderRadius:"50%",background:accent,flexShrink:0,marginTop:4}}/>
-                      <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.8)",lineHeight:1.5}}>{rest.join("|").trim()}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── KEYNOTES ── */}
-      {(data.keynotes||[]).length>0&&(
-        <section id="keynotes" style={{padding:"80px 24px",background:"#06091a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Keynote Speakers" title="Visionaries Taking the Stage" accent={accent}/>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:14}}>
-              {data.keynotes.map(k=><PersonCard key={k.id} person={k} size="lg"/>)}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── SESSION CHAIRS ── */}
-      {(data.sessionChairs||[]).length>0&&(
-        <section id="chairs" style={{padding:"80px 24px",background:"#0a0d1a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Session Chairs" title="Guiding the Conversation" accent={accent}/>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:12}}>
-              {data.sessionChairs.map(s=><PersonCard key={s.id} person={s}/>)}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── JUDGES ── */}
-      {(data.judges||[]).length>0&&(
-        <section id="judges" style={{padding:"80px 24px",background:"#06091a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Evaluation Panel" title="Meet the Judges" accent={accent}/>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:12}}>
-              {data.judges.map(j=><PersonCard key={j.id} person={j}/>)}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── BEST JUDGE ── */}
-      {data.bestJudge&&(
-        <section id="best-judge" style={{padding:"60px 24px",background:`${accent}0a`,
-          borderTop:`1px solid ${accent}22`,borderBottom:`1px solid ${accent}22`}}>
-          <div style={{maxWidth:640,margin:"0 auto",textAlign:"center"}}>
-            <div style={{...MM,fontSize:10,color:"#f59e0b",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:16}}>🏆 Best Judge Award</div>
-            <div style={{background:"rgba(245,158,11,0.1)",border:"2px solid rgba(245,158,11,0.3)",borderRadius:18,padding:"32px 28px"}}>
-              <div style={{width:100,height:100,borderRadius:"50%",margin:"0 auto 16px",overflow:"hidden",
-                border:"4px solid rgba(245,158,11,0.4)",
-                background:data.bestJudge.avatarUrl?"transparent":avatarColor(data.bestJudge.name),
-                display:"flex",alignItems:"center",justifyContent:"center",
-                boxShadow:"0 0 32px rgba(245,158,11,0.3)"}}>
-                {data.bestJudge.avatarUrl
-                  ?<img src={data.bestJudge.avatarUrl} alt={data.bestJudge.name} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                  :<span style={{...MM,fontSize:30,fontWeight:700,color:"#fff"}}>{initials(data.bestJudge.name)}</span>}
-              </div>
-              <div style={{...FF,fontSize:22,fontWeight:800,color:"#fff",marginBottom:4}}>{data.bestJudge.name}</div>
-              <div style={{...FF,fontSize:14,color:"#fbbf24",marginBottom:2}}>{data.bestJudge.title}</div>
-              <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.5)",marginBottom:16}}>{data.bestJudge.org}</div>
-              {data.bestJudgeNote&&<div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.65)",fontStyle:"italic",lineHeight:1.7}}>"{data.bestJudgeNote}"</div>}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── TEAM ── */}
-      {(data.team||[]).length>0&&(
-        <section id="team" style={{padding:"80px 24px",background:"#0a0d1a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Organizing Committee" title="Meet the Team" accent={accent}/>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:12}}>
-              {data.team.map(m=><PersonCard key={m.id} person={m}/>)}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── PARTNERS ── */}
-      {TIER_ORDER.filter(t=>byTier[t]).length>0&&(
-        <section id="partners" style={{padding:"80px 24px",background:"#06091a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Sponsors & Partners" title="Who Makes This Possible" accent={accent}/>
-            {TIER_ORDER.filter(t=>byTier[t]).map(tier=>(
-              <div key={tier} style={{marginBottom:36}}>
-                <div style={{...MM,fontSize:9,color:accent,letterSpacing:"0.2em",textTransform:"uppercase",textAlign:"center",marginBottom:16}}>{TIER_LABEL[tier]}</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:12,justifyContent:"center",alignItems:"center"}}>
-                  {byTier[tier].map(p=>(
-                    <a key={p.id} href={p.websiteUrl||"#"} target="_blank" rel="noopener"
-                      style={{display:"flex",alignItems:"center",justifyContent:"center",
-                        background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.09)",
-                        borderRadius:10,padding:"14px 20px",textDecoration:"none",minWidth:100,minHeight:60,transition:"all 0.2s"}}
-                      onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.09)"}
-                      onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}>
-                      {p.logoUrl
-                        ?<img src={p.logoUrl} alt={p.name} style={{maxHeight:36,maxWidth:120,objectFit:"contain",filter:"brightness(0) invert(1)",opacity:0.75}}/>
-                        :<span style={{...FF,fontSize:14,fontWeight:600,color:"rgba(255,255,255,0.6)"}}>{p.name}</span>}
-                    </a>
-                  ))}
+      {activeHackathon && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, alignItems:"start" }}>
+          {/* Left: Automated (auto-send) */}
+          <div>
+            <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, textTransform:"uppercase",
+              letterSpacing:"0.08em", marginBottom:12 }}>Auto-Sent (no action needed)</div>
+            <Card style={{ background:C.bg2, marginBottom:12, border:`1px dashed ${C.border2}` }}>
+              <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:20 }}>🤖</span>
+                <div>
+                  <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:4 }}>Registration Confirmation</div>
+                  <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6 }}>Sent automatically when someone submits registration form on the public page.</p>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── COMMUNITY HUB ── */}
-      {(data.discordUrl||data.whatsappGroupUrl||data.slackUrl)&&(
-        <section style={{padding:"48px 24px",background:`${accent}08`,borderTop:`1px solid ${accent}20`}}>
-          <div style={{maxWidth:1100,margin:"0 auto",textAlign:"center"}}>
-            <div style={{...MM,fontSize:10,color:accent,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:14}}>Community</div>
-            <h2 style={{...FF,fontSize:24,fontWeight:700,color:"#fff",marginBottom:8}}>Join the Conversation</h2>
-            <p style={{...FF,fontSize:14,color:"rgba(255,255,255,0.45)",marginBottom:24}}>Connect with other participants before, during, and after the event</p>
-            <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
-              {data.discordUrl&&<a href={data.discordUrl} target="_blank" rel="noopener"
-                style={{...FF,display:"inline-flex",alignItems:"center",gap:8,padding:"12px 24px",
-                  borderRadius:12,background:"rgba(88,101,242,0.2)",border:"1px solid rgba(88,101,242,0.4)",
-                  color:"#7289da",fontWeight:700,fontSize:14,textDecoration:"none"}}>
-                🎮 Join Discord
-              </a>}
-              {data.whatsappGroupUrl&&<a href={data.whatsappGroupUrl} target="_blank" rel="noopener"
-                style={{...FF,display:"inline-flex",alignItems:"center",gap:8,padding:"12px 24px",
-                  borderRadius:12,background:"rgba(37,211,102,0.2)",border:"1px solid rgba(37,211,102,0.4)",
-                  color:"#25d366",fontWeight:700,fontSize:14,textDecoration:"none"}}>
-                💬 WhatsApp Group
-              </a>}
-              {data.slackUrl&&<a href={data.slackUrl} target="_blank" rel="noopener"
-                style={{...FF,display:"inline-flex",alignItems:"center",gap:8,padding:"12px 24px",
-                  borderRadius:12,background:"rgba(74,21,75,0.2)",border:"1px solid rgba(74,21,75,0.4)",
-                  color:"#e01e5a",fontWeight:700,fontSize:14,textDecoration:"none"}}>
-                💼 Slack Channel
-              </a>}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── PROBLEM STATEMENTS ── */}
-      {data.problemStatements&&(()=>{
-        const NL="\n";
-        let problems=[];
-        try{problems=JSON.parse(data.problemStatements);}catch(_){
-          problems=(data.problemStatements||"").split(NL).filter(Boolean).map((b,i)=>{
-            const parts=b.split(NL);
-            const title=parts[0]||"";
-            const description=parts.slice(1).join(NL);
-            return{id:i,title,description};
-          });
-        }
-        if(!problems.length)return null;
-        return(
-          <section id="problems" style={{padding:"80px 24px",background:"#06091a"}}>
-            <div style={{maxWidth:1100,margin:"0 auto"}}>
-              <SecHead eyebrow="Challenge Briefs" title="Problem Statements" accent={accent}
-                sub="Pick one of these real-world challenges to solve during the hackathon." />
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
-                {problems.map((p,i)=>(
-                  <div key={i} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",
-                    borderRadius:14,padding:24,transition:"border 0.2s"}}
-                    onMouseEnter={e=>e.currentTarget.style.borderColor=`${accent}44`}
-                    onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(255,255,255,0.08)"}>
-                    <div style={{...MM,fontSize:11,color:accent,marginBottom:10,letterSpacing:"0.1em"}}>#{String(i+1).padStart(2,"0")}</div>
-                    <div style={{...FF,fontSize:16,fontWeight:700,color:"#fff",marginBottom:8}}>{p.title}</div>
-                    <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.7}}>{p.description}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        );
-      })()}
-
-      {/* ── RESOURCES ── */}
-      {data.resources&&(()=>{
-        let res=[];
-        try{res=JSON.parse(data.resources);}catch{
-          const NL2="\n"; res=(data.resources||"").split(NL2).filter(Boolean).map(l=>{
-            const[name,...rest]=l.split("|"); return{name:name.trim(),url:rest[0]?.trim(),desc:rest[1]?.trim()};
-          });
-        }
-        if(!res.length)return null;
-        return(
-          <section style={{padding:"60px 24px",background:"#0a0d1a"}}>
-            <div style={{maxWidth:1100,margin:"0 auto"}}>
-              <SecHead eyebrow="Starter Kit" title="Resources & Tools" accent={accent}
-                sub="Useful tools, APIs, and datasets to get you started." />
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:10}}>
-                {res.map((r,i)=>(
-                  <a key={i} href={r.url||"#"} target="_blank" rel="noopener"
-                    style={{...FF,display:"block",padding:"16px 18px",background:"rgba(255,255,255,0.03)",
-                      border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,textDecoration:"none",
-                      transition:"all 0.2s"}}
-                    onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.07)";e.currentTarget.style.borderColor=`${accent}44`;}}
-                    onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.03)";e.currentTarget.style.borderColor="rgba(255,255,255,0.08)";}}>
-                    <div style={{fontSize:20,marginBottom:6}}>🔗</div>
-                    <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>{r.name}</div>
-                    {r.desc&&<div style={{fontSize:11,color:"rgba(255,255,255,0.4)",lineHeight:1.5}}>{r.desc}</div>}
-                  </a>
-                ))}
-              </div>
-            </div>
-          </section>
-        );
-      })()}
-
-      {/* ── PRIZES ── */}}
-      {data.websitePrizes&&(
-        <section id="prizes" style={{padding:"80px 24px",background:"#0a0d1a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Awards" title="Prizes & Recognition" accent={accent}/>
-            {(()=>{
-              const PICONS=["🥇","🥈","🥉","🏅","⭐","🎖️"];
-              const PCOLORS=[["#fef3c7","rgba(251,191,36,0.15)"],["#f1f5f9","rgba(200,200,200,0.1)"],
-                ["#fef3e2","rgba(180,100,30,0.15)"],["#f0fdf4","rgba(16,185,129,0.12)"],
-                ["#eff6ff","rgba(59,130,246,0.12)"],["#fdf4ff","rgba(139,92,246,0.12)"]];
-              const prizes=(data.websitePrizes||"").split("\n").filter(Boolean).map((l,i)=>{
-                const[title,...rest]=l.split("|");
-                return{icon:PICONS[i]||"🏅",title:title.trim(),desc:rest.join("|").trim(),col:PCOLORS[i]||PCOLORS[0]};
-              });
-              return(
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
-                  {prizes.map((pz,i)=>(
-                    <div key={i} style={{background:pz.col[1],border:`1px solid ${pz.col[0]}33`,borderRadius:12,padding:"24px 20px",textAlign:"center"}}>
-                      <div style={{fontSize:36,marginBottom:10}}>{pz.icon}</div>
-                      <div style={{...FF,fontSize:16,fontWeight:700,color:"#fff",marginBottom:6}}>{pz.title}</div>
-                      {pz.desc&&<div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.5}}>{pz.desc}</div>}
-                    </div>
-                  ))}
+            </Card>
+            <Card style={{ background:C.bg2, marginBottom:20, border:`1px dashed ${C.border2}` }}>
+              <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:20 }}>✅</span>
+                <div>
+                  <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:4 }}>Approval Confirmation</div>
+                  <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6 }}>Sent automatically when you approve a registration in Pages & Registrations.</p>
                 </div>
-              );
-            })()}
-          </div>
-        </section>
-      )}
+              </div>
+            </Card>
 
-      {/* ── TESTIMONIALS ── */}
-      {testimonials.length>0&&(
-        <section id="testimonials" style={{padding:"80px 24px",background:"#06091a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="What People Say" title="Past Participant Voices" accent={accent}/>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-              {testimonials.map((t,i)=>(
-                <div key={i} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:22}}>
-                  <div style={{fontSize:36,color:accent,lineHeight:1,marginBottom:10,opacity:0.4}}>"</div>
-                  <p style={{...FF,fontSize:14,color:"rgba(255,255,255,0.65)",lineHeight:1.7,marginBottom:14,fontStyle:"italic"}}>{t.quote}</p>
-                  <div style={{...FF,fontSize:13,fontWeight:600,color:"#fff"}}>{t.author}</div>
-                  {t.role&&<div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:2}}>{t.role}</div>}
+            <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, textTransform:"uppercase",
+              letterSpacing:"0.08em", marginBottom:12 }}>Manual Sends</div>
+
+            <ActionCard icon="⏰" action="reminder"
+              title="Event Reminder"
+              desc="Send a reminder to all approved registrants. Best sent 1-3 days before the event."
+            />
+            <ActionCard icon="🙏" action="thank-you"
+              title="Post-Event Thank You"
+              desc="Send thank you emails to participants after the event concludes."
+              body={{ audience }}
+              extra={
+                <div style={{ marginTop:8 }}>
+                  <select style={{ ...IN, fontSize:12, padding:"5px 10px" }}
+                    value={audience} onChange={e=>setAudience(e.target.value)}>
+                    <option value="all">All (teams + judges)</option>
+                    <option value="team">Teams only</option>
+                    <option value="judge">Judges only</option>
+                  </select>
                 </div>
-              ))}
-            </div>
+              }
+            />
           </div>
-        </section>
-      )}
 
-      {/* ── GALLERY ── */}
-      {galleryImages.length>0&&<Gallery images={galleryImages} accent={accent}/>}
+          {/* Right: Post-event emails */}
+          <div>
+            <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, textTransform:"uppercase",
+              letterSpacing:"0.08em", marginBottom:12 }}>Award Emails</div>
 
-      {/* ── VENUE ── */}
-      {(data.venueName||data.venueAddress)&&(
-        <section id="venue" style={{padding:"80px 24px",background:"#0a0d1a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Location" title="Venue" accent={accent}/>
-            <div style={{maxWidth:640,margin:"0 auto"}}>
-              {data.venueName&&<h3 style={{...FF,fontSize:22,fontWeight:700,color:"#fff",marginBottom:10}}>{data.venueName}</h3>}
-              {data.venueAddress&&<p style={{...FF,fontSize:14,color:"rgba(255,255,255,0.5)",lineHeight:1.7,marginBottom:16,whiteSpace:"pre-line"}}>{data.venueAddress}</p>}
-              {data.venueMapsUrl&&<a href={data.venueMapsUrl} target="_blank" rel="noopener" style={{...FF,display:"inline-flex",alignItems:"center",gap:6,padding:"10px 18px",background:accent,color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>📍 Get Directions</a>}
-            </div>
-          </div>
-        </section>
-      )}
+            <ActionCard icon="🏆" action="best-judge"
+              title="Best Judge Award"
+              desc={hack?.bestJudgeId ? `Send award notification to the nominated Best Judge.` : `No Best Judge nominated yet. Go to Best Judge Award page to nominate one.`}
+              disabled={!hack?.bestJudgeId}
+            />
 
-      {/* ── FAQ ── */}
-      {faqs.length>0&&(
-        <section id="faq" style={{padding:"80px 24px",background:"#06091a"}}>
-          <div style={{maxWidth:1100,margin:"0 auto"}}>
-            <SecHead eyebrow="Questions?" title="Frequently Asked" accent={accent}/>
-            <div style={{maxWidth:700,margin:"0 auto"}}>
-              {faqs.map((item,i)=><FAQItem key={i} q={item.q} a={item.a} accent={accent}/>)}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── PEOPLE'S CHOICE VOTING ── */}
-      {data.peoplesChoiceOpen&&<VotingSection hackathonId={hackathonId} teams={data.teams||[]} accent={accent}/>}
-
-      {/* ── CODE OF CONDUCT ── */}
-      {data.codeOfConduct&&(
-        <section style={{padding:"48px 24px",background:"#0a0d1a"}}>
-          <div style={{maxWidth:720,margin:"0 auto"}}>
-            <SecHead eyebrow="Community Standards" title="Code of Conduct" accent={accent}/>
-            <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:28}}>
-              <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.6)",lineHeight:1.85,whiteSpace:"pre-wrap"}}>{data.codeOfConduct}</div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── REGISTER / COMPLETED ── */}}
-      <section id="register" style={{padding:"80px 24px",background:`${accent}0a`,borderTop:`1px solid ${accent}20`}}>
-        <div style={{maxWidth:560,margin:"0 auto"}}>
-          {isCompleted ? (
-            /* Completed state */
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:64,marginBottom:20}}>🏆</div>
-              <div style={{...MM,fontSize:10,color:"#10b981",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:14}}>Event Concluded</div>
-              <h2 style={{...FF,fontSize:"clamp(24px,4vw,40px)",fontWeight:800,color:"#fff",marginBottom:12,letterSpacing:"-0.02em"}}>
-                Thank You to Everyone Who Participated!
-              </h2>
-              <p style={{...FF,fontSize:15,color:"rgba(255,255,255,0.45)",lineHeight:1.8,marginBottom:28}}>
-                {data.name} has wrapped up successfully. We're grateful to all the teams, judges, mentors, and partners who made this event possible.
+            {/* Winner emails */}
+            <Card style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                <span style={{ fontSize:22 }}>🥇</span>
+                <span style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text }}>Winner Announcements</span>
+              </div>
+              <p style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:14, lineHeight:1.65 }}>
+                Send personalized winner emails to each placement. Fill in the details below.
               </p>
-              <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
-                {data.contactEmail&&(
-                  <a href={`mailto:${data.contactEmail}`}
-                    style={{...FF,display:"inline-flex",alignItems:"center",gap:6,padding:"11px 22px",
-                      background:accent,color:"#fff",borderRadius:10,fontSize:14,fontWeight:600,
-                      textDecoration:"none"}}>
-                    📩 Contact Organizers
-                  </a>
-                )}
-                {data.socialLinkedin&&(
-                  <a href={data.socialLinkedin} target="_blank" rel="noopener"
-                    style={{...FF,display:"inline-flex",alignItems:"center",gap:6,padding:"11px 22px",
-                      background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
-                      color:"rgba(255,255,255,0.8)",borderRadius:10,fontSize:14,fontWeight:600,
-                      textDecoration:"none"}}>
-                    Follow for Updates
-                  </a>
-                )}
-              </div>
-            </div>
-          ) : (
-            /* Registration open */
-            <>
-              <div style={{textAlign:"center",marginBottom:36}}>
-                <div style={{...MM,fontSize:10,color:accent,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:12}}>
-                  {regClosed?"Applications Closed":"Applications Open"}
+              {winners.map((w, i) => (
+                <div key={i} style={{ background:C.bg2, borderRadius:R.sm, padding:12,
+                  border:`1px solid ${C.border}`, marginBottom:8 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Name</div>
+                      <input style={{ ...IN, fontSize:12 }} value={w.name}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,name:e.target.value}:x))} />
+                    </div>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Email</div>
+                      <input type="email" style={{ ...IN, fontSize:12 }} value={w.email}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,email:e.target.value}:x))} />
+                    </div>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Team Name</div>
+                      <input style={{ ...IN, fontSize:12 }} value={w.teamName}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,teamName:e.target.value}:x))} />
+                    </div>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Position</div>
+                      <select style={{ ...IN, fontSize:12 }} value={w.position}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,position:e.target.value}:x))}>
+                        {["1st","2nd","3rd","Runner-up","Special Award"].map(p=><option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Prize Details</div>
+                    <input style={{ ...IN, fontSize:12 }} value={w.prizeInfo} placeholder="e.g. $10,000 + AWS Credits"
+                      onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,prizeInfo:e.target.value}:x))} />
+                  </div>
                 </div>
-                <h2 style={{...FF,fontSize:"clamp(26px,4vw,44px)",fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:10}}>
-                  {regClosed?"Registration Has Closed":"Ready to Build?"}
-                </h2>
-                <p style={{...FF,fontSize:15,color:"rgba(255,255,255,0.45)",lineHeight:1.7}}>
-                  {regClosed
-                    ?"The registration window has passed. Check back for future events or contact us."
-                    :"Applications are reviewed on a rolling basis. Spots are limited."}
-                </p>
+              ))}
+              <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                <Btn size="sm" variant="secondary"
+                  onClick={()=>setWinners(ws=>[...ws,{name:"",email:"",teamName:"",position:"Runner-up",prizeInfo:""}])}>
+                  + Add Winner
+                </Btn>
+                <Btn size="sm" disabled={sending==="winners" || winners.every(w=>!w.email)}
+                  onClick={() => send("winners", { winners })}>
+                  {sending==="winners"?<><Spinner/> Sending…</>:"Send Winner Emails ✉"}
+                </Btn>
               </div>
-              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:18,padding:28}}>
-                <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline}/>
+            </Card>
+
+            {/* Judge credentials card */}
+            <Card>
+              <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:20 }}>⭐</span>
+                <div>
+                  <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:4 }}>Judge Credentials</div>
+                  <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6 }}>
+                    Judge login emails are sent automatically when you click <strong>+ Add to Judges</strong> in the Registrations page and their account is created.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ─── AI COMPONENTS ──────────────────────────────────────────────────────── */
+
+// Shared AI button + result panel used across multiple pages
+function AIPanel({ title, icon, onRun, running, result, error, children }) {
+  const [open, setOpen] = useState(false);
+  const run = async () => { setOpen(true); await onRun(); };
+  return (
+    <div style={{marginTop:12}}>
+      <Btn size="sm" variant="secondary" onClick={run} disabled={running}
+        style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",
+          display:"inline-flex",alignItems:"center",gap:6}}>
+        {running ? <><Spinner size={10}/> Analysing…</> : <>{icon} {title}</>}
+      </Btn>
+      {open && (error || result) && (
+        <div style={{marginTop:10,padding:16,background:C.bg2,borderRadius:R.md,
+          border:`1px solid ${error?C.bdRed:C.bdBlue}`}}>
+          {error && (
+            <div>
+              <div style={{...FONT,fontSize:13,color:C.red,marginBottom:6}}>⚠ {error}</div>
+              {error.includes("GEMINI_API_KEY")&&(
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener"
+                  style={{...FONT,fontSize:12,color:C.blue,display:"inline-flex",alignItems:"center",
+                    gap:5,padding:"5px 10px",borderRadius:R.sm,border:`1px solid ${C.bdBlue}`,
+                    background:C.bgBlue,textDecoration:"none"}}>
+                  🔑 Get your free Gemini API key →
+                </a>
+              )}
+            </div>
+          )}
+          {result && children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── AI Team Insights ─────────────────────────────────────────────────────────
+export function AITeamInsights({ teamId, hackathonId, toast }) {
+  const [running,  setRunning]  = useState(false);
+  const [result,   setResult]   = useState(null);
+  const [error,    setError]    = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/team-insights", { teamId, hackathonId });
+      if (d.error) setError(d.error); else setResult(d.insight);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  return (
+    <AIPanel title="AI Insights" icon="✨" onRun={run} running={running} result={result} error={error}>
+      {result && typeof result === "object" && (
+        <div>
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:8}}>{result.headline}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div>
+              <div style={{...FONT,fontSize:11,color:C.green,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>✓ Strengths</div>
+              {(result.strengths||[]).map((s,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>• {s}</div>)}
+            </div>
+            <div>
+              <div style={{...FONT,fontSize:11,color:C.amber,fontWeight:600,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>△ Gaps</div>
+              {(result.gaps||[]).map((g,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>• {g}</div>)}
+            </div>
+          </div>
+          <div style={{...FONT,fontSize:12,color:C.text3,background:C.bg3,borderRadius:R.sm,padding:"8px 12px",marginBottom:8}}>
+            💡 {result.recommendation}
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <Chip label={result.prizeWorthy?"🏆 Prize Worthy":"Not Prize Worthy"} color={result.prizeWorthy?"green":"neutral"} />
+            <Chip label={`Consensus: ${result.consensusScore}`} color="blue" />
+            {result.standoutCriterion&&<Chip label={`Best: ${result.standoutCriterion}`} color="purple" />}
+          </div>
+        </div>
+      )}
+      {result && typeof result === "string" && <div style={{...FONT,fontSize:13,color:C.text3}}>{result}</div>}
+    </AIPanel>
+  );
+}
+
+// ── AI Calibration Panel ─────────────────────────────────────────────────────
+export function AICalibration({ hackathonId, toast }) {
+  const [running, setRunning] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/calibration", { hackathonId });
+      if (d.error) setError(d.error);
+      else setResult(d);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const flagColor = { "Well-calibrated":"green","Lenient":"amber","Strict":"amber","Inconsistent":"red" };
+
+  return (
+    <AIPanel title="AI Calibration Check" icon="🎯" onRun={run} running={running} result={result} error={error}>
+      {result?.analysis && (
+        <div>
+          <div style={{...FONT,fontSize:13,color:C.text2,marginBottom:12,lineHeight:1.6}}>{result.analysis.summary}</div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <Chip label={`Panel Health: ${result.analysis.panelHealth}`}
+              color={result.analysis.panelHealth==="Excellent"?"green":result.analysis.panelHealth==="Good"?"blue":"amber"} />
+          </div>
+          {(result.analysis.judges||[]).map((j,i)=>(
+            <div key={i} style={{padding:"10px 12px",background:C.bg3,borderRadius:R.sm,
+              border:`1px solid ${j.flag?C.bdAmber:C.border}`,marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                <span style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{j.name}</span>
+                <div style={{display:"flex",gap:6}}>
+                  <Chip label={j.calibration} color={flagColor[j.calibration]||"neutral"} />
+                  <Chip label={`Comments: ${j.commentQuality}`} color="neutral" />
+                  {j.flag&&<Chip label={`⚠ ${j.flag}`} color="amber" />}
+                </div>
+              </div>
+              <div style={{...FONT,fontSize:12,color:C.text3}}>{j.insight}</div>
+            </div>
+          ))}
+          {(result.analysis.recommendations||[]).length>0&&(
+            <div style={{marginTop:10}}>
+              <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.05em"}}>Recommendations</div>
+              {result.analysis.recommendations.map((r,i)=>(
+                <div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:4}}>• {r}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </AIPanel>
+  );
+}
+
+// ── AI Registration Screen ────────────────────────────────────────────────────
+export function AIScreenReg({ registrationId, hackathonId, onApply }) {
+  const [running, setRunning] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/screen-registration", { registrationId, hackathonId });
+      if (d.error) setError(d.error); else setResult(d.screening);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const recColor = { Approve:"green", Reject:"red", Review:"amber" };
+
+  return (
+    <AIPanel title="AI Screen" icon="🤖" onRun={run} running={running} result={result} error={error}>
+      {result && (
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+            <Chip label={`${result.recommendation}`} color={recColor[result.recommendation]||"neutral"} />
+            <Chip label={`${result.confidence} Confidence`} color="neutral" />
+          </div>
+          <div style={{...FONT,fontSize:13,color:C.text2,marginBottom:10,lineHeight:1.6}}>{result.reason}</div>
+          {(result.strengths||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.green,fontWeight:600,marginBottom:4}}>✓ Strengths</div>
+              {result.strengths.map((s,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3}}>• {s}</div>)}
+            </div>
+          )}
+          {(result.concerns||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.amber,fontWeight:600,marginBottom:4}}>△ Concerns</div>
+              {result.concerns.map((c,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3}}>• {c}</div>)}
+            </div>
+          )}
+          <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>💡 {result.suggestedAction}</div>
+          {onApply&&result.recommendation==="Approve"&&(
+            <div style={{marginTop:10}}>
+              <Btn size="sm" onClick={()=>onApply("approved")} style={{background:C.green}}>✓ Apply Recommendation: Approve</Btn>
+            </div>
+          )}
+        </div>
+      )}
+    </AIPanel>
+  );
+}
+
+// ── AI Feedback Coach ─────────────────────────────────────────────────────────
+export function AIFeedbackCoach({ feedbackId }) {
+  const [running, setRunning] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState("");
+
+  const run = async () => {
+    setRunning(true); setError(""); setResult(null);
+    try {
+      const d = await POST("/api/ai/feedback-coach", { feedbackId });
+      if (d.error) setError(d.error); else setResult(d.coaching);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const qColor = { Excellent:"green",Good:"green",Adequate:"blue","Needs Improvement":"amber",Poor:"red" };
+
+  return (
+    <AIPanel title="AI Coach" icon="🎓" onRun={run} running={running} result={result} error={error}>
+      {result && (
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+            <Chip label={`Quality: ${result.qualityLabel}`} color={qColor[result.qualityLabel]||"neutral"} />
+            <Chip label={`Score: ${result.qualityScore}/10`} color="neutral" />
+          </div>
+          {(result.whatWorked||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.green,fontWeight:600,marginBottom:4}}>✓ What Worked</div>
+              {result.whatWorked.map((w,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:2}}>• {w}</div>)}
+            </div>
+          )}
+          {(result.improvements||[]).length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.amber,fontWeight:600,marginBottom:4}}>△ Improvements</div>
+              {result.improvements.map((im,i)=><div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:2}}>• {im}</div>)}
+            </div>
+          )}
+          {result.improvedOverall&&(
+            <div style={{padding:"10px 12px",background:C.bgBlue,border:`1px solid ${C.bdBlue}`,borderRadius:R.sm,marginBottom:8}}>
+              <div style={{...FONT,fontSize:11,color:C.blue,fontWeight:600,marginBottom:4}}>✨ Suggested Revision</div>
+              <div style={{...FONT,fontSize:13,color:C.text2,fontStyle:"italic",lineHeight:1.6}}>"{result.improvedOverall}"</div>
+            </div>
+          )}
+          <div style={{...FONT,fontSize:12,color:C.text3}}>💡 {result.tip}</div>
+        </div>
+      )}
+    </AIPanel>
+  );
+}
+
+// ── AI Hackathon Report Generator ─────────────────────────────────────────────
+export function AIReportGenerator({ hackathonId, hackName }) {
+  const [running, setRunning] = useState(false);
+  const [report,  setReport]  = useState("");
+  const [error,   setError]   = useState("");
+  const [open,    setOpen]    = useState(false);
+
+  const run = async () => {
+    setRunning(true); setError(""); setReport(""); setOpen(true);
+    try {
+      const d = await POST("/api/ai/hackathon-report", { hackathonId });
+      if (d.error) setError(d.error); else setReport(d.report);
+    } catch(e) { setError(e.message); }
+    setRunning(false);
+  };
+
+  const copy = () => { navigator.clipboard?.writeText(report); };
+  const download = () => {
+    const blob = new Blob([report], { type:"text/plain" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `${hackName || "hackathon"}-ai-report.md`; a.click();
+  };
+
+  return (
+    <div>
+      <Btn onClick={run} disabled={running}
+        style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",
+          display:"inline-flex",alignItems:"center",gap:6}}>
+        {running?<><Spinner size={12}/> Generating Report…</>:"📄 Generate AI Report"}
+      </Btn>
+      {open&&(
+        <div style={{marginTop:14,padding:20,background:C.bg2,borderRadius:R.md,border:`1px solid ${error?C.bdRed:C.border}`}}>
+          {error&&<div style={{...FONT,fontSize:13,color:C.red}}>⚠ {error}</div>}
+          {report&&(
+            <>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginBottom:12}}>
+                <Btn size="sm" variant="secondary" onClick={copy}>📋 Copy</Btn>
+                <Btn size="sm" variant="secondary" onClick={download}>⬇ Download .md</Btn>
+              </div>
+              <div style={{...FONT,fontSize:13,color:C.text2,lineHeight:1.8,whiteSpace:"pre-wrap",
+                maxHeight:400,overflowY:"auto",padding:"0 4px"}}>
+                {report}
               </div>
             </>
           )}
         </div>
-      </section>
-
-      {/* ── FOOTER ── */}
-      <footer style={{background:"#04060f",borderTop:"1px solid rgba(255,255,255,0.05)",padding:"32px 24px"}}>
-        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",justifyContent:"space-between",
-          alignItems:"center",flexWrap:"wrap",gap:16}}>
-          <div>
-            {data.eventLogoUrl&&<img src={data.eventLogoUrl} style={{height:28,objectFit:"contain",marginBottom:6,display:"block"}} />}
-            <div style={{...MM,fontSize:14,fontWeight:700,color:"rgba(255,255,255,0.5)"}}>{data.name}</div>
-            {data.tagline&&<div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.25)",marginTop:2}}>{data.tagline}</div>}
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:5,textAlign:"right"}}>
-            {data.location&&<div style={{...FF,fontSize:12,color:"rgba(255,255,255,0.3)"}}>📍 {data.location}</div>}
-            {data.contactEmail&&<a href={`mailto:${data.contactEmail}`} style={{...FF,fontSize:12,color:"rgba(255,255,255,0.3)",textDecoration:"none"}}>📩 {data.contactEmail}</a>}
-          </div>
-        </div>
-        {(data.socialTwitter||data.socialLinkedin||data.socialInstagram||data.socialFacebook)&&(
-          <div style={{maxWidth:1100,margin:"20px auto 0",paddingTop:16,
-            borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",gap:8,justifyContent:"center"}}>
-            {[["𝕏 Twitter",data.socialTwitter],["in LinkedIn",data.socialLinkedin],
-              ["📸 Instagram",data.socialInstagram],["f Facebook",data.socialFacebook]
-            ].filter(([,url])=>url).map(([label,url])=>(
-              <a key={label} href={url} target="_blank" rel="noopener"
-                style={{...FF,fontSize:12,fontWeight:500,padding:"7px 14px",
-                  border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,
-                  color:"rgba(255,255,255,0.5)",textDecoration:"none"}}
-                onMouseEnter={e=>{e.target.style.color="#fff";e.target.style.borderColor="rgba(255,255,255,0.3)";}}
-                onMouseLeave={e=>{e.target.style.color="rgba(255,255,255,0.5)";e.target.style.borderColor="rgba(255,255,255,0.1)";}}>
-                {label}
-              </a>
-            ))}
-          </div>
-        )}
-        <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.15)",textAlign:"center",marginTop:20}}>
-          © {new Date().getFullYear()} {data.name} · Powered by HackFest Hub
-        </div>
-      </footer>
+      )}
     </div>
   );
 }
 
-// ── Sticky Nav ────────────────────────────────────────────────────────────────
-function Nav({accent,data,scrollTo,tracks,galleryImages,onRegister}){
-  const[sc,setSc]=useState(false);
-  useEffect(()=>{const fn=()=>setSc(window.scrollY>50);window.addEventListener("scroll",fn);return()=>window.removeEventListener("scroll",fn);},[]);
-  const tabs=[
-    {id:"about",   label:"About",    show:true},
-    {id:"tracks",  label:"Tracks",   show:tracks.length>0},
-    {id:"schedule",label:"Schedule", show:!!(data.schedule)},
-    {id:"keynotes",label:"Keynotes", show:(data.keynotes||[]).length>0},
-    {id:"chairs",  label:"Chairs",   show:(data.sessionChairs||[]).length>0},
-    {id:"judges",  label:"Judges",   show:(data.judges||[]).length>0},
-    {id:"team",    label:"Team",     show:(data.team||[]).length>0},
-    {id:"partners",label:"Partners", show:(data.partners||[]).length>0},
-    {id:"prizes",  label:"Prizes",   show:!!(data.websitePrizes)},
-    {id:"gallery", label:"Gallery",  show:galleryImages.length>0},
-    {id:"register",label:"Register", show:true},
-  ].filter(t=>t.show);
-  return(
-    <nav style={{position:"fixed",top:0,left:0,right:0,zIndex:200,
-      background:sc?"rgba(7,11,20,0.95)":"transparent",
-      backdropFilter:sc?"blur(16px)":"none",
-      borderBottom:sc?"1px solid rgba(255,255,255,0.06)":"none",transition:"all 0.3s"}}>
-      <div style={{maxWidth:1200,margin:"0 auto",padding:"0 16px",display:"flex",
-        alignItems:"center",justifyContent:"space-between",height:60}}>
-        <div style={{...MM,fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>
-          {data.eventLogoUrl&&<img src={data.eventLogoUrl} style={{height:28,objectFit:"contain",marginRight:8,verticalAlign:"middle"}} />}
-          {data.name}
-        </div>
-        <div style={{display:"flex",gap:0,overflowX:"auto",flex:1,justifyContent:"center"}}>
-          {tabs.map(t=>(
-            <button key={t.id} onClick={()=>scrollTo(t.id)}
-              style={{...FF,background:"none",border:"none",color:"rgba(255,255,255,0.5)",
-                fontSize:12,fontWeight:500,cursor:"pointer",padding:"6px 10px",
-                whiteSpace:"nowrap",transition:"color 0.15s"}}
-              onMouseEnter={e=>e.target.style.color="#fff"}
-              onMouseLeave={e=>e.target.style.color="rgba(255,255,255,0.5)"}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <button onClick={onRegister} style={{...FF,background:accent,color:"#fff",
-          border:"none",borderRadius:7,padding:"7px 18px",fontSize:13,fontWeight:700,
-          cursor:"pointer",flexShrink:0}}>Register</button>
-      </div>
-    </nav>
-  );
-}
 
-// ── Gallery with lightbox ─────────────────────────────────────────────────────
-function Gallery({images,accent}){
-  const[sel,setSel]=useState(null);
-  return(
-    <section id="gallery" style={{padding:"80px 24px",background:"#06091a"}}>
-      <div style={{maxWidth:1100,margin:"0 auto"}}>
-        <SecHead eyebrow="Memories" title="Event Gallery" accent={accent}/>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
-          {images.map((src,i)=>(
-            <div key={i} onClick={()=>setSel(src)}
-              style={{aspectRatio:"4/3",borderRadius:10,overflow:"hidden",cursor:"pointer",
-                border:"1px solid rgba(255,255,255,0.07)",transition:"transform 0.2s"}}
-              onMouseEnter={e=>e.currentTarget.style.transform="scale(1.02)"}
-              onMouseLeave={e=>e.currentTarget.style.transform="none"}>
-              <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-            </div>
-          ))}
-        </div>
-      </div>
-      {sel&&(
-        <div onClick={()=>setSel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",
-          zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <img src={sel} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:10,objectFit:"contain"}}/>
-          <button onClick={()=>setSel(null)} style={{position:"fixed",top:20,right:24,
-            background:"none",border:"none",color:"#fff",fontSize:36,cursor:"pointer",lineHeight:1}}>×</button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-
-// ── People's Choice Voting ────────────────────────────────────────────────────
-function VotingSection({hackathonId, teams, accent}) {
-  const [votes,   setVotes]   = useState([]);
-  const [status,  setStatus]  = useState(null);
-  const [form,    setForm]    = useState({name:"",email:"",teamId:""});
-  const [done,    setDone]    = useState(false);
+/* ─── BEST JUDGE PAGE ────────────────────────────────────────────────────── */
+export function BestJudgePage({ db, toast, activeHackathon }) {
+  const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(false);
-  const [err,     setErr]     = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [note,    setNote]    = useState("");
+  const [selId,   setSelId]   = useState(null); // judgeId being nominated
 
-  useEffect(()=>{
-    fetch(`${BASE}/api/public/votes/${hackathonId}`).then(r=>r.json())
-      .then(d=>{setStatus(d);setVotes(d.results||[]);}).catch(()=>{});
-  },[hackathonId]);
+  const hack = db.hackathons.find(h => h.id === activeHackathon);
 
-  const sf=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
-  const maxVotes=Math.max(...votes.map(v=>v.votes),1);
-
-  const submit=async e=>{
-    e.preventDefault();if(!form.teamId)return setErr("Select a team");
-    setLoading(true);setErr("");
-    try{
-      const r=await fetch(`${BASE}/api/vote`,{method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({...form,hackathonId})}).then(r=>r.json());
-      if(r.error)setErr(r.error);
-      else{setDone(true);fetch(`${BASE}/api/public/votes/${hackathonId}`).then(r=>r.json()).then(d=>{setVotes(d.results||[]);});}
-    }catch(e){setErr(e.message);}
-    setLoading(false);
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/best-judge/${activeHackathon}`)
+      .then(d => {
+        setData(d);
+        setSelId(d.bestJudgeId || null);
+        setNote(d.bestJudgeNote || "");
+      })
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
   };
 
-  if(!status?.open)return null;
-  const IS={...FF,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.15)",
-    borderRadius:8,padding:"10px 14px",fontSize:14,color:"#fff",width:"100%",outline:"none"};
+  useEffect(() => { load(); }, [activeHackathon]);
 
-  return(
-    <section id="vote" style={{padding:"80px 24px",background:"#06091a",borderTop:`1px solid ${accent}22`}}>
-      <div style={{maxWidth:1100,margin:"0 auto"}}>
-        <SecHead eyebrow="People's Choice" title="Vote for Your Favorite Team" accent={accent}
-          sub="Cast your vote — one per person. Results shown live." />
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40,alignItems:"start"}}>
-          {/* Vote form */}
-          <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:28}}>
-            {done?(
-              <div style={{textAlign:"center",padding:"20px 0"}}>
-                <div style={{fontSize:48,marginBottom:12}}>🗳️</div>
-                <div style={{...FF,fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>Vote Submitted!</div>
-                <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.5)"}}>Thank you for participating in the People's Choice vote.</div>
-              </div>
-            ):(
-              <form onSubmit={submit}>
-                <div style={{...FF,fontSize:14,fontWeight:600,color:"#fff",marginBottom:16}}>Cast Your Vote</div>
-                {err&&<div style={{...FF,fontSize:12,color:"#f87171",marginBottom:12,padding:"8px 12px",background:"rgba(239,68,68,0.1)",borderRadius:6}}>⚠ {err}</div>}
-                <div style={{marginBottom:12}}>
-                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Your Name *</label>
-                  <input style={IS} value={form.name} onChange={sf("name")} required
-                    onFocus={e=>e.target.style.borderColor=accent} onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
-                </div>
-                <div style={{marginBottom:12}}>
-                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Email *</label>
-                  <input type="email" style={IS} value={form.email} onChange={sf("email")} required
-                    onFocus={e=>e.target.style.borderColor=accent} onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
-                </div>
-                <div style={{marginBottom:20}}>
-                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Vote for Team *</label>
-                  <select style={IS} value={form.teamId} onChange={sf("teamId")} required>
-                    <option value="">Select a team…</option>
-                    {teams.map(t=><option key={t.id} value={t.id}>{t.name} — {t.project||t.category}</option>)}
-                  </select>
-                </div>
-                <button type="submit" disabled={loading} style={{...FF,width:"100%",padding:"12px",borderRadius:10,
-                  background:accent,color:"#fff",border:"none",cursor:"pointer",fontSize:15,fontWeight:700,
-                  opacity:loading?0.7:1}}>
-                  {loading?"Submitting…":"🗳️ Submit My Vote"}
-                </button>
-              </form>
-            )}
-          </div>
-          {/* Live results */}
-          <div>
-            <div style={{...FF,fontSize:13,fontWeight:600,color:"rgba(255,255,255,0.6)",marginBottom:16}}>
-              Live Results {status.ends&&`· Closes ${new Date(status.ends).toLocaleDateString()}`}
-            </div>
-            {votes.slice(0,8).map((team,i)=>(
-              <div key={team.id} style={{marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{...FF,fontSize:13,color:"#fff",fontWeight:i===0?700:400}}>
-                    {i===0?"👑 ":""}{team.name}
-                  </span>
-                  <span style={{...MM,fontSize:12,color:"rgba(255,255,255,0.5)"}}>{team.votes} vote{team.votes!==1?"s":""}</span>
-                </div>
-                <div style={{background:"rgba(255,255,255,0.1)",borderRadius:4,height:8,overflow:"hidden"}}>
-                  <div style={{height:"100%",borderRadius:4,transition:"width 0.6s ease",
-                    width:`${(team.votes/maxVotes)*100}%`,
-                    background:i===0?accent:"rgba(255,255,255,0.3)"}}/>
-                </div>
-              </div>
-            ))}
-            {votes.length===0&&<div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.35)",fontStyle:"italic"}}>No votes yet. Be the first!</div>}
-          </div>
-        </div>
+  const nominate = async (judgeId) => {
+    setSaving(true);
+    try {
+      await POST(`/api/best-judge/${activeHackathon}`, { judgeId, note });
+      setSelId(judgeId);
+      toast("🏆 Best Judge nominated and saved!");
+      load();
+    } catch(e) {
+      toast(e.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    if (!confirm("Remove the Best Judge nomination?")) return;
+    setSaving(true);
+    try {
+      await POST(`/api/best-judge/${activeHackathon}`, { judgeId: null, note: "" });
+      setSelId(null); setNote("");
+      toast("Nomination cleared");
+      load();
+    } catch(e) {
+      toast(e.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!activeHackathon) return <Empty icon="⭐" title="Select a hackathon" />;
+
+  const MetricBar = ({ label, value, color }) => (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+        <span style={{ ...FONT, fontSize: 11, color: C.text3 }}>{label}</span>
+        <span style={{ ...MONO, fontSize: 11, color: C.text2 }}>{value}%</span>
       </div>
-    </section>
+      <div style={{ background: C.bg3, borderRadius: 3, height: 5, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${value}%`, borderRadius: 3,
+          background: color || (value >= 75 ? C.green : value >= 50 ? C.blue : C.amber),
+          transition: "width 0.6s ease" }} />
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <SectionHeader
+        title="Best Judge Award"
+        count={hack?.name}
+        action={<Btn variant="secondary" onClick={load} disabled={loading}>{loading ? <Spinner /> : "↻"} Refresh</Btn>}
+      />
+
+      {/* Current nominee banner */}
+      {selId && data && (
+        <Card style={{ marginBottom: 20, background: "linear-gradient(135deg,#fef3c7,#fffbeb)", border: "1px solid #fde68a" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ fontSize: 36 }}>🏆</div>
+              <div>
+                <div style={{ ...FONT, fontSize: 12, fontWeight: 500, color: C.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>Current Best Judge Nominee</div>
+                <div style={{ ...FONT, fontSize: 18, fontWeight: 700, color: "#92400e" }}>
+                  {data.judges?.find(j => j.id === selId)?.name || selId}
+                </div>
+                {data.bestJudgeNote && (
+                  <div style={{ ...FONT, fontSize: 13, color: "#a16207", marginTop: 4, fontStyle: "italic" }}>"{data.bestJudgeNote}"</div>
+                )}
+              </div>
+            </div>
+            <Btn variant="danger" size="sm" onClick={clear} disabled={saving}>Remove Nomination</Btn>
+          </div>
+        </Card>
+      )}
+
+      {/* Note for nomination */}
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ ...FONT, fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>Award Citation</div>
+        <p style={{ ...FONT, fontSize: 12, color: C.text3, marginBottom: 10 }}>
+          Write a short note that will appear on the public page alongside the winner's profile.
+        </p>
+        <textarea
+          style={{ ...MONO, background: C.bg2, border: `1px solid ${C.border2}`, borderRadius: R.sm,
+            padding: "10px 12px", fontSize: 13, color: C.text, width: "100%", minHeight: 72, resize: "vertical" }}
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder='e.g. "For exceptional attention to detail, thorough written feedback, and consistent evaluation across all teams."'
+        />
+        {selId && (
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+            <Btn size="sm" onClick={() => nominate(selId)} disabled={saving}>
+              {saving && <Spinner />} Update Citation
+            </Btn>
+          </div>
+        )}
+      </Card>
+
+      {/* Analytics leaderboard */}
+      {loading && <div style={{ ...FONT, fontSize: 14, color: C.text3, textAlign: "center", padding: "32px 0" }}>Calculating judge analytics…</div>}
+
+      {!loading && data?.judges?.length === 0 && (
+        <Empty icon="📊" title="No feedback submitted yet" sub="Judges need to submit feedback before analytics can be calculated." />
+      )}
+
+      {!loading && data?.judges?.map((judge, i) => {
+        const isNominated = judge.id === selId;
+        const rank = i + 1;
+        const rankColor = rank === 1 ? "#f59e0b" : rank === 2 ? "#94a3b8" : rank === 3 ? "#b45309" : C.text3;
+        const rankIcon  = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
+
+        return (
+          <Card key={judge.id} style={{
+            marginBottom: 12,
+            border: `2px solid ${isNominated ? "#fde68a" : C.border}`,
+            background: isNominated ? "#fffbeb" : C.bg,
+          }}>
+            <div style={{ display: "grid", gridTemplateColumns: "48px 1fr auto", gap: 16, alignItems: "start" }}>
+              {/* Rank */}
+              <div style={{ textAlign: "center", paddingTop: 4 }}>
+                <div style={{ fontSize: rank <= 3 ? 28 : 18, fontWeight: 700, color: rankColor, lineHeight: 1 }}>
+                  {rank <= 3 ? rankIcon : `#${rank}`}
+                </div>
+              </div>
+
+              {/* Judge info + metrics */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  {judge.avatarUrl
+                    ? <img src={judge.avatarUrl} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover" }} />
+                    : <Avatar name={judge.name} size={44} />
+                  }
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                      <span style={{ ...FONT, fontSize: 15, fontWeight: 700, color: C.text }}>{judge.name}</span>
+                      {isNominated && <Chip label="🏆 Nominated" color="amber" />}
+                    </div>
+                    <div style={{ ...FONT, fontSize: 12, color: C.text3 }}>
+                      {judge.org} · {judge.feedbackCount} of {judge.totalTeams} teams reviewed
+                      {judge.avgScore != null && ` · avg score given: ${judge.avgScore}`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metric bars */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 24px" }}>
+                  <MetricBar label="Coverage (teams reviewed)"     value={judge.coverage}             color={judge.coverage >= 100 ? C.green : C.blue} />
+                  <MetricBar label="Thoroughness (comment depth)"  value={judge.thoroughness}          />
+                  <MetricBar label="Discrimination (score spread)" value={judge.discrimination}        />
+                  <MetricBar label="Criteria completeness"         value={judge.criteriaCompleteness} color={C.purple} />
+                  <MetricBar label="Engagement (overall summaries)" value={judge.engagement}          color={C.green} />
+                </div>
+              </div>
+
+              {/* Score + nominate button */}
+              <div style={{ textAlign: "center", minWidth: 110 }}>
+                {/* Composite score ring */}
+                <div style={{ position: "relative", width: 80, height: 80, margin: "0 auto 12px" }}>
+                  <svg width="80" height="80" style={{ transform: "rotate(-90deg)" }}>
+                    <circle cx="40" cy="40" r="32" fill="none" stroke={C.bg3} strokeWidth="8" />
+                    <circle cx="40" cy="40" r="32" fill="none"
+                      stroke={judge.composite >= 80 ? C.green : judge.composite >= 60 ? C.blue : C.amber}
+                      strokeWidth="8"
+                      strokeDasharray={`${(judge.composite / 100) * 201} 201`}
+                      strokeLinecap="round" />
+                  </svg>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ ...MONO, fontSize: 20, fontWeight: 700,
+                      color: judge.composite >= 80 ? C.green : judge.composite >= 60 ? C.blue : C.amber,
+                      lineHeight: 1 }}>{judge.composite}</span>
+                    <span style={{ ...FONT, fontSize: 9, color: C.text3, marginTop: 1 }}>/ 100</span>
+                  </div>
+                </div>
+
+                {isNominated
+                  ? <Chip label="✓ Nominated" color="amber" />
+                  : <Btn size="sm" variant="primary" onClick={() => nominate(judge.id)} disabled={saving}>
+                      {saving ? <Spinner /> : "Nominate 🏆"}
+                    </Btn>
+                }
+              </div>
+            </div>
+          </Card>
+        );
+      })}
+
+      {/* Scoring explainer */}
+      <Card style={{ marginTop: 16, background: C.bg2 }}>
+        <div style={{ ...FONT, fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 10 }}>How the Score is Calculated</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 8 }}>
+          {[
+            ["Coverage 30%",     "% of teams the judge reviewed"],
+            ["Thoroughness 25%", "Average word count in comments"],
+            ["Discrimination 20%","Spread of scores — avoids giving everyone the same"],
+            ["Completeness 15%", "% of criteria scored per submission"],
+            ["Engagement 10%",   "% of submissions with a written summary"],
+          ].map(([title,desc]) => (
+            <div key={title} style={{ padding: "10px 12px", background: C.bg, borderRadius: R.sm, border: `1px solid ${C.border}` }}>
+              <div style={{ ...MONO, fontSize: 11, color: C.blue, marginBottom: 4 }}>{title}</div>
+              <div style={{ ...FONT, fontSize: 11, color: C.text3, lineHeight: 1.5 }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
   );
 }
 
-// ── Section heading ───────────────────────────────────────────────────────────
-function SecHead({eyebrow,title,sub,accent}){
+/* ─── PUBLIC PAGE CMS ───────────────────────────────────────────────────── */
+export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
+  const [tab,setTab]=useState("content");
+  const [partners,setPartners]=useState([]);
+  const [team,setTeam]=useState([]);
+  const [pModal,setPModal]=useState(null);const [pForm,setPForm]=useState({});const [pSaving,setPSaving]=useState(false);
+  const [tModal,setTModal]=useState(null);const [tForm,setTForm]=useState({});const [tSaving,setTSaving]=useState(false);
+  const [hackForm,setHackForm]=useState({});const [hSaving,setHSaving]=useState(false);
+  const [uploading,setUploading]=useState(false);
+
+  const hack=db.hackathons.find(h=>h.id===activeHackathon);
+  const selH=activeHackathon;
+
+  useEffect(() => { if (hack) setHackForm({ ...hack }); }, [hack?.id, hack?.updatedAt]);
+
+  const loadPartners = () => {
+    if (!selH) return;
+    GET(`/api/partners?hackathonId=${selH}`)
+      .then(d => setPartners(Array.isArray(d) ? d : []))
+      .catch(() => setPartners([]));
+  };
+  const loadTeam = () => {
+    if (!selH) return;
+    GET(`/api/orgteam?hackathonId=${selH}`)
+      .then(d => setTeam(Array.isArray(d) ? d : []))
+      .catch(() => setTeam([]));
+  };
+  useEffect(() => { loadPartners(); loadTeam(); }, [selH]);
+
+  const pf=k=>e=>setPForm(p=>({...p,[k]:e.target.value}));
+  const tf=k=>e=>setTForm(p=>({...p,[k]:e.target.value}));
+  const hf=k=>e=>setHackForm(prev=>({...prev,[k]:e.target?.value??e}));
+
+  const handleImg=async(e,setter,field="avatarUrl")=>{
+    const file=e.target.files?.[0]; if(!file)return;
+    if(file.size>2*1024*1024){toast("Image must be under 2MB","error");return;}
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=ev=>{setter(p=>({...p,[field]:ev.target.result}));setUploading(false);};
+    reader.readAsDataURL(file);
+  };
+
+  const saveHack=async()=>{
+    setHSaving(true);
+    try{
+      await PUT(`/api/hackathons/${selH}`,hackForm);
+      await reload();
+      toast("Page settings saved");
+    }catch(e){
+      toast(e.message||"Save failed","error");
+    }finally{
+      setHSaving(false);
+    }
+  };
+
+  // Partners CRUD
+  const savePartner=async()=>{
+    if(!pForm.name?.trim())return toast("Name required","error");
+    setPSaving(true);
+    try{
+      if(pModal==="new") await POST("/api/partners",{...pForm,hackathonId:selH});
+      else await PUT(`/api/partners/${pModal.id}`,pForm);
+      loadPartners();
+      toast(pModal==="new"?"Partner added":"Updated");
+      setPModal(null);
+    }catch(e){
+      toast(e.message||"Save failed","error");
+    }finally{
+      setPSaving(false);
+    }
+  };
+  const delPartner=async id=>{try{await DEL(`/api/partners/${id}`);await loadPartners();toast("Removed");}catch(e){toast(e.message,"error");}};
+
+  // Team CRUD
+  const saveTeamMember=async()=>{
+    if(!tForm.name?.trim())return toast("Name required","error");
+    setTSaving(true);
+    try{
+      if(tModal==="new") await POST("/api/orgteam",{...tForm,hackathonId:selH});
+      else await PUT(`/api/orgteam/${tModal.id}`,tForm);
+      loadTeam();
+      toast(tModal==="new"?"Member added":"Updated");
+      setTModal(null);
+    }catch(e){
+      toast(e.message||"Save failed","error");
+    }finally{
+      setTSaving(false);
+    }
+  };
+  const delTeamMember=async id=>{try{await DEL(`/api/orgteam/${id}`);await loadTeam();toast("Removed");}catch(e){toast(e.message,"error");}};
+
+  if(!selH) return <Empty icon="🌐" title="Select a hackathon from the sidebar" sub="Use the dropdown at the top of the sidebar to choose an event." />;
+  if(!hack) return <Empty icon="🌐" title="Hackathon not found" />;
+
+  const pubUrl=`${window.location.origin}/register/${selH}`;
+
+  const TABS=[
+    {id:"content",label:"Content & Settings"},
+    {id:"keynotes",label:"KeyNotes"},
+    {id:"chairs",label:"Session Chairs"},
+    {id:"team",label:"Org Team"},
+    {id:"partners",label:"Partners"},
+  ];
+
   return(
-    <div style={{textAlign:"center",marginBottom:48}}>
-      {eyebrow&&<div style={{...MM,fontSize:9,letterSpacing:"0.25em",color:accent||"#6366f1",
-        textTransform:"uppercase",marginBottom:12}}>{eyebrow}</div>}
-      <h2 style={{...FF,fontSize:"clamp(24px,3.5vw,40px)",fontWeight:700,color:"#fff",
-        letterSpacing:"-0.02em",marginBottom:10,lineHeight:1.15}}>{title}</h2>
-      {sub&&<p style={{...FF,fontSize:15,color:"rgba(255,255,255,0.45)",maxWidth:500,margin:"0 auto",lineHeight:1.7}}>{sub}</p>}
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+        <div>
+          <h1 style={{...FONT,fontSize:18,fontWeight:600,color:C.text,marginBottom:2}}>Public Page CMS</h1>
+          <p style={{...FONT,fontSize:12,color:C.text3}}>{hack.name}</p>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <Chip label={hack.published?"Live":"Draft"} color={hack.published?"green":"neutral"} />
+          <Btn variant={hack.published?"secondary":"success"} size="sm"
+            onClick={async()=>{try{await PUT(`/api/hackathons/${selH}`,{...hack,published:!hack.published});await reload();toast(hack.published?"Unpublished":"Published — now live!");}catch(e){toast(e.message,"error");}}}>
+            {hack.published?"Unpublish":"Publish"}
+          </Btn>
+          {hack.published&&<>
+            <Btn size="sm" variant="secondary" onClick={()=>{navigator.clipboard?.writeText(pubUrl);toast("URL copied!");}}>Copy URL</Btn>
+            <Btn size="sm" variant="blue" onClick={()=>window.open(pubUrl,"_blank")}>Preview →</Btn>
+          </>}
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{display:"flex",gap:1,marginBottom:20,background:C.bg2,borderRadius:R.sm,padding:3,border:`1px solid ${C.border}`,overflowX:"auto"}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{...FONT,padding:"6px 14px",fontSize:12,fontWeight:500,
+            borderRadius:R.sm,border:"none",cursor:"pointer",background:tab===t.id?C.bg:C.bg2,
+            color:tab===t.id?C.text:C.text3,transition:"all 0.1s",whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content & Settings ── */}
+      {tab==="content"&&(
+        <Card>
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16}}>Basic Info</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Event Tagline"><input style={IN} value={hackForm.tagline||""} onChange={hf("tagline")} placeholder="Build the future in 48 hours" /></Field>
+            <Field label="Prize Pool"><input style={IN} value={hackForm.prizePool||""} onChange={hf("prizePool")} placeholder="$25,000 in prizes" /></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Contact Email"><input type="email" style={IN} value={hackForm.contactEmail||""} onChange={hf("contactEmail")} placeholder="contact@hackfest.com" /></Field>
+            <Field label="Registration Deadline"><input style={IN} value={hackForm.registrationDeadline||""} onChange={hf("registrationDeadline")} placeholder="June 30, 2025" /></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Max Participants"><input type="number" style={IN} value={hackForm.maxParticipants||""} onChange={hf("maxParticipants")} placeholder="200" /></Field>
+            <Field label="Max Teams"><input type="number" style={IN} value={hackForm.maxTeams||""} onChange={hf("maxTeams")} placeholder="50" /></Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Appearance</div>
+          <Field label="Event Logo URL" hint="Shows in navbar and hero — paste any image URL">
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              {hackForm.eventLogoUrl&&<img src={hackForm.eventLogoUrl} style={{height:36,maxWidth:80,objectFit:"contain",border:`1px solid ${C.border}`,borderRadius:R.sm,padding:4,background:"#111"}} />}
+              <input style={{...IN,flex:1}} value={hackForm.eventLogoUrl||""} onChange={hf("eventLogoUrl")} placeholder="https://... logo image URL" />
+            </div>
+          </Field>
+          <Field label="Accent / Banner Color" hint="Controls hero gradient and all highlights on the public page">
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(hackForm.bannerColor||"")?hackForm.bannerColor:"#6366f1"} onChange={hf("bannerColor")} style={{width:44,height:36,borderRadius:R.sm,border:`1px solid ${C.border}`,cursor:"pointer",padding:2}} />
+              <input style={{...IN,flex:1}} value={hackForm.bannerColor||"#6366f1"} onChange={hf("bannerColor")} placeholder="#6366f1" />
+              <div style={{width:44,height:36,borderRadius:R.sm,background:hackForm.bannerColor||"#6366f1",border:`1px solid ${C.border}`}} />
+            </div>
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Content Sections</div>
+          <Field label="Tracks" hint="Comma-separated: AI/ML, Sustainability, Security, Social Impact, ...">
+            <input style={IN} value={hackForm.tracks||""} onChange={hf("tracks")} placeholder="AI/ML, Sustainability, Security, Social Impact" />
+          </Field>
+          <Field label="About (long form)" hint="Full description shown in the About section">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.websiteAbout||hackForm.description||""} onChange={hf("websiteAbout")} placeholder="Write a compelling event description..." />
+          </Field>
+          <Field label="Stats Bar" hint="One per line — emoji | value | label">
+            <textarea style={{...TA,minHeight:80}} value={hackForm.websiteStats||""} onChange={hf("websiteStats")} placeholder={"🏆 | $25,000 | Prize Pool\n👥 | 200+ | Participants\n🎯 | 6 | Tracks\n⭐ | 15 | Judges"} />
+          </Field>
+          <Field label="Promo Video URL" hint="YouTube or Vimeo — embedded on the public page">
+            <input style={IN} value={hackForm.promoVideoUrl||""} onChange={hf("promoVideoUrl")} placeholder="https://youtube.com/watch?v=..." />
+          </Field>
+          <Field label="Prizes" hint='One per line: "1st Place | $10,000 + AWS Credits"'>
+            <textarea style={{...TA,minHeight:80}} value={hackForm.websitePrizes||""} onChange={hf("websitePrizes")} placeholder={"1st Place | $10,000 + AWS Credits\n2nd Place | $5,000\n3rd Place | $2,500 + Mentorship"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Schedule / Agenda</div>
+          <Field label="Schedule" hint="Day headers (no |) then events: 9:00 AM | Session Name">
+            <textarea style={{...TA,minHeight:120}} value={hackForm.schedule||""} onChange={hf("schedule")} placeholder={"Day 1\n9:00 AM | Registration & Breakfast\n10:00 AM | Opening Ceremony\n11:00 AM | Hacking Begins\n\nDay 2\n9:00 AM | Morning Check-in\n6:00 PM | Submission Deadline"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Venue</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Venue Name"><input style={IN} value={hackForm.venueName||""} onChange={hf("venueName")} placeholder="Convention Center" /></Field>
+            <Field label="Google Maps URL"><input style={IN} value={hackForm.venueMapsUrl||""} onChange={hf("venueMapsUrl")} placeholder="https://maps.google.com/..." /></Field>
+          </div>
+          <Field label="Venue Address">
+            <textarea style={{...TA,minHeight:56}} value={hackForm.venueAddress||""} onChange={hf("venueAddress")} placeholder={"123 Main St\nMcKinney, TX 75070"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Social Media</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Twitter / X"><input style={IN} value={hackForm.socialTwitter||""} onChange={hf("socialTwitter")} placeholder="https://twitter.com/..." /></Field>
+            <Field label="LinkedIn"><input style={IN} value={hackForm.socialLinkedin||""} onChange={hf("socialLinkedin")} placeholder="https://linkedin.com/..." /></Field>
+            <Field label="Instagram"><input style={IN} value={hackForm.socialInstagram||""} onChange={hf("socialInstagram")} placeholder="https://instagram.com/..." /></Field>
+            <Field label="Facebook"><input style={IN} value={hackForm.socialFacebook||""} onChange={hf("socialFacebook")} placeholder="https://facebook.com/..." /></Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Community Links</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Discord Server URL"><input style={IN} value={hackForm.discordUrl||""} onChange={hf("discordUrl")} placeholder="https://discord.gg/..." /></Field>
+            <Field label="WhatsApp Group URL"><input style={IN} value={hackForm.whatsappGroupUrl||""} onChange={hf("whatsappGroupUrl")} placeholder="https://chat.whatsapp.com/..." /></Field>
+            <Field label="Slack Channel URL"><input style={IN} value={hackForm.slackUrl||""} onChange={hf("slackUrl")} placeholder="https://yourworkspace.slack.com/..." /></Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Problem Statements</div>
+          <Field label="Problem Statements" hint='One problem per block, separated by blank line. First line = title, rest = description. Or use JSON array: [{"title":"..","description":".."}]'>
+            <textarea style={{...TA,minHeight:120}} value={hackForm.problemStatements||""} onChange={hf("problemStatements")}
+              placeholder={"AI for Healthcare
+Build a solution to improve patient outcomes using AI and real-time data.
+
+Climate Tech
+Create a tool that helps individuals reduce their carbon footprint."} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Resources & Tools</div>
+          <Field label="Resources" hint="One per line: Name | URL | Description">
+            <textarea style={{...TA,minHeight:80}} value={hackForm.resources||""} onChange={hf("resources")}
+              placeholder={"OpenAI API | https://platform.openai.com | GPT-4 access for teams
+Figma | https://figma.com | Free prototyping tool
+AWS Credits | https://aws.amazon.com/activate | $100 credits for participants"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>People's Choice Voting</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Enable Public Voting">
+              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                <input type="checkbox" checked={!!hackForm.peoplesChoiceOpen} onChange={e=>setHackForm(p=>({...p,peoplesChoiceOpen:e.target.checked}))} />
+                <span style={{...FONT,fontSize:13,color:C.text}}>Allow public to vote for teams</span>
+              </label>
+            </Field>
+            <Field label="Voting Closes" hint="Leave blank for no deadline">
+              <input type="datetime-local" style={IN} value={hackForm.peoplesChoiceEnd||""} onChange={hf("peoplesChoiceEnd")} />
+            </Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Code of Conduct</div>
+          <Field label="Code of Conduct" hint="Shown on public page before registration form">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.codeOfConduct||""} onChange={hf("codeOfConduct")}
+              placeholder={"Be respectful to all participants, judges, and organizers.
+Harassment, discrimination, or toxic behavior will not be tolerated.
+All work must be original and created during the hackathon.
+Teams must have between 1 and 5 members."} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Gallery & Testimonials</div>
+          <Field label="Gallery Images" hint="One image URL per line — clickable grid on public page">
+            <textarea style={{...TA,minHeight:80}} value={hackForm.galleryImages||""} onChange={hf("galleryImages")} placeholder={"https://example.com/photo1.jpg\nhttps://example.com/photo2.jpg\nhttps://example.com/photo3.jpg"} />
+          </Field>
+          <Field label="Testimonials" hint="Blank line between each. Line 1: quote, Line 2: name, Line 3: role/org">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.websiteTestimonials||""} onChange={hf("websiteTestimonials")} placeholder={"Best hackathon I have attended!\nSrikanth R.\nSenior Architect, Caesars Digital\n\nIncredible judges and mentors.\nJane Doe\nCTO, TechStartup Inc"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>FAQ</div>
+          <Field label="FAQ" hint="Blank line between Q&A pairs. Q: on one line, A: on next">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.faq||""} onChange={hf("faq")} placeholder={"Q: Who can participate?\nA: Anyone 18+ with a laptop and ideas.\n\nQ: Is it free?\nA: Yes, completely free to enter."} />
+          </Field>
+
+          <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+            <Btn onClick={saveHack} disabled={hSaving} size="lg">{hSaving&&<Spinner/>} Save All Settings</Btn>
+          </div>
+        </Card>
+      )}
+      {/* ── KeyNotes ── */}
+      {tab==="keynotes"&&selH&&(
+        <Card>
+          <PeopleEditor title="Keynote Speakers" type="keynote" hackathonId={selH} toast={toast} />
+        </Card>
+      )}
+
+      {/* ── Session Chairs ── */}
+      {tab==="chairs"&&selH&&(
+        <Card>
+          <PeopleEditor title="Session Chairs" type="session_chair" hackathonId={selH} toast={toast} />
+        </Card>
+      )}
+
+      {/* ── Org Team ── */}
+      {tab==="team"&&(
+        <Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>Organizing Team <span style={{color:C.text3,fontWeight:400}}>({team.length})</span></div>
+            <Btn size="sm" onClick={()=>{setTForm({hackathonId:selH});setTModal("new");}}>+ Add Member</Btn>
+          </div>
+          {team.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>No team members added yet.</div>
+            :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+              {team.map(m=>(
+                <div key={m.id} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.sm,padding:14}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                    {m.avatarUrl?<img src={m.avatarUrl} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover"}} />:<Avatar name={m.name} size={36}/>}
+                    <div><div style={{...FONT,fontSize:12,fontWeight:600,color:C.text}}>{m.name}</div><div style={{...FONT,fontSize:11,color:C.text3}}>{m.role}</div></div>
+                  </div>
+                  <div style={{display:"flex",gap:5}}>
+                    <Btn size="sm" variant="secondary" onClick={()=>{setTForm({...m});setTModal(m);}}>Edit</Btn>
+                    <Btn size="sm" variant="danger" onClick={()=>delTeamMember(m.id)}>✕</Btn>
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
+          {tModal&&<Modal title={tModal==="new"?"Add Team Member":"Edit Member"} onClose={()=>setTModal(null)}>
+            <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:14,padding:12,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+              <div style={{width:60,height:60,borderRadius:"50%",overflow:"hidden",flexShrink:0,background:tForm.avatarUrl?"transparent":C.bg3,border:`2px dashed ${tForm.avatarUrl?C.bdGreen:C.border2}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {tForm.avatarUrl?<img src={tForm.avatarUrl} style={{width:"100%",height:"100%",objectFit:"cover"}} />:<span style={{fontSize:22,opacity:0.3}}>👤</span>}
+              </div>
+              <div style={{flex:1}}>
+                <label style={{...FONT,display:"inline-flex",alignItems:"center",gap:5,fontSize:12,fontWeight:500,padding:"5px 10px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",background:C.bg,color:C.text2,marginBottom:5}}>
+                  {uploading?<><Spinner size={10}/> Uploading…</>:<>📷 {tForm.avatarUrl?"Change":"Upload"}</>}
+                  <input type="file" accept="image/*" onChange={e=>handleImg(e,setTForm)} style={{display:"none"}} disabled={uploading}/>
+                </label>
+                <input style={{...IN,fontSize:12}} value={tForm.avatarUrl&&!tForm.avatarUrl.startsWith("data:")?tForm.avatarUrl:""} onChange={e=>setTForm(p=>({...p,avatarUrl:e.target.value}))} placeholder="Or paste image URL" />
+              </div>
+            </div>
+            <Field label="Full Name" required><input style={IN} value={tForm.name||""} onChange={tf("name")} /></Field>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Role"><input style={IN} value={tForm.role||""} onChange={tf("role")} placeholder="Lead Organizer" /></Field>
+              <Field label="Organization"><input style={IN} value={tForm.org||""} onChange={tf("org")} /></Field>
+            </div>
+            <Field label="LinkedIn URL"><input style={IN} value={tForm.linkedinUrl||""} onChange={tf("linkedinUrl")} placeholder="https://linkedin.com/in/…" /></Field>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn variant="secondary" onClick={()=>setTModal(null)}>Cancel</Btn>
+              <Btn onClick={saveTeamMember} disabled={tSaving}>{tSaving&&<Spinner/>} Save</Btn>
+            </div>
+          </Modal>}
+        </Card>
+      )}
+
+      {/* ── Partners ── */}
+      {tab==="partners"&&(
+        <Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>Partners & Sponsors <span style={{color:C.text3,fontWeight:400}}>({partners.length})</span></div>
+            <Btn size="sm" onClick={()=>{setPForm({hackathonId:selH,tier:"general"});setPModal("new");}}>+ Add Partner</Btn>
+          </div>
+          <div style={{...FONT,fontSize:12,color:C.text3,marginBottom:14}}>
+            Tier display order: <strong>Platinum → Gold → Silver → Bronze → Media → General</strong>
+          </div>
+          {partners.length===0?<div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>No partners added yet.</div>
+            :<DataTable cols={[
+              {key:"name",label:"Partner",render:(v,r)=>(
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  {r.logoUrl?<img src={r.logoUrl} style={{height:28,maxWidth:60,objectFit:"contain"}} />:<div style={{width:28,height:28,background:C.bg3,borderRadius:4}} />}
+                  <div><div style={{fontWeight:500}}>{v}</div>{r.websiteUrl&&<a href={r.websiteUrl} target="_blank" style={{fontSize:11,color:C.blue,textDecoration:"none"}}>{r.websiteUrl.slice(0,30)}…</a>}</div>
+                </div>
+              )},
+              {key:"tier",label:"Tier",render:v=><Chip label={v} color={v==="platinum"?"amber":v==="gold"?"amber":v==="silver"?"neutral":"neutral"} />},
+              {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+                <Btn size="sm" variant="secondary" onClick={()=>{setPForm({...r});setPModal(r);}}>Edit</Btn>
+                <Btn size="sm" variant="danger" onClick={()=>delPartner(r.id)}>✕</Btn>
+              </div>},
+            ]} rows={partners} />
+          }
+          {pModal&&<Modal title={pModal==="new"?"Add Partner":"Edit Partner"} onClose={()=>setPModal(null)}>
+            <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:14,padding:12,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+              <div style={{width:80,height:56,borderRadius:R.sm,overflow:"hidden",flexShrink:0,background:pForm.logoUrl?"transparent":C.bg3,border:`2px dashed ${pForm.logoUrl?C.bdGreen:C.border2}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                {pForm.logoUrl?<img src={pForm.logoUrl} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}} />:<span style={{fontSize:20,opacity:0.3}}>🖼</span>}
+              </div>
+              <div style={{flex:1}}>
+                <label style={{...FONT,display:"inline-flex",alignItems:"center",gap:5,fontSize:12,fontWeight:500,padding:"5px 10px",borderRadius:R.sm,border:`1px solid ${C.border2}`,cursor:"pointer",background:C.bg,color:C.text2,marginBottom:5}}>
+                  {uploading?<><Spinner size={10}/> Uploading…</>:<>📷 {pForm.logoUrl?"Change":"Upload"} Logo</>}
+                  <input type="file" accept="image/*" onChange={e=>handleImg(e,setPForm,"logoUrl")} style={{display:"none"}} disabled={uploading}/>
+                </label>
+                <input style={{...IN,fontSize:12}} value={pForm.logoUrl&&!pForm.logoUrl.startsWith("data:")?pForm.logoUrl:""} onChange={e=>setPForm(p=>({...p,logoUrl:e.target.value}))} placeholder="Or paste logo URL" />
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Partner Name" required><input style={IN} value={pForm.name||""} onChange={pf("name")} /></Field>
+              <Field label="Tier">
+                <select style={IN} value={pForm.tier||"general"} onChange={pf("tier")}>
+                  {["platinum","gold","silver","bronze","media","general"].map(t=><option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Website URL"><input style={IN} value={pForm.websiteUrl||""} onChange={pf("websiteUrl")} placeholder="https://…" /></Field>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+              <Btn variant="secondary" onClick={()=>setPModal(null)}>Cancel</Btn>
+              <Btn onClick={savePartner} disabled={pSaving}>{pSaving&&<Spinner/>} Save</Btn>
+            </div>
+          </Modal>}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ─── PUBLIC PAGES ADMIN ───────────────────────────────────────────────── */
+export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
+  const [selH,setSelH]=useState(activeHackathon||db.hackathons[0]?.id||"");
+  const [regs,setRegs]=useState([]);
+  const [tab,setTab]=useState("all");
+  const [converting,setConverting]=useState({});
+
+  const loadRegs=useCallback(async()=>{
+    if(!selH)return;
+    try{ const d=await GET(`/api/registrations?hackathonId=${selH}`); setRegs(d); }catch{}
+  },[selH]);
+  useEffect(()=>{ loadRegs(); },[loadRegs]);
+
+  const hack=db.hackathons.find(h=>h.id===selH);
+  const pubUrl=`${window.location.origin}/register/${selH}`;
+
+  const publish=async val=>{
+    try{await PUT(`/api/hackathons/${hack.id}`,{...hack,published:val});await reload();toast(val?"Published!":"Unpublished");}
+    catch(e){toast(e.message,"error");}
+  };
+  const updateReg=async(id,status)=>{
+    try{await PUT(`/api/registrations/${id}`,{status});setRegs(r=>r.map(x=>x.id===id?{...x,status}:x));toast(`Registration ${status}`);}
+    catch(e){toast(e.message,"error");}
+  };
+  const delReg=async id=>{
+    try{await DEL(`/api/registrations/${id}`);setRegs(r=>r.filter(x=>x.id!==id));}
+    catch(e){toast(e.message,"error");}
+  };
+
+  // Convert approved registration → actual Team or Judge record
+  const convertReg=async(reg)=>{
+    setConverting(p=>({...p,[reg.id]:true}));
+    try{
+      if(reg.type==="team"){
+        const teamName=reg.teamName||reg.name;
+        const exists=db.teams.some(t=>t.hackathonId===selH&&t.name.toLowerCase()===teamName.toLowerCase());
+        if(exists){toast(`Team "${teamName}" already exists in this hackathon`,"error");return;}
+        await POST("/api/teams",{
+          hackathonId:selH,
+          name:teamName,
+          project:"",
+          category:"",
+          members:reg.name+(reg.teamSize>1?` + ${reg.teamSize-1} more`:""),
+        });
+        await reload();
+        toast(`✓ Team "${teamName}" added — go to Teams to fill in project details`);
+      } else {
+        const exists=db.judges.some(j=>j.name.toLowerCase()===reg.name.toLowerCase());
+        if(exists){toast(`Judge "${reg.name}" already exists`,"error");return;}
+        // Create judge profile
+        const judgeRes = await POST("/api/judges",{name:reg.name,org:reg.org||"",role:""});
+        // Auto-create user login linked to judge profile
+        const tempPassword = Math.random().toString(36).slice(2,10);
+        try {
+          await POST("/api/users",{
+            name: reg.name,
+            email: reg.email,
+            password: tempPassword,
+            role: "judge",
+            judgeId: judgeRes.id,
+          });
+          await POST("/api/assignments",{hackathonId:selH, userId: judgeRes.id}).catch(()=>{});
+          await reload();
+          toast(`✓ Judge "${reg.name}" added with login: ${reg.email} / ${tempPassword} — share this password!`);
+          navigator.clipboard?.writeText(`Email: ${reg.email}
+Password: ${tempPassword}`).catch(()=>{});
+        } catch(userErr) {
+          // User account may already exist (OAuth signup etc.) — judge profile still created
+          await reload();
+          toast(`✓ Judge profile created. Login already exists for ${reg.email} — link in User Management.`);
+        }
+      }
+    }catch(e){toast(e.message,"error");}
+    setConverting(p=>({...p,[reg.id]:false}));
+  };
+
+  const pending  =regs.filter(r=>r.status==="pending");
+  const approved =regs.filter(r=>r.status==="approved");
+  const rejected =regs.filter(r=>r.status==="rejected");
+  const filtered =tab==="pending"?pending:tab==="approved"?approved:tab==="rejected"?rejected:regs;
+
+  const RegCard=({r})=>{
+    const busy=!!converting[r.id];
+    const alreadyAdded=r.type==="team"
+      ?db.teams.some(t=>t.hackathonId===selH&&t.name.toLowerCase()===(r.teamName||r.name).toLowerCase())
+      :db.judges.some(j=>j.name.toLowerCase()===r.name.toLowerCase());
+    return(
+      <Card style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+          <div style={{display:"flex",gap:10,alignItems:"flex-start",flex:1,minWidth:0}}>
+            <Avatar name={r.name} size={38}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
+                <span style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{r.name}</span>
+                <Chip label={r.type} color={r.type==="judge"?"blue":"neutral"} />
+                <Chip label={r.status} color={r.status==="approved"?"green":r.status==="rejected"?"red":"amber"} />
+                {alreadyAdded&&r.status==="approved"&&(
+                  <Chip label={r.type==="judge"?"✓ In Judges":"✓ In Teams"} color="green" />
+                )}
+              </div>
+              <div style={{...FONT,fontSize:12,color:C.text3,marginBottom:3}}>{r.email}{r.org?` · ${r.org}`:""}</div>
+              {r.type==="team"&&r.teamName&&(
+                <div style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>
+                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""}
+                </div>
+              )}
+              {r.message&&(
+                <div style={{...FONT,fontSize:11,color:C.text3,fontStyle:"italic",
+                  borderLeft:`3px solid ${C.border2}`,paddingLeft:8,lineHeight:1.5,marginTop:4}}>
+                  "{r.message.slice(0,140)}{r.message.length>140?"…":""}"
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0,alignItems:"flex-end"}}>
+            <div style={{display:"flex",gap:5}}>
+              {r.status!=="approved"&&<Btn size="sm" variant="success" onClick={()=>updateReg(r.id,"approved")}>Approve</Btn>}
+              {r.status!=="rejected"&&<Btn size="sm" variant="danger"  onClick={()=>updateReg(r.id,"rejected")}>Reject</Btn>}
+              <Btn size="sm" variant="ghost" onClick={()=>delReg(r.id)}>✕</Btn>
+            </div>
+            {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
+              onApply={async(status)=>{ await PUT(`/api/registrations/${r.id}`,{status}); await loadRegs(); toast("Status updated"); }}
+            />}
+            {r.status==="approved"&&!alreadyAdded&&(
+              <button onClick={()=>convertReg(r)} disabled={busy}
+                style={{...FONT,fontSize:12,fontWeight:600,padding:"6px 13px",borderRadius:R.sm,
+                  cursor:busy?"wait":"pointer",border:"none",display:"flex",alignItems:"center",gap:5,
+                  background:r.type==="judge"?C.bgBlue:C.bgGreen,
+                  color:r.type==="judge"?C.blue:C.green,
+                  opacity:busy?0.6:1}}>
+                {busy?<><Spinner size={11}/> Adding…</>
+                  :r.type==="judge"?"＋ Add to Judges":"＋ Add to Teams"}
+              </button>
+            )}
+            {r.status==="approved"&&alreadyAdded&&(
+              <div style={{...FONT,fontSize:11,color:C.green}}>✓ Added to {r.type==="judge"?"Judges":"Teams"}</div>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
+  };
+
+  return(
+    <div>
+      <SectionHeader title="Registrations" count="Review applications and onboard approved participants" />
+      <div style={{display:"grid",gridTemplateColumns:"210px 1fr",gap:14,alignItems:"start"}}>
+        <Card pad={0} style={{overflow:"hidden"}}>
+          <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,letterSpacing:"0.05em",textTransform:"uppercase",
+            padding:"8px 14px",background:C.bg2,borderBottom:`1px solid ${C.border}`}}>Hackathons</div>
+          {db.hackathons.map(h=>(
+            <div key={h.id} onClick={()=>setSelH(h.id)}
+              style={{padding:"10px 14px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,
+                background:selH===h.id?"#eff6ff":"transparent",transition:"background 0.1s"}}
+              onMouseEnter={e=>{if(selH!==h.id)e.currentTarget.style.background=C.bg2;}}
+              onMouseLeave={e=>{if(selH!==h.id)e.currentTarget.style.background="transparent";}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{...FONT,fontSize:13,fontWeight:500,color:C.text}}>{h.name}</span>
+                <Chip label={h.published?"live":"draft"} color={h.published?"green":"neutral"} />
+              </div>
+              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:2}}>{h.status} · {regs.filter(r=>r.hackathonId===h.id||selH===h.id).length} regs</div>
+            </div>
+          ))}
+        </Card>
+
+        {hack?(
+          <div>
+            <Card style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{...FONT,fontSize:14,fontWeight:600,color:C.text,marginBottom:2}}>{hack.name}</div>
+                  <div style={{...FONT,fontSize:12,color:C.text3}}>{hack.tagline||"No tagline"}</div>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <Chip label={hack.published?"Published":"Draft"} color={hack.published?"green":"neutral"} />
+                  <Btn variant={hack.published?"secondary":"success"} size="sm" onClick={()=>publish(!hack.published)}>
+                    {hack.published?"Unpublish":"Publish"}
+                  </Btn>
+                  {hack.published&&<>
+                    <Btn size="sm" variant="blue" onClick={()=>{navigator.clipboard?.writeText(pubUrl);toast("URL copied!");}}>Copy URL</Btn>
+                    <Btn size="sm" variant="secondary" onClick={()=>{
+                    // Open preview in new tab — works even if not published
+                    const previewUrl = `${window.location.origin}/register/${selH}?preview=1&token=${encodeURIComponent(localStorage.getItem("hf_token")||"")}`;
+                    window.open(previewUrl,"_blank");
+                  }}>Preview →</Btn>
+                  </>}
+                </div>
+              </div>
+            </Card>
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+              <Stat label="Total" value={regs.length} />
+              <Stat label="Pending"  value={pending.length}  color={pending.length>0?C.amber:C.text} />
+              <Stat label="Approved" value={approved.length} color={C.green} />
+              <Stat label="Rejected" value={rejected.length} color={rejected.length>0?C.red:C.text} />
+            </div>
+
+            {approved.length>0&&(
+              <div style={{...FONT,fontSize:12,background:C.bgBlue,border:`1px solid ${C.bdBlue}`,
+                borderRadius:R.sm,padding:"10px 14px",marginBottom:14,color:C.blue,lineHeight:1.6}}>
+                💡 <strong>How to onboard:</strong> Approve a registration, then click
+                <strong> "＋ Add to Teams"</strong> or <strong>"＋ Add to Judges"</strong>.
+                That creates the record — then go to Teams/Judges to fill in details,
+                and User Management to create a login for judges.
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:1,marginBottom:14,background:C.bg2,borderRadius:R.sm,padding:3,border:`1px solid ${C.border}`}}>
+              {[{id:"all",l:`All (${regs.length})`},{id:"pending",l:`Pending (${pending.length})`},
+                {id:"approved",l:`Approved (${approved.length})`},{id:"rejected",l:`Rejected (${rejected.length})`}]
+                .map(t=>(
+                  <button key={t.id} onClick={()=>setTab(t.id)}
+                    style={{...FONT,flex:1,padding:"6px 10px",fontSize:12,fontWeight:500,borderRadius:R.sm,
+                      border:"none",cursor:"pointer",background:tab===t.id?C.bg:C.bg2,
+                      color:tab===t.id?C.text:C.text3,transition:"all 0.1s",whiteSpace:"nowrap"}}>
+                    {t.l}
+                  </button>
+                ))
+              }
+            </div>
+
+            {filtered.length===0
+              ?<Empty icon="📬" title={regs.length===0?"No registrations yet":"None in this category"}
+                  sub={regs.length===0?(hack.published?"Share the public link to get registrations.":"Publish this hackathon first."):"Try a different filter."} />
+              :filtered.map(r=><RegCard key={r.id} r={r} />)
+            }
+          </div>
+        ):<Empty icon="🌐" title="Select a hackathon" />}
+      </div>
     </div>
   );
 }
