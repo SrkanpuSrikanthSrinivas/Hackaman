@@ -3040,19 +3040,13 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Problem Statements</div>
           <Field label="Problem Statements" hint='One problem per block, separated by blank line. First line = title, rest = description. Or use JSON array: [{"title":"..","description":".."}]'>
             <textarea style={{...TA,minHeight:120}} value={hackForm.problemStatements||""} onChange={hf("problemStatements")}
-              placeholder={"AI for Healthcare
-Build a solution to improve patient outcomes using AI and real-time data.
-
-Climate Tech
-Create a tool that helps individuals reduce their carbon footprint."} />
+              placeholder={"AI for Healthcare Build a solution to improve patient outcomes using AI and real-time data. Climate Tech Create a tool that helps individuals reduce their carbon footprint."} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Resources & Tools</div>
           <Field label="Resources" hint="One per line: Name | URL | Description">
             <textarea style={{...TA,minHeight:80}} value={hackForm.resources||""} onChange={hf("resources")}
-              placeholder={"OpenAI API | https://platform.openai.com | GPT-4 access for teams
-Figma | https://figma.com | Free prototyping tool
-AWS Credits | https://aws.amazon.com/activate | $100 credits for participants"} />
+              placeholder={"OpenAI API | https://platform.openai.com | GPT-4 access for teams Figma | https://figma.com | Free prototyping tool AWS Credits | https://aws.amazon.com/activate | $100 credits for participants"} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>People's Choice Voting</div>
@@ -3071,10 +3065,7 @@ AWS Credits | https://aws.amazon.com/activate | $100 credits for participants"} 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Code of Conduct</div>
           <Field label="Code of Conduct" hint="Shown on public page before registration form">
             <textarea style={{...TA,minHeight:100}} value={hackForm.codeOfConduct||""} onChange={hf("codeOfConduct")}
-              placeholder={"Be respectful to all participants, judges, and organizers.
-Harassment, discrimination, or toxic behavior will not be tolerated.
-All work must be original and created during the hackathon.
-Teams must have between 1 and 5 members."} />
+              placeholder={"Be respectful to all participants, judges, and organizers. Harassment, discrimination, or toxic behavior will not be tolerated. All work must be original and created during the hackathon. Teams must have between 1 and 5 members."} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Gallery & Testimonials</div>
