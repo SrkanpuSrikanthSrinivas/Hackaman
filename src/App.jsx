@@ -11,7 +11,7 @@ import {
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -694,6 +694,7 @@ function AppShell() {
         {page==="mentors"      && isAdmin &&   <MentorsPage       {...props} db={db} />}
         {page==="certificates" && isAdmin &&   <CertificatesPage  {...props} db={db} />}
         {page==="export"       && isAdmin &&   <ExportPage        {...props} db={db} />}
+        {page==="email-center" && isAdmin &&   <EmailCenterPage   {...props} db={db} currentUser={currentUser} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}

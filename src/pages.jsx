@@ -2086,6 +2086,224 @@ export function LoginLogsPage({ toast }) {
 }
 
 
+
+/* ─── EMAIL CENTER PAGE ──────────────────────────────────────────────────── */
+export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
+  const [status,   setStatus]   = useState(null);
+  const [sending,  setSending]  = useState("");
+  const [winners,  setWinners]  = useState([{name:"",email:"",teamName:"",position:"1st",prizeInfo:""}]);
+  const [audience, setAudience] = useState("all");
+  const hack = db.hackathons.find(h => h.id === activeHackathon);
+
+  useEffect(() => {
+    GET("/api/email/status")
+      .then(d => setStatus(d))
+      .catch(() => setStatus({ configured: false }));
+  }, []);
+
+  const send = async (action, body = {}) => {
+    setSending(action);
+    try {
+      const r = await POST(`/api/email/${action}`, { hackathonId: activeHackathon, ...body });
+      if (r.error) toast(r.error, "error");
+      else if (r.skipped) toast(`Skipped: ${r.skipped}`, "error");
+      else toast(`✓ Email sent${r.sent > 1 ? ` to ${r.sent} recipients` : ""}!`);
+    } catch(e) { toast(e.message, "error"); }
+    setSending("");
+  };
+
+  const ActionCard = ({ icon, title, desc, action, body, disabled, extra }) => (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+            <span style={{ fontSize:22 }}>{icon}</span>
+            <span style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text }}>{title}</span>
+          </div>
+          <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.65 }}>{desc}</p>
+          {extra}
+        </div>
+        <Btn disabled={sending===action || disabled} onClick={() => send(action, body)}
+          style={{ flexShrink:0, whiteSpace:"nowrap" }}>
+          {sending===action ? <><Spinner/> Sending…</> : "Send ✉"}
+        </Btn>
+      </div>
+    </Card>
+  );
+
+  return (
+    <div>
+      <SectionHeader title="Email Center" count={hack?.name} />
+
+      {/* Status banner */}
+      <Card style={{ marginBottom:20, background: status?.configured ? C.bgGreen : C.bgAmber,
+        border:`1px solid ${status?.configured ? C.bdGreen : C.bdAmber}` }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:20 }}>{status?.configured ? "✅" : "⚠️"}</span>
+            <div>
+              <div style={{ ...FONT, fontSize:13, fontWeight:600, color:status?.configured?C.green:C.amber }}>
+                {status?.configured ? "Resend API connected — emails are live" : "Resend API not configured"}
+              </div>
+              <div style={{ ...FONT, fontSize:12, color:C.text3 }}>
+                {status?.configured
+                  ? `Sending from: ${status.from}`
+                  : "Add RESEND_API_KEY to Vercel → Settings → Environment Variables"}
+              </div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            {!status?.configured && (
+              <a href="https://resend.com" target="_blank" rel="noopener"
+                style={{ ...FONT, fontSize:12, padding:"7px 14px", borderRadius:R.sm,
+                  background:C.amber, color:"#fff", textDecoration:"none", fontWeight:600 }}>
+                Get Free API Key →
+              </a>
+            )}
+            <Btn size="sm" variant="secondary" disabled={sending==="test"} onClick={() => send("test")}>
+              {sending==="test" ? <><Spinner/> Sending…</> : "Send Test Email"}
+            </Btn>
+          </div>
+        </div>
+      </Card>
+
+      {!activeHackathon && <Empty icon="✉" title="Select a hackathon" />}
+
+      {activeHackathon && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, alignItems:"start" }}>
+          {/* Left: Automated (auto-send) */}
+          <div>
+            <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, textTransform:"uppercase",
+              letterSpacing:"0.08em", marginBottom:12 }}>Auto-Sent (no action needed)</div>
+            <Card style={{ background:C.bg2, marginBottom:12, border:`1px dashed ${C.border2}` }}>
+              <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:20 }}>🤖</span>
+                <div>
+                  <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:4 }}>Registration Confirmation</div>
+                  <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6 }}>Sent automatically when someone submits registration form on the public page.</p>
+                </div>
+              </div>
+            </Card>
+            <Card style={{ background:C.bg2, marginBottom:20, border:`1px dashed ${C.border2}` }}>
+              <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:20 }}>✅</span>
+                <div>
+                  <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:4 }}>Approval Confirmation</div>
+                  <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6 }}>Sent automatically when you approve a registration in Pages & Registrations.</p>
+                </div>
+              </div>
+            </Card>
+
+            <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, textTransform:"uppercase",
+              letterSpacing:"0.08em", marginBottom:12 }}>Manual Sends</div>
+
+            <ActionCard icon="⏰" action="reminder"
+              title="Event Reminder"
+              desc="Send a reminder to all approved registrants. Best sent 1-3 days before the event."
+            />
+            <ActionCard icon="🙏" action="thank-you"
+              title="Post-Event Thank You"
+              desc="Send thank you emails to participants after the event concludes."
+              body={{ audience }}
+              extra={
+                <div style={{ marginTop:8 }}>
+                  <select style={{ ...IN, fontSize:12, padding:"5px 10px" }}
+                    value={audience} onChange={e=>setAudience(e.target.value)}>
+                    <option value="all">All (teams + judges)</option>
+                    <option value="team">Teams only</option>
+                    <option value="judge">Judges only</option>
+                  </select>
+                </div>
+              }
+            />
+          </div>
+
+          {/* Right: Post-event emails */}
+          <div>
+            <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, textTransform:"uppercase",
+              letterSpacing:"0.08em", marginBottom:12 }}>Award Emails</div>
+
+            <ActionCard icon="🏆" action="best-judge"
+              title="Best Judge Award"
+              desc={hack?.bestJudgeId ? `Send award notification to the nominated Best Judge.` : `No Best Judge nominated yet. Go to Best Judge Award page to nominate one.`}
+              disabled={!hack?.bestJudgeId}
+            />
+
+            {/* Winner emails */}
+            <Card style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                <span style={{ fontSize:22 }}>🥇</span>
+                <span style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text }}>Winner Announcements</span>
+              </div>
+              <p style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:14, lineHeight:1.65 }}>
+                Send personalized winner emails to each placement. Fill in the details below.
+              </p>
+              {winners.map((w, i) => (
+                <div key={i} style={{ background:C.bg2, borderRadius:R.sm, padding:12,
+                  border:`1px solid ${C.border}`, marginBottom:8 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Name</div>
+                      <input style={{ ...IN, fontSize:12 }} value={w.name}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,name:e.target.value}:x))} />
+                    </div>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Email</div>
+                      <input type="email" style={{ ...IN, fontSize:12 }} value={w.email}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,email:e.target.value}:x))} />
+                    </div>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Team Name</div>
+                      <input style={{ ...IN, fontSize:12 }} value={w.teamName}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,teamName:e.target.value}:x))} />
+                    </div>
+                    <div>
+                      <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Position</div>
+                      <select style={{ ...IN, fontSize:12 }} value={w.position}
+                        onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,position:e.target.value}:x))}>
+                        {["1st","2nd","3rd","Runner-up","Special Award"].map(p=><option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ ...FONT, fontSize:11, color:C.text3, marginBottom:4 }}>Prize Details</div>
+                    <input style={{ ...IN, fontSize:12 }} value={w.prizeInfo} placeholder="e.g. $10,000 + AWS Credits"
+                      onChange={e=>setWinners(ws=>ws.map((x,j)=>j===i?{...x,prizeInfo:e.target.value}:x))} />
+                  </div>
+                </div>
+              ))}
+              <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                <Btn size="sm" variant="secondary"
+                  onClick={()=>setWinners(ws=>[...ws,{name:"",email:"",teamName:"",position:"Runner-up",prizeInfo:""}])}>
+                  + Add Winner
+                </Btn>
+                <Btn size="sm" disabled={sending==="winners" || winners.every(w=>!w.email)}
+                  onClick={() => send("winners", { winners })}>
+                  {sending==="winners"?<><Spinner/> Sending…</>:"Send Winner Emails ✉"}
+                </Btn>
+              </div>
+            </Card>
+
+            {/* Judge credentials card */}
+            <Card>
+              <div style={{ display:"flex", gap:10, alignItems:"flex-start" }}>
+                <span style={{ fontSize:20 }}>⭐</span>
+                <div>
+                  <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:4 }}>Judge Credentials</div>
+                  <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6 }}>
+                    Judge login emails are sent automatically when you click <strong>+ Add to Judges</strong> in the Registrations page and their account is created.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 /* ─── AI COMPONENTS ──────────────────────────────────────────────────────── */
 
 // Shared AI button + result panel used across multiple pages
@@ -2811,6 +3029,53 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
             <Field label="Instagram"><input style={IN} value={hackForm.socialInstagram||""} onChange={hf("socialInstagram")} placeholder="https://instagram.com/..." /></Field>
             <Field label="Facebook"><input style={IN} value={hackForm.socialFacebook||""} onChange={hf("socialFacebook")} placeholder="https://facebook.com/..." /></Field>
           </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Community Links</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Discord Server URL"><input style={IN} value={hackForm.discordUrl||""} onChange={hf("discordUrl")} placeholder="https://discord.gg/..." /></Field>
+            <Field label="WhatsApp Group URL"><input style={IN} value={hackForm.whatsappGroupUrl||""} onChange={hf("whatsappGroupUrl")} placeholder="https://chat.whatsapp.com/..." /></Field>
+            <Field label="Slack Channel URL"><input style={IN} value={hackForm.slackUrl||""} onChange={hf("slackUrl")} placeholder="https://yourworkspace.slack.com/..." /></Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Problem Statements</div>
+          <Field label="Problem Statements" hint='One problem per block, separated by blank line. First line = title, rest = description. Or use JSON array: [{"title":"..","description":".."}]'>
+            <textarea style={{...TA,minHeight:120}} value={hackForm.problemStatements||""} onChange={hf("problemStatements")}
+              placeholder={"AI for Healthcare
+Build a solution to improve patient outcomes using AI and real-time data.
+
+Climate Tech
+Create a tool that helps individuals reduce their carbon footprint."} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Resources & Tools</div>
+          <Field label="Resources" hint="One per line: Name | URL | Description">
+            <textarea style={{...TA,minHeight:80}} value={hackForm.resources||""} onChange={hf("resources")}
+              placeholder={"OpenAI API | https://platform.openai.com | GPT-4 access for teams
+Figma | https://figma.com | Free prototyping tool
+AWS Credits | https://aws.amazon.com/activate | $100 credits for participants"} />
+          </Field>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>People's Choice Voting</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Enable Public Voting">
+              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                <input type="checkbox" checked={!!hackForm.peoplesChoiceOpen} onChange={e=>setHackForm(p=>({...p,peoplesChoiceOpen:e.target.checked}))} />
+                <span style={{...FONT,fontSize:13,color:C.text}}>Allow public to vote for teams</span>
+              </label>
+            </Field>
+            <Field label="Voting Closes" hint="Leave blank for no deadline">
+              <input type="datetime-local" style={IN} value={hackForm.peoplesChoiceEnd||""} onChange={hf("peoplesChoiceEnd")} />
+            </Field>
+          </div>
+
+          <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Code of Conduct</div>
+          <Field label="Code of Conduct" hint="Shown on public page before registration form">
+            <textarea style={{...TA,minHeight:100}} value={hackForm.codeOfConduct||""} onChange={hf("codeOfConduct")}
+              placeholder={"Be respectful to all participants, judges, and organizers.
+Harassment, discrimination, or toxic behavior will not be tolerated.
+All work must be original and created during the hackathon.
+Teams must have between 1 and 5 members."} />
+          </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Gallery & Testimonials</div>
           <Field label="Gallery Images" hint="One image URL per line — clickable grid on public page">

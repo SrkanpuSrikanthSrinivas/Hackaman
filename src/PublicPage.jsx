@@ -275,6 +275,14 @@ export default function PublicPage({hackathonId}){
   const byTier={}; (data.partners||[]).forEach(p=>(byTier[p.tier]||(byTier[p.tier]=[])).push(p));
   const TIER_ORDER=["platinum","gold","silver","bronze","media","general"];
   const TIER_LABEL={platinum:"Platinum",gold:"Gold",silver:"Silver",bronze:"Bronze",media:"Media Partner",general:"Community Partner"};
+  const spotsTotal = data.maxParticipants || 0;
+  const [spotsTaken, setSpotsTaken] = useState(0);
+  useEffect(()=>{
+    if(!spotsTotal)return;
+    fetch(`${BASE}/api/public/hackathons/${hackathonId}/registrations-count`)
+      .then(r=>r.json()).then(d=>setSpotsTaken(d.count||0)).catch(()=>{});
+  },[hackathonId]);
+
   const statsItems=(data.websiteStats||"").split("\n").filter(Boolean).map(l=>{const[icon,value,...rest]=l.split("|");return{icon:(icon||"").trim(),value:(value||"").trim(),label:rest.join("|").trim()};}).filter(s=>s.value);
   const galleryImages=(data.galleryImages||"").split("\n").map(s=>s.trim()).filter(Boolean);
   const testimonials=(data.websiteTestimonials||"").split("\n\n").filter(Boolean).map(b=>{const lines=b.split("\n");return{quote:lines[0]||"",author:lines[1]||"",role:lines[2]||""};}).filter(t=>t.quote);
@@ -607,7 +615,107 @@ export default function PublicPage({hackathonId}){
         </section>
       )}
 
-      {/* ── PRIZES ── */}
+      {/* ── COMMUNITY HUB ── */}
+      {(data.discordUrl||data.whatsappGroupUrl||data.slackUrl)&&(
+        <section style={{padding:"48px 24px",background:`${accent}08`,borderTop:`1px solid ${accent}20`}}>
+          <div style={{maxWidth:1100,margin:"0 auto",textAlign:"center"}}>
+            <div style={{...MM,fontSize:10,color:accent,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:14}}>Community</div>
+            <h2 style={{...FF,fontSize:24,fontWeight:700,color:"#fff",marginBottom:8}}>Join the Conversation</h2>
+            <p style={{...FF,fontSize:14,color:"rgba(255,255,255,0.45)",marginBottom:24}}>Connect with other participants before, during, and after the event</p>
+            <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+              {data.discordUrl&&<a href={data.discordUrl} target="_blank" rel="noopener"
+                style={{...FF,display:"inline-flex",alignItems:"center",gap:8,padding:"12px 24px",
+                  borderRadius:12,background:"rgba(88,101,242,0.2)",border:"1px solid rgba(88,101,242,0.4)",
+                  color:"#7289da",fontWeight:700,fontSize:14,textDecoration:"none"}}>
+                🎮 Join Discord
+              </a>}
+              {data.whatsappGroupUrl&&<a href={data.whatsappGroupUrl} target="_blank" rel="noopener"
+                style={{...FF,display:"inline-flex",alignItems:"center",gap:8,padding:"12px 24px",
+                  borderRadius:12,background:"rgba(37,211,102,0.2)",border:"1px solid rgba(37,211,102,0.4)",
+                  color:"#25d366",fontWeight:700,fontSize:14,textDecoration:"none"}}>
+                💬 WhatsApp Group
+              </a>}
+              {data.slackUrl&&<a href={data.slackUrl} target="_blank" rel="noopener"
+                style={{...FF,display:"inline-flex",alignItems:"center",gap:8,padding:"12px 24px",
+                  borderRadius:12,background:"rgba(74,21,75,0.2)",border:"1px solid rgba(74,21,75,0.4)",
+                  color:"#e01e5a",fontWeight:700,fontSize:14,textDecoration:"none"}}>
+                💼 Slack Channel
+              </a>}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── PROBLEM STATEMENTS ── */}
+      {data.problemStatements&&(()=>{
+        let problems=[];
+        try{problems=JSON.parse(data.problemStatements);}catch{
+          problems=(data.problemStatements||"").split("
+
+").filter(Boolean).map((b,i)=>{
+            const[title,...rest]=b.split("
+"); return{id:i,title,description:rest.join("
+")};
+          });
+        }
+        if(!problems.length)return null;
+        return(
+          <section id="problems" style={{padding:"80px 24px",background:"#06091a"}}>
+            <div style={{maxWidth:1100,margin:"0 auto"}}>
+              <SecHead eyebrow="Challenge Briefs" title="Problem Statements" accent={accent}
+                sub="Pick one of these real-world challenges to solve during the hackathon." />
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+                {problems.map((p,i)=>(
+                  <div key={i} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",
+                    borderRadius:14,padding:24,transition:"border 0.2s"}}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor=`${accent}44`}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(255,255,255,0.08)"}>
+                    <div style={{...MM,fontSize:11,color:accent,marginBottom:10,letterSpacing:"0.1em"}}>#{String(i+1).padStart(2,"0")}</div>
+                    <div style={{...FF,fontSize:16,fontWeight:700,color:"#fff",marginBottom:8}}>{p.title}</div>
+                    <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.7}}>{p.description}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* ── RESOURCES ── */}
+      {data.resources&&(()=>{
+        let res=[];
+        try{res=JSON.parse(data.resources);}catch{
+          res=(data.resources||"").split("
+").filter(Boolean).map(l=>{
+            const[name,...rest]=l.split("|"); return{name:name.trim(),url:rest[0]?.trim(),desc:rest[1]?.trim()};
+          });
+        }
+        if(!res.length)return null;
+        return(
+          <section style={{padding:"60px 24px",background:"#0a0d1a"}}>
+            <div style={{maxWidth:1100,margin:"0 auto"}}>
+              <SecHead eyebrow="Starter Kit" title="Resources & Tools" accent={accent}
+                sub="Useful tools, APIs, and datasets to get you started." />
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:10}}>
+                {res.map((r,i)=>(
+                  <a key={i} href={r.url||"#"} target="_blank" rel="noopener"
+                    style={{...FF,display:"block",padding:"16px 18px",background:"rgba(255,255,255,0.03)",
+                      border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,textDecoration:"none",
+                      transition:"all 0.2s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.07)";e.currentTarget.style.borderColor=`${accent}44`;}}
+                    onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.03)";e.currentTarget.style.borderColor="rgba(255,255,255,0.08)";}}>
+                    <div style={{fontSize:20,marginBottom:6}}>🔗</div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>{r.name}</div>
+                    {r.desc&&<div style={{fontSize:11,color:"rgba(255,255,255,0.4)",lineHeight:1.5}}>{r.desc}</div>}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </section>
+        );
+      })()}
+
+      {/* ── PRIZES ── */}}
       {data.websitePrizes&&(
         <section id="prizes" style={{padding:"80px 24px",background:"#0a0d1a"}}>
           <div style={{maxWidth:1100,margin:"0 auto"}}>
@@ -685,7 +793,22 @@ export default function PublicPage({hackathonId}){
         </section>
       )}
 
-      {/* ── REGISTER / COMPLETED ── */}
+      {/* ── PEOPLE'S CHOICE VOTING ── */}
+      {data.peoplesChoiceOpen&&<VotingSection hackathonId={hackathonId} teams={data.teams||[]} accent={accent}/>}
+
+      {/* ── CODE OF CONDUCT ── */}
+      {data.codeOfConduct&&(
+        <section style={{padding:"48px 24px",background:"#0a0d1a"}}>
+          <div style={{maxWidth:720,margin:"0 auto"}}>
+            <SecHead eyebrow="Community Standards" title="Code of Conduct" accent={accent}/>
+            <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,padding:28}}>
+              <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.6)",lineHeight:1.85,whiteSpace:"pre-wrap"}}>{data.codeOfConduct}</div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── REGISTER / COMPLETED ── */}}
       <section id="register" style={{padding:"80px 24px",background:`${accent}0a`,borderTop:`1px solid ${accent}20`}}>
         <div style={{maxWidth:560,margin:"0 auto"}}>
           {isCompleted ? (
@@ -857,6 +980,112 @@ function Gallery({images,accent}){
             background:"none",border:"none",color:"#fff",fontSize:36,cursor:"pointer",lineHeight:1}}>×</button>
         </div>
       )}
+    </section>
+  );
+}
+
+
+// ── People's Choice Voting ────────────────────────────────────────────────────
+function VotingSection({hackathonId, teams, accent}) {
+  const [votes,   setVotes]   = useState([]);
+  const [status,  setStatus]  = useState(null);
+  const [form,    setForm]    = useState({name:"",email:"",teamId:""});
+  const [done,    setDone]    = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err,     setErr]     = useState("");
+
+  useEffect(()=>{
+    fetch(`${BASE}/api/public/votes/${hackathonId}`).then(r=>r.json())
+      .then(d=>{setStatus(d);setVotes(d.results||[]);}).catch(()=>{});
+  },[hackathonId]);
+
+  const sf=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
+  const maxVotes=Math.max(...votes.map(v=>v.votes),1);
+
+  const submit=async e=>{
+    e.preventDefault();if(!form.teamId)return setErr("Select a team");
+    setLoading(true);setErr("");
+    try{
+      const r=await fetch(`${BASE}/api/vote`,{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({...form,hackathonId})}).then(r=>r.json());
+      if(r.error)setErr(r.error);
+      else{setDone(true);fetch(`${BASE}/api/public/votes/${hackathonId}`).then(r=>r.json()).then(d=>{setVotes(d.results||[]);});}
+    }catch(e){setErr(e.message);}
+    setLoading(false);
+  };
+
+  if(!status?.open)return null;
+  const IS={...FF,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.15)",
+    borderRadius:8,padding:"10px 14px",fontSize:14,color:"#fff",width:"100%",outline:"none"};
+
+  return(
+    <section id="vote" style={{padding:"80px 24px",background:"#06091a",borderTop:`1px solid ${accent}22`}}>
+      <div style={{maxWidth:1100,margin:"0 auto"}}>
+        <SecHead eyebrow="People's Choice" title="Vote for Your Favorite Team" accent={accent}
+          sub="Cast your vote — one per person. Results shown live." />
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:40,alignItems:"start"}}>
+          {/* Vote form */}
+          <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:28}}>
+            {done?(
+              <div style={{textAlign:"center",padding:"20px 0"}}>
+                <div style={{fontSize:48,marginBottom:12}}>🗳️</div>
+                <div style={{...FF,fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>Vote Submitted!</div>
+                <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.5)"}}>Thank you for participating in the People's Choice vote.</div>
+              </div>
+            ):(
+              <form onSubmit={submit}>
+                <div style={{...FF,fontSize:14,fontWeight:600,color:"#fff",marginBottom:16}}>Cast Your Vote</div>
+                {err&&<div style={{...FF,fontSize:12,color:"#f87171",marginBottom:12,padding:"8px 12px",background:"rgba(239,68,68,0.1)",borderRadius:6}}>⚠ {err}</div>}
+                <div style={{marginBottom:12}}>
+                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Your Name *</label>
+                  <input style={IS} value={form.name} onChange={sf("name")} required
+                    onFocus={e=>e.target.style.borderColor=accent} onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+                </div>
+                <div style={{marginBottom:12}}>
+                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Email *</label>
+                  <input type="email" style={IS} value={form.email} onChange={sf("email")} required
+                    onFocus={e=>e.target.style.borderColor=accent} onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
+                </div>
+                <div style={{marginBottom:20}}>
+                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Vote for Team *</label>
+                  <select style={IS} value={form.teamId} onChange={sf("teamId")} required>
+                    <option value="">Select a team…</option>
+                    {teams.map(t=><option key={t.id} value={t.id}>{t.name} — {t.project||t.category}</option>)}
+                  </select>
+                </div>
+                <button type="submit" disabled={loading} style={{...FF,width:"100%",padding:"12px",borderRadius:10,
+                  background:accent,color:"#fff",border:"none",cursor:"pointer",fontSize:15,fontWeight:700,
+                  opacity:loading?0.7:1}}>
+                  {loading?"Submitting…":"🗳️ Submit My Vote"}
+                </button>
+              </form>
+            )}
+          </div>
+          {/* Live results */}
+          <div>
+            <div style={{...FF,fontSize:13,fontWeight:600,color:"rgba(255,255,255,0.6)",marginBottom:16}}>
+              Live Results {status.ends&&`· Closes ${new Date(status.ends).toLocaleDateString()}`}
+            </div>
+            {votes.slice(0,8).map((team,i)=>(
+              <div key={team.id} style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span style={{...FF,fontSize:13,color:"#fff",fontWeight:i===0?700:400}}>
+                    {i===0?"👑 ":""}{team.name}
+                  </span>
+                  <span style={{...MM,fontSize:12,color:"rgba(255,255,255,0.5)"}}>{team.votes} vote{team.votes!==1?"s":""}</span>
+                </div>
+                <div style={{background:"rgba(255,255,255,0.1)",borderRadius:4,height:8,overflow:"hidden"}}>
+                  <div style={{height:"100%",borderRadius:4,transition:"width 0.6s ease",
+                    width:`${(team.votes/maxVotes)*100}%`,
+                    background:i===0?accent:"rgba(255,255,255,0.3)"}}/>
+                </div>
+              </div>
+            ))}
+            {votes.length===0&&<div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.35)",fontStyle:"italic"}}>No votes yet. Be the first!</div>}
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
