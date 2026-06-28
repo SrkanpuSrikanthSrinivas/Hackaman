@@ -216,6 +216,55 @@ function RegForm({hackathonId,accent,deadline}){
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────
+// ── SEO utility (not a hook — called inside data-fetch effect) ──────────────
+function injectSEO(data, hackathonId) {
+  if(!data || typeof document==="undefined") return;
+  const SITE = window.location.origin;
+  const url  = `${SITE}/register/${hackathonId}`;
+  const desc = data.tagline || data.description || `Join ${data.name} — an exciting hackathon`;
+  const img  = data.eventLogoUrl || `${SITE}/og-default.png`;
+  document.title = `${data.name} | HackFest Hub`;
+  const sm = (name, val, prop) => {
+    const attr = prop ? "property" : "name";
+    let el = document.querySelector(`meta[${attr}="${name}"]`);
+    if(!el){ el=document.createElement("meta"); el.setAttribute(attr,name); document.head.appendChild(el); }
+    el.setAttribute("content", val);
+  };
+  sm("description", desc);
+  sm("og:title", data.name, true);
+  sm("og:description", desc, true);
+  sm("og:image", img, true);
+  sm("og:url", url, true);
+  sm("og:type", "event", true);
+  sm("twitter:card", "summary_large_image");
+  sm("twitter:title", data.name);
+  sm("twitter:description", desc);
+  sm("twitter:image", img);
+  // JSON-LD schema
+  const old = document.getElementById("event-schema");
+  if(old) old.remove();
+  const loc = data.location
+    ? { "@type":"Place","name":data.location,"address":{"@type":"PostalAddress","addressLocality":data.location}}
+    : { "@type":"VirtualLocation","url":url };
+  const schema = {
+    "@context":"https://schema.org","@type":"Event",
+    "name":data.name,"description":desc,"url":url,
+    "startDate":data.startDate||new Date().toISOString(),
+    "endDate":data.endDate||data.startDate||new Date().toISOString(),
+    "eventStatus":"https://schema.org/EventScheduled",
+    "eventAttendanceMode":data.location?"https://schema.org/OfflineEventAttendanceMode":"https://schema.org/OnlineEventAttendanceMode",
+    "location":loc,"image":[img],
+    "organizer":{"@type":"Organization","name":"HackFest Hub","url":SITE},
+    "offers":{"@type":"Offer","url":url,"price":"0","priceCurrency":"USD",
+      "availability":data.status==="active"?"https://schema.org/InStock":"https://schema.org/PreOrder"},
+  };
+  if(data.prizePool) schema["award"]=data.prizePool;
+  if(data.maxParticipants) schema["maximumAttendeeCapacity"]=data.maxParticipants;
+  const el=document.createElement("script");
+  el.id="event-schema"; el.type="application/ld+json";
+  el.text=JSON.stringify(schema); document.head.appendChild(el);
+}
+
 export default function PublicPage({hackathonId}){
   const[data,setData]=useState(null);
   const[loading,setLoading]=useState(true);
@@ -226,6 +275,7 @@ export default function PublicPage({hackathonId}){
     fetch(`${BASE}/api/public/hackathons/${hackathonId}/registrations-count`)
       .then(r=>r.json()).then(d=>setSpotsTaken(d.count||0)).catch(()=>{});
   },[hackathonId]);
+
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -273,91 +323,6 @@ export default function PublicPage({hackathonId}){
   const isCompleted = data.status === "completed" || (endDate && endDate < now);
   const isUpcoming  = data.status === "upcoming"  || (startDate && startDate > now);
   const regClosed   = regDeadline ? regDeadline < now : isCompleted;
-
-  // ── Inject Event Schema + Meta Tags into <head> ─────────────────────────
-  useEffect(()=>{
-    if(!data) return;
-    const SITE = window.location.origin;
-    const url  = window.location.href;
-
-    // 1. Page title
-    document.title = `${data.name} | HackFest Hub`;
-
-    // 2. Meta description
-    const setMeta = (name, content, prop=false) => {
-      const sel = prop ? `meta[property="${name}"]` : `meta[name="${name}"]`;
-      let el = document.querySelector(sel);
-      if(!el){ el=document.createElement("meta"); el.setAttribute(prop?"property":"name",name); document.head.appendChild(el); }
-      el.setAttribute("content", content);
-    };
-
-    const desc = data.tagline || data.description || `Join ${data.name} — an exciting hackathon`;
-    const img  = data.eventLogoUrl || `${SITE}/og-default.png`;
-
-    setMeta("description", desc);
-    setMeta("keywords", `hackathon, ${data.name}, ${data.location||"online"}, coding competition, innovation`);
-
-    // 3. Open Graph
-    setMeta("og:title",       data.name,   true);
-    setMeta("og:description", desc,         true);
-    setMeta("og:image",       img,          true);
-    setMeta("og:url",         url,          true);
-    setMeta("og:type",        "event",      true);
-    setMeta("og:site_name",   "HackFest Hub", true);
-
-    // 4. Twitter Card
-    setMeta("twitter:card",        "summary_large_image");
-    setMeta("twitter:title",       data.name);
-    setMeta("twitter:description", desc);
-    setMeta("twitter:image",       img);
-
-    // 5. Event Schema JSON-LD
-    const existingSchema = document.getElementById("event-schema");
-    if(existingSchema) existingSchema.remove();
-
-    const location = data.location
-      ? { "@type":"Place", "name":data.location, "address":{"@type":"PostalAddress","addressLocality":data.location} }
-      : { "@type":"VirtualLocation", "url":url };
-
-    const schema = {
-      "@context": "https://schema.org",
-      "@type": "Event",
-      "name": data.name,
-      "description": desc,
-      "url": url,
-      "startDate": data.startDate || new Date().toISOString(),
-      "endDate":   data.endDate   || data.startDate || new Date().toISOString(),
-      "eventStatus": "https://schema.org/EventScheduled",
-      "eventAttendanceMode": data.location
-        ? "https://schema.org/OfflineEventAttendanceMode"
-        : "https://schema.org/OnlineEventAttendanceMode",
-      "location": location,
-      "image": [img],
-      "organizer": { "@type":"Organization", "name":"HackFest Hub", "url":SITE },
-      "offers": {
-        "@type":"Offer", "url":url,
-        "price":"0", "priceCurrency":"USD",
-        "availability": data.status==="active"
-          ? "https://schema.org/InStock"
-          : "https://schema.org/PreOrder",
-      },
-    };
-    if(data.prizePool)    schema["award"] = data.prizePool;
-    if(data.maxParticipants) schema["maximumAttendeeCapacity"] = data.maxParticipants;
-
-    const scriptEl = document.createElement("script");
-    scriptEl.id   = "event-schema";
-    scriptEl.type = "application/ld+json";
-    scriptEl.text = JSON.stringify(schema, null, 2);
-    document.head.appendChild(scriptEl);
-
-    // Cleanup on unmount
-    return () => {
-      const s = document.getElementById("event-schema");
-      if(s) s.remove();
-      document.title = "HackFest Hub";
-    };
-  }, [data, hackathonId]);
 
   const accent=data.bannerColor||"#6366f1";
   const tracks=(data.tracks||"").split(",").map(t=>t.trim()).filter(Boolean);
