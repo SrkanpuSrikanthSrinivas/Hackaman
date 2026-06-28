@@ -365,10 +365,7 @@ export default function MarketingPage() {
           <div style={{ textAlign:"center", marginBottom:48 }}>
             <div style={{ ...FF, fontSize:11, fontWeight:700, color:"#4f46e5", letterSpacing:"0.15em",
               textTransform:"uppercase", marginBottom:10 }}>Simple pricing</div>
-           /*  <h2 style={{ ...FF, fontSize:32, fontWeight:800, color:"#111827", letterSpacing:"-0.03em", marginBottom:12 }}>
-            </h2> */
-           /*  <p style={{ ...FF, fontSize:15, color:"#6b7280" }}>Every feature, completely free. No credit card needed.</p> */
-          </div>
+         </div>
 
         </div>
       </section>
