@@ -1,13 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HackFest Hub</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬡</text></svg>" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Primary Meta -->
+  <title>HackFest Hub — The Complete Hackathon Management Platform</title>
+  <meta name="description" content="Run world-class hackathons with AI-powered judging, beautiful event pages, automated certificates, and everything else you need — free forever." />
+  <meta name="keywords" content="hackathon platform, hackathon management, online hackathon, host hackathon, judging system, hackathon software" />
+  <meta name="author" content="HackFest Hub" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://hackfesthub.com/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type"        content="website" />
+  <meta property="og:site_name"   content="HackFest Hub" />
+  <meta property="og:title"       content="HackFest Hub — The Complete Hackathon Management Platform" />
+  <meta property="og:description" content="Run world-class hackathons with AI-powered judging, beautiful event pages, automated certificates, and everything else you need — free forever." />
+  <meta property="og:image"       content="https://hackfesthub.com/og-default.png" />
+  <meta property="og:url"         content="https://hackfesthub.com/" />
+  <meta property="og:locale"      content="en_US" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card"        content="summary_large_image" />
+  <meta name="twitter:site"        content="@hackfesthub" />
+  <meta name="twitter:title"       content="HackFest Hub — Run brilliant hackathons" />
+  <meta name="twitter:description" content="Free hackathon management platform with AI-powered judging, certificates, and beautiful event pages." />
+  <meta name="twitter:image"       content="https://hackfesthub.com/og-default.png" />
+
+  <!-- Organization Schema JSON-LD -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "HackFest Hub",
+      "url": "https://hackfesthub.com",
+      "logo": "https://hackfesthub.com/logo.png",
+      "description": "The complete hackathon management platform. Free to use.",
+      "sameAs": [
+        "https://twitter.com/hackfesthub",
+        "https://linkedin.com/company/hackfesthub"
+      ]
+    }
+  </script>
+
+  <!-- WebSite Schema (enables Google Sitelinks Search Box) -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "HackFest Hub",
+      "url": "https://hackfesthub.com",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://hackfesthub.com/?search={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    }
+  </script>
+
+  <!-- SoftwareApplication Schema -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "HackFest Hub",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "description": "Complete hackathon management platform with AI judging, certificates, and event pages.",
+      "url": "https://hackfesthub.com"
+    }
+  </script>
+
+  <!-- Preconnects for performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.jsx"></script>
+</body>
 </html>

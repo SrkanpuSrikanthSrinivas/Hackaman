@@ -2045,6 +2045,154 @@ app.post(["/api/questions/:id/upvote","/questions/:id/upvote"], async (req,res)=
     }catch(e){res.status(500).json({error:e.message});}
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEO — Sitemap, robots.txt, Event Schema API
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── robots.txt ────────────────────────────────────────────────────────────────
+app.get(["/robots.txt"], async (_req, res) => {
+    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    res.type("text/plain").send(
+        `User-agent: *
+        Allow: /
+        Allow: /register/
+        Allow: /hackathons
+        Disallow: /admin
+        Disallow: /api/
+
+        Sitemap: ${SITE}/sitemap.xml`
+    );
+});
+
+// ── XML Sitemap ───────────────────────────────────────────────────────────────
+app.get(["/sitemap.xml"], async (_req, res) => {
+    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    try {
+        const { rows: hacks } = await q(
+            "SELECT id, name, updated_at FROM hackathons WHERE published=true ORDER BY updated_at DESC"
+        );
+
+        const urls = [
+            // Static pages
+            { loc: SITE, priority: "1.0", changefreq: "daily" },
+            { loc: `${SITE}/hackathons`, priority: "0.9", changefreq: "daily" },
+        ];
+
+        // Dynamic hackathon pages
+        hacks.forEach(h => {
+            const lastmod = h.updated_at
+            ? new Date(h.updated_at).toISOString().split("T")[0]
+            : new Date().toISOString().split("T")[0];
+            urls.push({
+                loc: `${SITE}/register/${h.id}`,
+                lastmod,
+                priority: "0.8",
+                changefreq: "weekly",
+            });
+        });
+
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+${urls.map(u => `  <url>
+    <loc>${u.loc}</loc>
+    ${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ""}
+    <changefreq>${u.changefreq}</changefreq>
+    <priority>${u.priority}</priority>
+  </url>`).join("\n")}
+</urlset>`;
+
+        res.type("application/xml").send(xml);
+    } catch(e) {
+        res.status(500).send("<?xml version='1.0'?><urlset/>");
+    }
+});
+
+// ── Event Schema JSON-LD (per hackathon) ──────────────────────────────────────
+// Used by PublicPage to inject into <head> for Google rich results
+app.get(["/api/public/schema/:hackathonId", "/public/schema/:hackathonId"], async (req, res) => {
+    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    try {
+        const { rows: [h] } = await q(
+            "SELECT * FROM hackathons WHERE id=$1 AND published=true",
+            [req.params.hackathonId]
+        );
+        if (!h) return res.status(404).json({ error: "Not found" });
+
+        const hack = camel(h);
+        const eventUrl = `${SITE}/register/${hack.id}`;
+
+        // Build location object
+        const location = hack.location
+        ? { "@type": "Place", "name": hack.location, "address": { "@type": "PostalAddress", "addressLocality": hack.location } }
+        : { "@type": "VirtualLocation", "url": eventUrl };
+
+        const schema = {
+            "@context": "https://schema.org",
+            "@type": "Event",
+            "name": hack.name,
+            "description": hack.description || hack.tagline || `${hack.name} — an exciting hackathon event`,
+            "url": eventUrl,
+            "startDate": hack.startDate || new Date().toISOString(),
+            "endDate": hack.endDate || hack.startDate || new Date().toISOString(),
+            "eventStatus": hack.status === "completed"
+            ? "https://schema.org/EventScheduled"
+            : "https://schema.org/EventScheduled",
+            "eventAttendanceMode": hack.location
+            ? "https://schema.org/OfflineEventAttendanceMode"
+            : "https://schema.org/OnlineEventAttendanceMode",
+            "location": location,
+            "image": hack.eventLogoUrl
+            ? [hack.eventLogoUrl]
+            : [`${SITE}/og-default.png`],
+            "organizer": {
+                "@type": "Organization",
+                "name": "HackFest Hub",
+                "url": SITE,
+            },
+            "offers": {
+                "@type": "Offer",
+                "url": eventUrl,
+                "price": "0",
+                "priceCurrency": "USD",
+                "availability": hack.status === "active"
+                ? "https://schema.org/InStock"
+                : "https://schema.org/PreOrder",
+                "validFrom": hack.startDate || new Date().toISOString(),
+            },
+        };
+
+        if (hack.prizePool) {
+            schema["award"] = hack.prizePool;
+        }
+        if (hack.maxParticipants) {
+            schema["maximumAttendeeCapacity"] = hack.maxParticipants;
+        }
+
+        res.json(schema);
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── OG Image meta (returns meta tags HTML snippet) ───────────────────────────
+app.get(["/api/public/meta/:hackathonId", "/public/meta/:hackathonId"], async (req, res) => {
+    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    try {
+        const { rows: [h] } = await q(
+            "SELECT name, tagline, description, banner_color, event_logo_url, location, start_date, prize_pool FROM hackathons WHERE id=$1 AND published=true",
+            [req.params.hackathonId]
+        );
+        if (!h) return res.status(404).json({ error: "Not found" });
+        const hack = camel(h);
+        const title = hack.name;
+        const desc = hack.tagline || hack.description || `Join ${hack.name} — an exciting hackathon event on HackFest Hub`;
+        const image = hack.eventLogoUrl || `${SITE}/og-default.png`;
+        const url = `${SITE}/register/${req.params.hackathonId}`;
+        res.json({ title, description: desc, image, url,
+            keywords: `hackathon, ${hack.name}, ${hack.location||"online"}, coding competition, innovation` });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
     res.status(404).json({

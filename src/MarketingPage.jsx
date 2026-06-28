@@ -91,6 +91,21 @@ export default function MarketingPage() {
   const [email,      setEmail]      = useState("");
   const [subscribed, setSubscribed] = useState(false);
 
+  // Set marketing page meta tags
+  useEffect(()=>{
+    document.title = "HackFest Hub — The Complete Hackathon Management Platform";
+    const setMeta = (name, content, prop=false) => {
+      const sel = prop ? `meta[property="${name}"]` : `meta[name="${name}"]`;
+      let el = document.querySelector(sel);
+      if(!el){ el=document.createElement("meta"); el.setAttribute(prop?"property":"name",name); document.head.appendChild(el); }
+      el.setAttribute("content", content);
+    };
+    setMeta("description","Run world-class hackathons with AI-powered judging, beautiful event pages, and automated certificates — free forever.");
+    setMeta("og:title","HackFest Hub — The Complete Hackathon Management Platform",true);
+    setMeta("og:description","Run world-class hackathons with AI-powered judging, beautiful event pages, and automated certificates — free forever.",true);
+    return () => { document.title = "HackFest Hub"; };
+  }, []);
+
   const load = (s=search, f=filter) => {
     setLoading(true);
     fetch(`${BASE}/api/public/hackathons?search=${encodeURIComponent(s)}&status=${f}&limit=12`)
