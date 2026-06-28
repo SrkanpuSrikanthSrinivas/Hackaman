@@ -87,7 +87,7 @@ export default function MarketingPage() {
   const [search,     setSearch]     = useState("");
   const [filter,     setFilter]     = useState("");
   const [loading,    setLoading]    = useState(true);
-  const [stats,      setStats]      = useState({ hackathons:0, participants:0, projects:0 });
+  const [stats, setStats] = useState({ hackathons:0, participants:0, projects:0 });
   const [email,      setEmail]      = useState("");
   const [subscribed, setSubscribed] = useState(false);
 
@@ -102,11 +102,7 @@ export default function MarketingPage() {
 
   useEffect(()=>{
     load();
-    // Get platform stats
-    fetch(`${BASE}/api/public/hackathons?limit=1`)
-      .then(r=>r.json())
-      .then(d=>setStats({ hackathons: d.total||0, participants: (d.total||0)*47, projects: (d.total||0)*12 }))
-      .catch(()=>{});
+
   },[]);
 
   const FEATURES = [
@@ -118,11 +114,7 @@ export default function MarketingPage() {
     { icon:"🌐", title:"Built for community", desc:"People's Choice voting, Discord/WhatsApp/Slack integrations, Q&A system, and team formation board create genuine community." },
   ];
 
-  const TESTIMONIALS = [
-    { name:"Sarah K.", role:"Engineering Lead, Atlassian", text:"Set up our entire 200-person hackathon in under an hour. The AI judging insights were a game changer for our panel.", avatar:"SK" },
-    { name:"Raj M.", role:"IEEE Student Chapter, UT Dallas", text:"We used to manage everything in spreadsheets. HackFest Hub is like having a full event team in software.", avatar:"RM" },
-    { name:"Priya N.", role:"Innovation Head, Infosys", text:"The certificate generator and email automation saved us 3 days of manual work after the event.", avatar:"PN" },
-  ];
+
 
   const HOW_IT_WORKS = [
     { step:"01", title:"Create your event", desc:"Set up your hackathon page in minutes — dates, prizes, tracks, judges, and a beautiful public registration page." },
@@ -158,7 +150,7 @@ export default function MarketingPage() {
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
             <a href="#features" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Features</a>
             <a href="#how-it-works" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>How it works</a>
-            <a href="#pricing" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Pricing</a>
+            <a href="#free" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Pricing</a>
             <a href="/admin" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Sign in</a>
             <a href="mailto:srikanth@hackfesthub.com?subject=Host a Hackathon"
               style={{ ...FF, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
@@ -224,9 +216,9 @@ export default function MarketingPage() {
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:32,
             background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)",
             borderRadius:16, padding:"28px 40px", maxWidth:600, margin:"0 auto" }}>
-            <StatCounter value={total||12} label="Hackathons hosted" icon="🏆" />
-            <StatCounter value={(total||12)*47} label="Participants" icon="👥" />
-            <StatCounter value={(total||12)*12} label="Projects built" icon="📦" />
+            <StatCounter value={total||0} label="Hackathons hosted" icon="🏆" />
+            <StatCounter value={0} label="Participants" icon="👥" />
+            <StatCounter value={0} label="Projects built" icon="📦" />
           </div>
         </div>
       </section>
@@ -350,35 +342,7 @@ export default function MarketingPage() {
 
 
 
-      {/* ── TESTIMONIALS ── */}
-      <section style={{ padding:"80px 24px", background:"#fff" }}>
-        <div style={{ maxWidth:1000, margin:"0 auto" }}>
-          <div style={{ textAlign:"center", marginBottom:48 }}>
-            <h2 style={{ ...FF, fontSize:32, fontWeight:800, color:"#111827", letterSpacing:"-0.03em" }}>
-              Trusted by event organizers
-            </h2>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:20 }}>
-            {TESTIMONIALS.map((t,i) => (
-              <div key={i} style={{ padding:28, borderRadius:16, background:"#f9fafb",
-                border:"1px solid #e5e7eb" }}>
-                <div style={{ ...FF, fontSize:14, color:"#4b5563", lineHeight:1.75,
-                  marginBottom:20, fontStyle:"italic" }}>"{t.text}"</div>
-                <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                  <div style={{ width:40, height:40, borderRadius:"50%",
-                    background:"linear-gradient(135deg,#4f46e5,#7c3aed)",
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    color:"#fff", fontSize:13, fontWeight:700 }}>{t.avatar}</div>
-                  <div>
-                    <div style={{ ...FF, fontSize:13, fontWeight:700, color:"#111827" }}>{t.name}</div>
-                    <div style={{ ...FF, fontSize:11, color:"#9ca3af" }}>{t.role}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+
 
       {/* ── PRICING ── */}
       <section id="pricing" style={{ padding:"80px 24px", background:"#f9fafb" }}>
@@ -387,57 +351,11 @@ export default function MarketingPage() {
             <div style={{ ...FF, fontSize:11, fontWeight:700, color:"#4f46e5", letterSpacing:"0.15em",
               textTransform:"uppercase", marginBottom:10 }}>Simple pricing</div>
             <h2 style={{ ...FF, fontSize:32, fontWeight:800, color:"#111827", letterSpacing:"-0.03em", marginBottom:12 }}>
-              Transparent, affordable pricing
+              Free to use
             </h2>
-            <p style={{ ...FF, fontSize:15, color:"#6b7280" }}>No per-event fees. No hidden costs. Cancel anytime.</p>
+            <p style={{ ...FF, fontSize:15, color:"#6b7280" }}>Every feature, completely free. No credit card needed.</p>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20 }}>
-            {[
-              { name:"Starter", price:"$199", period:"setup + $99/mo", events:"Up to 3 events/year",
-                features:["Public registration page","Weighted judging","Email notifications","Data export"],
-                cta:"Get started", highlight:false },
-              { name:"Pro", price:"$499", period:"setup + $199/mo", events:"Unlimited events",
-                features:["Everything in Starter","AI judging insights","People's Choice voting","Certificates","Custom domain"],
-                cta:"Most popular", highlight:true },
-              { name:"Enterprise", price:"Custom", period:"white-label", events:"Multi-org management",
-                features:["Everything in Pro","Full white-label","SSO / SAML","Dedicated support","SLA guarantee"],
-                cta:"Contact us", highlight:false },
-            ].map((plan,i) => (
-              <div key={i} style={{ padding:28, borderRadius:20,
-                background:plan.highlight?"#4f46e5":"#fff",
-                border:plan.highlight?"none":"1px solid #e5e7eb",
-                boxShadow:plan.highlight?"0 8px 32px rgba(79,70,229,0.3)":"0 1px 4px rgba(0,0,0,0.04)",
-                position:"relative" }}>
-                {plan.highlight && <div style={{ position:"absolute", top:-12, left:"50%", transform:"translateX(-50%)",
-                  background:"#fbbf24", color:"#78350f", fontSize:11, fontWeight:700,
-                  padding:"4px 14px", borderRadius:9999 }}>MOST POPULAR</div>}
-                <div style={{ ...FF, fontSize:14, fontWeight:700,
-                  color:plan.highlight?"rgba(255,255,255,0.7)":"#6b7280", marginBottom:8 }}>{plan.name}</div>
-                <div style={{ ...FF, fontSize:32, fontWeight:900,
-                  color:plan.highlight?"#fff":"#111827", letterSpacing:"-0.04em", marginBottom:4 }}>{plan.price}</div>
-                <div style={{ ...FF, fontSize:12, color:plan.highlight?"rgba(255,255,255,0.5)":"#9ca3af",
-                  marginBottom:6 }}>{plan.period}</div>
-                <div style={{ ...FF, fontSize:12, color:plan.highlight?"rgba(255,255,255,0.7)":"#6b7280",
-                  marginBottom:20 }}>{plan.events}</div>
-                <div style={{ marginBottom:24 }}>
-                  {plan.features.map((f,j) => (
-                    <div key={j} style={{ ...FF, fontSize:13, color:plan.highlight?"rgba(255,255,255,0.85)":"#4b5563",
-                      marginBottom:8, display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ color:plan.highlight?"#a5b4fc":"#10b981", fontSize:14 }}>✓</span> {f}
-                    </div>
-                  ))}
-                </div>
-                <a href="mailto:srikanth@hackfesthub.com?subject=HackFest Hub inquiry"
-                  style={{ ...FF, display:"block", textAlign:"center", padding:"11px",
-                    borderRadius:10, fontWeight:700, fontSize:14, textDecoration:"none",
-                    background:plan.highlight?"rgba(255,255,255,0.15)":"#4f46e5",
-                    color:plan.highlight?"#fff":"#fff",
-                    border:plan.highlight?"1px solid rgba(255,255,255,0.2)":"none" }}>
-                  {plan.cta}
-                </a>
-              </div>
-            ))}
-          </div>
+
         </div>
       </section>
 
