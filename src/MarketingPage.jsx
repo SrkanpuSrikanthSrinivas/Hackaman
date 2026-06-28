@@ -348,44 +348,7 @@ export default function MarketingPage() {
         </div>
       </section>
 
-      {/* ── VS DEVPOST ── */}
-      <section style={{ padding:"80px 24px", background:"#0f172a" }}>
-        <div style={{ maxWidth:900, margin:"0 auto", textAlign:"center" }}>
-          <div style={{ ...FF, fontSize:11, fontWeight:700, color:"#818cf8", letterSpacing:"0.15em",
-            textTransform:"uppercase", marginBottom:12 }}>Why HackFest Hub</div>
-          <h2 style={{ ...FF, fontSize:32, fontWeight:800, color:"#fff",
-            letterSpacing:"-0.03em", marginBottom:40 }}>Better than Devpost in every way that matters</h2>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-            {[
-              { feature:"AI judging calibration", us:true, them:false },
-              { feature:"White-label branding", us:true, them:false },
-              { feature:"People's Choice voting", us:true, them:false },
-              { feature:"Certificate generation", us:true, them:false },
-              { feature:"WhatsApp / Discord integration", us:true, them:false },
-              { feature:"Best Judge Award", us:true, them:false },
-              { feature:"Day-of check-in system", us:true, them:false },
-              { feature:"Pricing from $200/mo", us:true, them:false, note:"Devpost charges $2,500+ per event" },
-            ].map((row,i) => (
-              <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-                background:"rgba(255,255,255,0.05)", borderRadius:10, padding:"14px 20px",
-                border:"1px solid rgba(255,255,255,0.08)" }}>
-                <span style={{ ...FF, fontSize:13, color:"rgba(255,255,255,0.8)" }}>
-                  {row.feature}
-                  {row.note && <span style={{ ...FF, fontSize:10, color:"rgba(255,255,255,0.4)", display:"block" }}>{row.note}</span>}
-                </span>
-                <div style={{ display:"flex", gap:24 }}>
-                  <span style={{ fontSize:16 }}>{row.us?"✅":"❌"}</span>
-                  <span style={{ fontSize:16 }}>{row.them?"✅":"❌"}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display:"flex", gap:32, justifyContent:"flex-end", marginTop:12, paddingRight:20 }}>
-            <span style={{ ...FF, fontSize:12, color:"rgba(255,255,255,0.5)" }}>⚡ HackFest Hub</span>
-            <span style={{ ...FF, fontSize:12, color:"rgba(255,255,255,0.3)" }}>Devpost</span>
-          </div>
-        </div>
-      </section>
+
 
       {/* ── TESTIMONIALS ── */}
       <section style={{ padding:"80px 24px", background:"#fff" }}>
@@ -424,9 +387,9 @@ export default function MarketingPage() {
             <div style={{ ...FF, fontSize:11, fontWeight:700, color:"#4f46e5", letterSpacing:"0.15em",
               textTransform:"uppercase", marginBottom:10 }}>Simple pricing</div>
             <h2 style={{ ...FF, fontSize:32, fontWeight:800, color:"#111827", letterSpacing:"-0.03em", marginBottom:12 }}>
-              A fraction of what Devpost charges
+              Transparent, affordable pricing
             </h2>
-            <p style={{ ...FF, fontSize:15, color:"#6b7280" }}>No per-event fees. No surprise costs. Cancel anytime.</p>
+            <p style={{ ...FF, fontSize:15, color:"#6b7280" }}>No per-event fees. No hidden costs. Cancel anytime.</p>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20 }}>
             {[
@@ -487,7 +450,7 @@ export default function MarketingPage() {
             Ready to run your hackathon?
           </h2>
           <p style={{ ...FF, fontSize:16, color:"rgba(255,255,255,0.55)", marginBottom:32 }}>
-            Join organizers who chose HackFest Hub over Devpost and never looked back.
+            Join event organizers who run world-class hackathons on HackFest Hub.
           </p>
           <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
             <a href="mailto:srikanth@hackfesthub.com?subject=Host a Hackathon"
@@ -518,11 +481,11 @@ export default function MarketingPage() {
                 <span style={{ ...FF, fontSize:15, fontWeight:800, color:"#fff" }}>HackFest Hub</span>
               </div>
               <p style={{ ...FF, fontSize:13, color:"rgba(255,255,255,0.35)", lineHeight:1.7, maxWidth:240 }}>
-                The complete enterprise hackathon management platform. Better than Devpost.
+                The complete enterprise hackathon management platform. Better than HackFest Hub.
               </p>
             </div>
             {[
-              { title:"Platform", links:[{l:"Browse events",h:"#hackathons"},{l:"Host a hackathon",h:"mailto:srikanth@hackfesthub.com"},{l:"Pricing",h:"#pricing"},{l:"Admin login",h:"/admin"}] },
+              { title:"Platform", links:[{l:"Browse events",h:"#hackathons"},{l:"Host a hackathon",h:"mailto:srikanth@hackfesthub.com"},{l:"Pricing",h:"#free"},{l:"Admin login",h:"/admin"}] },
               { title:"Use cases", links:[{l:"Corporate hackathons",h:"#"},{l:"University events",h:"#"},{l:"IEEE chapters",h:"#"},{l:"Online hackathons",h:"#"}] },
               { title:"Company", links:[{l:"About",h:"#"},{l:"Contact",h:"mailto:srikanth@hackfesthub.com"},{l:"LinkedIn",h:"https://linkedin.com"},{l:"Twitter",h:"#"}] },
             ].map((col,i) => (
