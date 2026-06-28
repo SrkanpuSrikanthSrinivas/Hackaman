@@ -6,12 +6,13 @@ import {
   Field, Avatar, Modal, Card, Spinner, Empty,
   useData, STATUS_CHIP,
 } from "./shared.jsx";
+import MarketingPage from "./MarketingPage.jsx";
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -501,6 +502,7 @@ function AppShell() {
     }
     localStorage.removeItem("hf_token");
     setCurrentUser(null);
+    window.location.href = "/";
   };
 
   // Handle OAuth redirect — reads ?token= or ?error= from URL after Google/GitHub/GitLab login
@@ -695,6 +697,7 @@ function AppShell() {
         {page==="certificates" && isAdmin &&   <CertificatesPage  {...props} db={db} />}
         {page==="export"       && isAdmin &&   <ExportPage        {...props} db={db} />}
         {page==="email-center" && isAdmin &&   <EmailCenterPage   {...props} db={db} currentUser={currentUser} />}
+        {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
@@ -850,9 +853,24 @@ class ErrorBoundary extends Component {
 
 /* ── Root App ────────────────────────────────────────────────────────────── */
 export default function App() {
-  const regMatch = window.location.pathname.match(/^\/register\/([^/]+)/);
+  const path = window.location.pathname;
+  // Public event page
+  const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;
+  // Subdomain single-event mode
   const subdomainId = typeof import.meta !== "undefined" && import.meta.env?.VITE_HACKATHON_ID;
   if (subdomainId) return <ErrorBoundary><PublicPage hackathonId={subdomainId} /></ErrorBoundary>;
-  return <ErrorBoundary><AppShell /></ErrorBoundary>;
+  // Admin panel via /admin path or stored token with admin/judge role
+  if (path === "/admin" || path.startsWith("/admin/")) return <ErrorBoundary><AppShell /></ErrorBoundary>;
+  const token = localStorage.getItem("hf_token");
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (payload.role === "admin" || payload.role === "judge") {
+        return <ErrorBoundary><AppShell /></ErrorBoundary>;
+      }
+    } catch(_) {}
+  }
+  // Root → marketing homepage
+  return <ErrorBoundary><MarketingPage /></ErrorBoundary>;
 }

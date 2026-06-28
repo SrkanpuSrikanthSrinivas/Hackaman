@@ -2102,7 +2102,7 @@ export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
   }, []);
 
   const send = async (action, body = {}) => {
-    setSending(action);
+    setSending(action); 
     try {
       const r = await POST(`/api/email/${action}`, { hackathonId: activeHackathon, ...body });
       if (r.error) toast(r.error, "error");
@@ -2298,6 +2298,100 @@ export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
             </Card>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+
+
+/* ─── Q&A ADMIN PAGE ─────────────────────────────────────────────────────── */
+export function QAAdminPage({ db, toast, activeHackathon }) {
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [answering, setAnswering] = useState(null);
+  const [answer, setAnswer] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/public/questions/${activeHackathon}`)
+      .then(d => setQuestions(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const saveAnswer = async q => {
+    setSaving(true);
+    try {
+      await PUT(`/api/questions/${q.id}/answer`, { answer, pinned: q.pinned });
+      setAnswering(null); setAnswer(""); load(); toast("Answer posted!");
+    } catch(e) { toast(e.message, "error"); } finally { setSaving(false); }
+  };
+
+  const unanswered = questions.filter(q => !q.answer);
+  const answered   = questions.filter(q =>  q.answer);
+
+  return (
+    <div>
+      <SectionHeader title="Q&A Management"
+        count={`${unanswered.length} unanswered · ${answered.length} answered`}
+        action={<Btn variant="secondary" onClick={load}>{loading?<Spinner/>:"↻"} Refresh</Btn>}
+      />
+      {!activeHackathon && <Empty icon="❓" title="Select a hackathon" />}
+
+      {unanswered.length > 0 && (
+        <>
+          <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.amber, textTransform:"uppercase",
+            letterSpacing:"0.08em", marginBottom:10 }}>⏳ Awaiting answers ({unanswered.length})</div>
+          {unanswered.map(q => (
+            <Card key={q.id} style={{ marginBottom:10, border:`1px solid ${C.bdAmber}` }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+                <div>
+                  <div style={{ ...FONT, fontSize:14, fontWeight:600, color:C.text, marginBottom:4 }}>{q.question}</div>
+                  <div style={{ ...FONT, fontSize:12, color:C.text3 }}>
+                    Asked by {q.askerName} · {new Date(q.createdAt).toLocaleDateString()} · ▲ {q.upvotes||0} upvotes
+                  </div>
+                </div>
+                <Btn size="sm" onClick={() => { setAnswering(q); setAnswer(""); }}>Answer</Btn>
+              </div>
+              {answering?.id === q.id && (
+                <div style={{ marginTop:12 }}>
+                  <textarea value={answer} onChange={e=>setAnswer(e.target.value)}
+                    style={{ ...TA, minHeight:80, marginBottom:8 }}
+                    placeholder="Write your answer…" autoFocus />
+                  <div style={{ display:"flex", gap:8 }}>
+                    <Btn onClick={() => saveAnswer(q)} disabled={saving||!answer.trim()}>
+                      {saving?<Spinner/>:"Post Answer"}
+                    </Btn>
+                    <Btn variant="secondary" onClick={() => setAnswering(null)}>Cancel</Btn>
+                  </div>
+                </div>
+              )}
+            </Card>
+          ))}
+        </>
+      )}
+
+      {answered.length > 0 && (
+        <>
+          <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.green, textTransform:"uppercase",
+            letterSpacing:"0.08em", margin:"20px 0 10px" }}>✓ Answered ({answered.length})</div>
+          {answered.map(q => (
+            <Card key={q.id} style={{ marginBottom:8, opacity:0.8 }}>
+              <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:6 }}>{q.question}</div>
+              <div style={{ borderLeft:`3px solid ${C.green}`, paddingLeft:12 }}>
+                <div style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:3 }}>Your answer:</div>
+                <div style={{ ...FONT, fontSize:13, color:C.text2, lineHeight:1.6 }}>{q.answer}</div>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+      {questions.length === 0 && !loading && activeHackathon && (
+        <Empty icon="❓" title="No questions yet" sub="Questions submitted on the public page will appear here." />
       )}
     </div>
   );
@@ -3040,13 +3134,19 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Problem Statements</div>
           <Field label="Problem Statements" hint='One problem per block, separated by blank line. First line = title, rest = description. Or use JSON array: [{"title":"..","description":".."}]'>
             <textarea style={{...TA,minHeight:120}} value={hackForm.problemStatements||""} onChange={hf("problemStatements")}
-              placeholder={"AI for Healthcare Build a solution to improve patient outcomes using AI and real-time data. Climate Tech Create a tool that helps individuals reduce their carbon footprint."} />
+              placeholder={"AI for Healthcare
+Build a solution to improve patient outcomes using AI and real-time data.
+
+Climate Tech
+Create a tool that helps individuals reduce their carbon footprint."} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Resources & Tools</div>
           <Field label="Resources" hint="One per line: Name | URL | Description">
             <textarea style={{...TA,minHeight:80}} value={hackForm.resources||""} onChange={hf("resources")}
-              placeholder={"OpenAI API | https://platform.openai.com | GPT-4 access for teams Figma | https://figma.com | Free prototyping tool AWS Credits | https://aws.amazon.com/activate | $100 credits for participants"} />
+              placeholder={"OpenAI API | https://platform.openai.com | GPT-4 access for teams
+Figma | https://figma.com | Free prototyping tool
+AWS Credits | https://aws.amazon.com/activate | $100 credits for participants"} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>People's Choice Voting</div>
@@ -3065,7 +3165,10 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Code of Conduct</div>
           <Field label="Code of Conduct" hint="Shown on public page before registration form">
             <textarea style={{...TA,minHeight:100}} value={hackForm.codeOfConduct||""} onChange={hf("codeOfConduct")}
-              placeholder={"Be respectful to all participants, judges, and organizers. Harassment, discrimination, or toxic behavior will not be tolerated. All work must be original and created during the hackathon. Teams must have between 1 and 5 members."} />
+              placeholder={"Be respectful to all participants, judges, and organizers.
+Harassment, discrimination, or toxic behavior will not be tolerated.
+All work must be original and created during the hackathon.
+Teams must have between 1 and 5 members."} />
           </Field>
 
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginTop:18,marginBottom:12,paddingTop:14,borderTop:`1px solid ${C.border}`}}>Gallery & Testimonials</div>
@@ -3311,7 +3414,7 @@ Password: ${tempPassword}`).catch(()=>{});
               <div style={{...FONT,fontSize:12,color:C.text3,marginBottom:3}}>{r.email}{r.org?` · ${r.org}`:""}</div>
               {r.type==="team"&&r.teamName&&(
                 <div style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>
-                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""}
+                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""} 
                 </div>
               )}
               {r.message&&(

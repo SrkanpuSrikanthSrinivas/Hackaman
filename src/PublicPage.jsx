@@ -792,6 +792,9 @@ export default function PublicPage({hackathonId}){
         </section>
       )}
 
+      {/* ── Q&A ── */}
+      <QASection hackathonId={hackathonId} accent={accent}/>
+
       {/* ── PEOPLE'S CHOICE VOTING ── */}
       {data.peoplesChoiceOpen&&<VotingSection hackathonId={hackathonId} teams={data.teams||[]} accent={accent}/>}
 
@@ -983,6 +986,109 @@ function Gallery({images,accent}){
   );
 }
 
+
+
+// ── Q&A Section ──────────────────────────────────────────────────────────────
+function QASection({hackathonId, accent}) {
+  const [questions, setQuestions] = useState([]);
+  const [form, setForm]  = useState({name:"",email:"",question:""});
+  const [sent, setSent]  = useState(false);
+  const [busy, setBusy]  = useState(false);
+  const sf = k => e => setForm(p=>({...p,[k]:e.target.value}));
+
+  useEffect(()=>{
+    fetch(`${BASE}/api/public/questions/${hackathonId}`)
+      .then(r=>r.json()).then(d=>setQuestions(Array.isArray(d)?d:[])).catch(()=>{});
+  },[hackathonId]);
+
+  const submit = async e => {
+    e.preventDefault(); setBusy(true);
+    try{
+      const r = await fetch(`${BASE}/api/public/questions`,{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({hackathonId,...form})}).then(r=>r.json());
+      if(!r.error){ setSent(true); setForm({name:"",email:"",question:""}); }
+    }catch(_){}
+    setBusy(false);
+  };
+
+  const upvote = async id => {
+    await fetch(`${BASE}/api/questions/${id}/upvote`,{method:"POST"});
+    setQuestions(qs => qs.map(q=>q.id===id?{...q,upvotes:(q.upvotes||0)+1}:q));
+  };
+
+  const IS = {...FF,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",
+    borderRadius:8,padding:"10px 14px",fontSize:14,color:"#fff",width:"100%",outline:"none"};
+
+  return (
+    <section id="qa" style={{padding:"80px 24px",background:"#08091a",borderTop:`1px solid rgba(255,255,255,0.06)`}}>
+      <div style={{maxWidth:860,margin:"0 auto"}}>
+        <SecHead eyebrow="Community" title="Questions & Answers" accent={accent}
+          sub="Ask the organizers anything. Answered questions are shared publicly." />
+        
+        {/* Existing Q&A */}
+        {questions.filter(q=>q.answer).length>0&&(
+          <div style={{marginBottom:36}}>
+            {questions.filter(q=>q.answer).map((qa,i)=>(
+              <div key={i} style={{marginBottom:16,background:"rgba(255,255,255,0.03)",
+                border:"1px solid rgba(255,255,255,0.08)",borderRadius:14,overflow:"hidden"}}>
+                {qa.pinned&&<div style={{background:accent,height:3}}/>}
+                <div style={{padding:"18px 22px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                    <div style={{...FF,fontSize:14,fontWeight:600,color:"#fff"}}>{qa.question}</div>
+                    <button onClick={()=>upvote(qa.id)}
+                      style={{...FF,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:8,
+                        padding:"4px 10px",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:12,flexShrink:0,marginLeft:12}}>
+                      ▲ {qa.upvotes||0}
+                    </button>
+                  </div>
+                  <div style={{borderLeft:`3px solid ${accent}`,paddingLeft:14,marginTop:10}}>
+                    <div style={{...FF,fontSize:11,color:accent,fontWeight:600,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>Organizer Answer</div>
+                    <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.7)",lineHeight:1.7}}>{qa.answer}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Ask a question form */}
+        <div style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:16,padding:28}}>
+          <div style={{...FF,fontSize:15,fontWeight:700,color:"#fff",marginBottom:16}}>
+            {sent?"✅ Question submitted!":"Ask a question"}
+          </div>
+          {sent?(
+            <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.5)"}}>
+              Thank you! The organizers will answer your question shortly.
+            </div>
+          ):(
+            <form onSubmit={submit}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                <div>
+                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Your Name *</label>
+                  <input style={IS} value={form.name} onChange={sf("name")} required/>
+                </div>
+                <div>
+                  <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Email</label>
+                  <input type="email" style={IS} value={form.email} onChange={sf("email")}/>
+                </div>
+              </div>
+              <div style={{marginBottom:16}}>
+                <label style={{...FF,display:"block",fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Your Question *</label>
+                <textarea style={{...IS,minHeight:80,resize:"vertical"}} value={form.question} onChange={sf("question")} required/>
+              </div>
+              <button type="submit" disabled={busy}
+                style={{...FF,padding:"11px 24px",borderRadius:10,background:accent,
+                  color:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:700}}>
+                {busy?"Submitting…":"Submit Question →"}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 // ── People's Choice Voting ────────────────────────────────────────────────────
 function VotingSection({hackathonId, teams, accent}) {

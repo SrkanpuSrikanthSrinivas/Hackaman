@@ -1860,6 +1860,191 @@ app.get(["/api/public/hackathons/:id/registrations-count","/public/hackathons/:i
     }catch(e){res.json({count:0});}
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEVPOST-BEATING FEATURES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── PUBLIC HACKATHON DIRECTORY ────────────────────────────────────────────────
+app.get(["/api/public/hackathons","/public/hackathons"], async (req,res)=>{
+    try{
+        const{search="",status="",limit=20,offset=0}=req.query;
+        let sql=`SELECT h.*,
+      (SELECT count(*)::int FROM registrations WHERE hackathon_id=h.id AND status='approved') as participants,
+      (SELECT count(*)::int FROM submissions WHERE hackathon_id=h.id AND status='submitted') as projects
+      FROM hackathons h WHERE h.published=true`;
+        const p=[];
+        if(status){p.push(status);sql+=` AND h.status=$${p.length}`;}
+        if(search){p.push(`%${search}%`);sql+=` AND (h.name ILIKE $${p.length} OR h.tagline ILIKE $${p.length} OR h.tracks ILIKE $${p.length})`;}
+        sql+=` ORDER BY CASE h.status WHEN 'active' THEN 1 WHEN 'upcoming' THEN 2 ELSE 3 END, h.start_date DESC LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`;
+        const{rows}=await q(sql,p);
+        const{rows:[ct]}=await q(`SELECT count(*)::int as total FROM hackathons WHERE published=true${status?` AND status='${status}'`:""}${search?` AND (name ILIKE '%${search}%' OR tagline ILIKE '%${search}%')`:""}`);
+        res.json({hackathons:rows.map(camel),total:ct.total});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── PUBLIC PROJECT GALLERY ────────────────────────────────────────────────────
+app.get(["/api/public/projects/:hackathonId","/public/projects/:hackathonId"], async (req,res)=>{
+    try{
+        const{rows:[h]}=await q("SELECT id,name,status,scoring_released,leaderboard_public FROM hackathons WHERE id=$1 AND published=true",[req.params.hackathonId]);
+        if(!h)return res.status(404).json({error:"Not found"});
+        const{rows}=await q(`SELECT s.*,t.name as team_name,t.category,t.members,
+      (SELECT count(*)::int FROM project_likes WHERE submission_id=s.id) as likes
+      FROM submissions s JOIN teams t ON t.id=s.team_id
+      WHERE s.hackathon_id=$1 AND s.status IN ('submitted','shortlisted','winner')
+      ORDER BY s.status DESC, likes DESC`,[req.params.hackathonId]);
+        res.json({hackathon:camel(h),projects:rows.map(camel)});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.get(["/api/public/project/:id","/public/project/:id"], async (req,res)=>{
+    try{
+        const{rows:[sub]}=await q(`SELECT s.*,t.name as team_name,t.category,t.members,
+      h.name as hackathon_name,h.start_date,h.banner_color,
+      (SELECT count(*)::int FROM project_likes WHERE submission_id=s.id) as likes
+      FROM submissions s JOIN teams t ON t.id=s.team_id JOIN hackathons h ON h.id=s.hackathon_id
+      WHERE s.id=$1 AND h.published=true`,[req.params.id]);
+        if(!sub)return res.status(404).json({error:"Not found"});
+        res.json(camel(sub));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// Like a project
+app.post(["/api/projects/:id/like","/projects/:id/like"], async (req,res)=>{
+    const{email,name}=req.body;
+    if(!email)return res.status(400).json({error:"Email required"});
+    try{
+        const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+        await q("INSERT INTO project_likes(id,submission_id,liker_email) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",[id,req.params.id,email]);
+        const{rows:[{count}]}=await q("SELECT count(*)::int as count FROM project_likes WHERE submission_id=$1",[req.params.id]);
+        res.json({likes:count});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── PARTICIPANT AUTH ──────────────────────────────────────────────────────────
+app.post(["/api/participant/register","/participant/register"], async (req,res)=>{
+    const{name,email,password,skills,bio,githubUrl,linkedinUrl,location}=req.body;
+    if(!name||!email||!password)return res.status(400).json({error:"Name, email, password required"});
+    try{
+        const{rows:existing}=await q("SELECT id FROM participants WHERE email=$1",[email]);
+        if(existing.length)return res.status(409).json({error:"Email already registered"});
+        const hash=await bcrypt.hash(password,10);
+        const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+        const{rows:[p]}=await q("INSERT INTO participants(id,name,email,password_hash,bio,skills,github_url,linkedin_url,location) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *",
+            [id,name,email,hash,bio||null,skills||null,githubUrl||null,linkedinUrl||null,location||null]);
+        const token=jwt.sign({id:p.id,name:p.name,email:p.email,role:"participant"},process.env.JWT_SECRET||JWT_SECRET,{expiresIn:"30d"});
+        res.status(201).json({token,participant:camel(p)});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/participant/login","/participant/login"], async (req,res)=>{
+    const{email,password}=req.body;
+    try{
+        const{rows:[p]}=await q("SELECT * FROM participants WHERE email=$1",[email]);
+        if(!p)return res.status(401).json({error:"Invalid email or password"});
+        const ok=await bcrypt.compare(password,p.password_hash);
+        if(!ok){await logEvent("failed",{email,name:p.name,role:"participant"},req,"email");return res.status(401).json({error:"Invalid email or password"});}
+        await logEvent("login",{id:p.id,name:p.name,email:p.email,role:"participant"},req,"email");
+        const token=jwt.sign({id:p.id,name:p.name,email:p.email,role:"participant"},process.env.JWT_SECRET||JWT_SECRET,{expiresIn:"30d"});
+        res.json({token,participant:camel(p)});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.get(["/api/participant/me","/participant/me"], async (req,res)=>{
+    const token=(req.headers.authorization||"").replace("Bearer ","");
+    if(!token)return res.status(401).json({error:"Unauthorized"});
+    try{
+        const payload=jwt.verify(token,process.env.JWT_SECRET||JWT_SECRET);
+        if(payload.role!=="participant")return res.status(403).json({error:"Participant token required"});
+        const{rows:[p]}=await q("SELECT * FROM participants WHERE id=$1",[payload.id]);
+        if(!p)return res.status(404).json({error:"Not found"});
+        // Fetch their hackathon history
+        const{rows:history}=await q(`SELECT h.id,h.name,h.status,h.start_date,h.banner_color,t.name as team_name,s.title as project_title,s.status as project_status
+      FROM participant_hackathons ph JOIN hackathons h ON h.id=ph.hackathon_id
+      LEFT JOIN teams t ON t.id=ph.team_id LEFT JOIN submissions s ON s.team_id=t.id
+      WHERE ph.participant_id=$1 ORDER BY h.start_date DESC`,[payload.id]).catch(()=>({rows:[]}));
+        res.json({participant:camel(p),history:history.map(camel)});
+    }catch(e){res.status(401).json({error:"Invalid token"});}
+});
+
+app.put(["/api/participant/profile","/participant/profile"], async (req,res)=>{
+    const token=(req.headers.authorization||"").replace("Bearer ","");
+    try{
+        const{id}=jwt.verify(token,process.env.JWT_SECRET||JWT_SECRET);
+        const{name,bio,skills,githubUrl,linkedinUrl,twitterUrl,websiteUrl,avatarUrl,location,lookingForTeam}=req.body;
+        const{rows:[p]}=await q("UPDATE participants SET name=$1,bio=$2,skills=$3,github_url=$4,linkedin_url=$5,twitter_url=$6,website_url=$7,avatar_url=$8,location=$9,looking_for_team=$10,updated_at=NOW() WHERE id=$11 RETURNING *",
+            [name,bio,skills,githubUrl,linkedinUrl,twitterUrl,websiteUrl,avatarUrl,location,Boolean(lookingForTeam),id]);
+        res.json(camel(p));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// Public participant profile
+app.get(["/api/public/participant/:id","/public/participant/:id"], async (req,res)=>{
+    try{
+        const{rows:[p]}=await q("SELECT id,name,bio,skills,github_url,linkedin_url,twitter_url,website_url,avatar_url,location,looking_for_team,created_at FROM participants WHERE id=$1",[req.params.id]);
+        if(!p)return res.status(404).json({error:"Not found"});
+        const{rows:history}=await q("SELECT h.id,h.name,h.status,t.name as team_name FROM participant_hackathons ph JOIN hackathons h ON h.id=ph.hackathon_id LEFT JOIN teams t ON t.id=ph.team_id WHERE ph.participant_id=$1",
+            [req.params.id]).catch(()=>({rows:[]}));
+        res.json({participant:camel(p),history:history.map(camel)});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── TEAM FORMATION BOARD ──────────────────────────────────────────────────────
+app.get(["/api/public/team-formation/:hackathonId","/public/team-formation/:hackathonId"], async (req,res)=>{
+    try{
+        const{rows}=await q(`SELECT tf.*,p.name as participant_name,p.skills as participant_skills,p.avatar_url
+      FROM team_formation tf JOIN participants p ON p.id=tf.participant_id
+      WHERE tf.hackathon_id=$1 ORDER BY tf.created_at DESC`,[req.params.hackathonId]).catch(()=>({rows:[]}));
+        res.json(rows.map(camel));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/team-formation","/team-formation"], async (req,res)=>{
+    const{hackathonId,participantId,type,skillsOffered,skillsNeeded,message}=req.body;
+    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    try{
+        const{rows:[r]}=await q("INSERT INTO team_formation(id,hackathon_id,participant_id,type,skills_offered,skills_needed,message) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+            [id,hackathonId,participantId,type,skillsOffered,skillsNeeded,message]);
+        res.status(201).json(camel(r));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── Q&A / DISCUSSION ─────────────────────────────────────────────────────────
+app.get(["/api/public/questions/:hackathonId","/public/questions/:hackathonId"], async (req,res)=>{
+    try{
+        const{rows}=await q("SELECT * FROM questions WHERE hackathon_id=$1 AND public=true ORDER BY pinned DESC,upvotes DESC,created_at DESC",
+            [req.params.hackathonId]).catch(()=>({rows:[]}));
+        res.json(rows.map(camel));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/public/questions","/public/questions"], async (req,res)=>{
+    const{hackathonId,askerName,askerEmail,question}=req.body;
+    if(!question?.trim()||!askerName?.trim())return res.status(400).json({error:"Name and question required"});
+    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    try{
+        const{rows:[r]}=await q("INSERT INTO questions(id,hackathon_id,asker_name,asker_email,question) VALUES($1,$2,$3,$4,$5) RETURNING *",
+            [id,hackathonId,askerName,askerEmail,question]);
+        res.status(201).json(camel(r));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.put(["/api/questions/:id/answer","/questions/:id/answer"], admin, async (req,res)=>{
+    const{answer,pinned}=req.body;
+    try{
+        const{rows:[r]}=await q("UPDATE questions SET answer=$1,answered_by=$2,answered_at=NOW(),pinned=COALESCE($3,pinned) WHERE id=$4 RETURNING *",
+            [answer,req.user.id,pinned,req.params.id]);
+        res.json(camel(r));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+app.post(["/api/questions/:id/upvote","/questions/:id/upvote"], async (req,res)=>{
+    try{
+        await q("UPDATE questions SET upvotes=upvotes+1 WHERE id=$1",[req.params.id]);
+        res.json({ok:true});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
     res.status(404).json({
