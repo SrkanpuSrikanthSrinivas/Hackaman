@@ -2473,97 +2473,117 @@ app.post(["/api/portal/submit","/portal/submit"], async (req,res)=>{
 // ── Judge: get assigned teams with submissions ─────────────────────────────
 app.get(["/api/judge/assigned-teams","/judge/assigned-teams"], auth, async (req,res)=>{
     const{hackathonId}=req.query;
+    if(!hackathonId) return res.status(400).json({error:"hackathonId required"});
     try{
-        // Check if this judge has specific assignments
+        // 1. Get this user's judge_id
+        const{rows:[u]}=await q("SELECT judge_id FROM users WHERE id=$1",[req.user.id]);
+        const judgeId=u?.judge_id||null;
+
+        // 2. Check for specific team assignments
         const{rows:assignments}=await q(
             "SELECT team_id FROM judge_team_assignments WHERE user_id=$1 AND hackathon_id=$2",
             [req.user.id,hackathonId]
         ).catch(()=>({rows:[]}));
+        const assignedIds=assignments.map(a=>a.team_id);
+        const isFiltered=assignedIds.length>0;
 
-        let teamsQuery;
-        const params=[hackathonId];
-
-        if(assignments.length){
-            // Only assigned teams
-            const ids=assignments.map(a=>a.team_id);
-            const placeholders=ids.map((_,i)=>`$${i+2}`).join(",");
-            params.push(...ids);
-            teamsQuery=`SELECT t.*,
-        s.id as sub_id,s.title as sub_title,s.tagline,s.description,s.problem_statement,
-        s.solution,s.tech_stack,s.github_url,s.demo_url,s.video_url,s.deck_url,
-        s.screenshots,s.track,s.status as sub_status,s.submitted_at,
-        f.id as feedback_id,f.scores,f.comments,f.overall,f.private_notes,f.submitted_at as scored_at
-        FROM teams t
-        LEFT JOIN submissions s ON s.team_id=t.id AND s.hackathon_id=$1
-        LEFT JOIN feedbacks f ON f.team_id=t.id AND f.hackathon_id=$1 AND f.judge_id=(
-          SELECT judge_id FROM users WHERE id=$2 LIMIT 1
-        )
-        WHERE t.hackathon_id=$1 AND t.id IN (${placeholders})
-        ORDER BY t.name`;
-            params.splice(1,0,req.user.id);
+        // 3. Get teams (assigned only OR all)
+        let teams;
+        if(isFiltered){
+            const{rows}=await q(
+                `SELECT * FROM teams WHERE hackathon_id=$1 AND id=ANY($2::varchar[]) ORDER BY name`,
+                [hackathonId,assignedIds]
+            );
+            teams=rows;
         }else{
-            // No specific assignments — show all (fallback for unassigned judges)
-            teamsQuery=`SELECT t.*,
-        s.id as sub_id,s.title as sub_title,s.tagline,s.description,s.problem_statement,
-        s.solution,s.tech_stack,s.github_url,s.demo_url,s.video_url,s.deck_url,
-        s.screenshots,s.track,s.status as sub_status,s.submitted_at,
-        f.id as feedback_id,f.scores,f.comments,f.overall,f.private_notes,f.submitted_at as scored_at
-        FROM teams t
-        LEFT JOIN submissions s ON s.team_id=t.id AND s.hackathon_id=$1
-        LEFT JOIN feedbacks f ON f.team_id=t.id AND f.hackathon_id=$1 AND f.judge_id=(
-          SELECT judge_id FROM users WHERE id=$2 LIMIT 1
-        )
-        WHERE t.hackathon_id=$1
-        ORDER BY t.name`;
-            params.splice(1,0,req.user.id);
+            const{rows}=await q("SELECT * FROM teams WHERE hackathon_id=$1 ORDER BY name",[hackathonId]);
+            teams=rows;
         }
 
-        const{rows:teams}=await q(teamsQuery,params);
-        const{rows:criteria}=await q("SELECT * FROM criteria WHERE hackathon_id=$1 ORDER BY weight DESC",[hackathonId]);
+        // 4. Get all submissions for this hackathon
+        const{rows:subs}=await q(
+            "SELECT * FROM submissions WHERE hackathon_id=$1",[hackathonId]
+        ).catch(()=>({rows:[]}));
+
+        // 5. Get this judge's feedback for this hackathon
+        const{rows:feedbacks}=judgeId
+        ? await q("SELECT * FROM feedbacks WHERE hackathon_id=$1 AND judge_id=$2",[hackathonId,judgeId]).catch(()=>({rows:[]}))
+        : {rows:[]};
+
+        // 6. Get criteria
+        const{rows:criteria}=await q(
+            "SELECT * FROM criteria WHERE hackathon_id=$1 ORDER BY weight DESC",[hackathonId]
+        );
+
+        // 7. Get conflicts
         const{rows:conflicts}=await q(
             "SELECT team_id FROM judge_conflicts WHERE user_id=$1 AND hackathon_id=$2",
             [req.user.id,hackathonId]
         ).catch(()=>({rows:[]}));
+        const conflictSet=new Set(conflicts.map(c=>c.team_id));
 
-        const conflictIds=new Set(conflicts.map(c=>c.team_id));
+        // 8. Merge team + submission + feedback
+        const merged=teams.map(t=>{
+            const sub=subs.find(s=>s.team_id===t.id)||null;
+            const fb =feedbacks.find(f=>f.team_id===t.id)||null;
+            return{
+                ...camel(t),
+                subId:        sub?.id||null,
+                subTitle:     sub?.title||null,
+                tagline:      sub?.tagline||null,
+                description:  sub?.description||null,
+                problemStatement: sub?.problem_statement||null,
+                solution:     sub?.solution||null,
+                techStack:    sub?.tech_stack||null,
+                githubUrl:    sub?.github_url||null,
+                demoUrl:      sub?.demo_url||null,
+                videoUrl:     sub?.video_url||null,
+                deckUrl:      sub?.deck_url||null,
+                track:        sub?.track||null,
+                subStatus:    sub?.status||null,
+                submittedAt:  sub?.submitted_at||null,
+                feedbackId:   fb?.id||null,
+                scores:       fb?.scores||{},
+                comments:     fb?.comments||{},
+                overall:      fb?.overall||"",
+                privateNotes: fb?.private_notes||"",
+                scoredAt:     fb?.submitted_at||null,
+                hasConflict:  conflictSet.has(t.id),
+            };
+        });
 
         res.json({
-            teams:teams.map(t=>({...camel(t),hasConflict:conflictIds.has(t.id)})),
+            teams:merged,
             criteria:criteria.map(camel),
-            isFiltered:assignments.length>0,
-            assignedCount:assignments.length,
+            isFiltered,
+            assignedCount:assignedIds.length,
+            judgeId,
         });
-    }catch(e){res.status(500).json({error:e.message});}
+    }catch(e){
+        console.error("judge/assigned-teams error:",e.message);
+        res.status(500).json({error:e.message});
+    }
 });
 
-// ── Save judge feedback (enhanced) ────────────────────────────────────────
+// ── Save judge feedback (enhanced)// ── Save judge feedback (enhanced) ────────────────────────────────────────
 app.post(["/api/judge/feedback","/judge/feedback"], auth, async (req,res)=>{
     const{hackathonId,teamId,scores,comments,overall,privateNotes}=req.body;
+    if(!hackathonId||!teamId) return res.status(400).json({error:"hackathonId and teamId required"});
     try{
-        // Verify this judge is assigned to this team (if assignments exist)
+        // Get judge_id
+        const{rows:[u]}=await q("SELECT judge_id FROM users WHERE id=$1",[req.user.id]);
+        const judgeId=u?.judge_id;
+        if(!judgeId) return res.status(403).json({error:"No judge profile linked to your account. Ask admin to link your user to a judge profile."});
+
+        // If this judge has assignments, verify team is assigned to them
         const{rows:assignments}=await q(
-            "SELECT 1 FROM judge_team_assignments WHERE user_id=$1 AND hackathon_id=$2",
+            "SELECT team_id FROM judge_team_assignments WHERE user_id=$1 AND hackathon_id=$2",
             [req.user.id,hackathonId]
         ).catch(()=>({rows:[]}));
-
         if(assignments.length){
-            const{rows:allowed}=await q(
-                "SELECT 1 FROM judge_team_assignments WHERE user_id=$1 AND team_id=$2 AND hackathon_id=$3",
-                [req.user.id,teamId,hackathonId]
-            );
-            if(!allowed.length) return res.status(403).json({error:"You are not assigned to evaluate this team"});
+            const isAssigned=assignments.some(a=>a.team_id===teamId);
+            if(!isAssigned) return res.status(403).json({error:"You are not assigned to evaluate this team"});
         }
-
-        // Check no conflict
-        const{rows:conflict}=await q(
-            "SELECT 1 FROM judge_conflicts WHERE user_id=$1 AND team_id=$2",
-            [req.user.id,teamId]
-        ).catch(()=>({rows:[]}));
-        if(conflict.length) return res.status(403).json({error:"You declared a conflict of interest for this team"});
-
-        const{rows:[judge]}=await q("SELECT judge_id FROM users WHERE id=$1",[req.user.id]);
-        const judgeId=judge?.judge_id;
-        if(!judgeId) return res.status(403).json({error:"No judge profile linked to your account"});
 
         // Upsert feedback
         const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
@@ -2573,8 +2593,9 @@ app.post(["/api/judge/feedback","/judge/feedback"], auth, async (req,res)=>{
       ON CONFLICT(hackathon_id,team_id,judge_id) DO UPDATE SET
         scores=$5,comments=$6,overall=$7,private_notes=$8,updated_at=NOW()
       RETURNING *`,
-            [id,hackathonId,teamId,judgeId,JSON.stringify(scores||{}),
-                JSON.stringify(comments||{}),overall||null,privateNotes||null]
+            [id,hackathonId,teamId,judgeId,
+                JSON.stringify(scores||{}),JSON.stringify(comments||{}),
+                overall||null,privateNotes||null]
         );
         res.json(camel(fb));
     }catch(e){res.status(500).json({error:e.message});}

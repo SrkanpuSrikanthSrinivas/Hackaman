@@ -441,364 +441,355 @@ export function CriteriaPage({ db, reload, toast, activeHackathon }) {
 
 /* ─── SUBMIT FEEDBACK (custom form with project metadata) ──────────────── */
 export function FeedbackPage({ db, currentUser, toast, activeHackathon, isAdmin }) {
-  const [teamData,  setTeamData]  = useState({ teams:[], criteria:[], isFiltered:false });
   const [selTeam,   setSelTeam]   = useState(null);
   const [scores,    setScores]    = useState({});
   const [comments,  setComments]  = useState({});
   const [overall,   setOverall]   = useState("");
   const [privNotes, setPrivNotes] = useState("");
   const [saving,    setSaving]    = useState(false);
+  const [myFeedback,setMyFeedback]= useState([]);  // all feedback by this judge
+  const [subs,      setSubs]      = useState([]);  // submissions for this hackathon
+  const [subTab,    setSubTab]    = useState("submission");
   const [loading,   setLoading]   = useState(false);
-  const [subTab,    setSubTab]    = useState("submission"); // submission | scoring
+  const [assignments, setAssignments] = useState(null); // null=not loaded, []=no assignments
 
-  const loadTeams = () => {
-    if (!activeHackathon) return;
-    setLoading(true);
-    GET(`/api/judge/assigned-teams?hackathonId=${activeHackathon}`)
-      .then(d => { setTeamData(d); })
-      .catch(e => toast(e.message, "error"))
-      .finally(() => setLoading(false));
-  };
+  // Load data when hackathon changes
+  useEffect(()=>{
+    if(!activeHackathon){ setSelTeam(null); return; }
+    setSelTeam(null); setLoading(true);
 
-  useEffect(() => { loadTeams(); setSelTeam(null); }, [activeHackathon]);
+    // Parallel fetches
+    Promise.all([
+      // Judge's own feedback
+      GET(`/api/feedbacks?hackathonId=${activeHackathon}`)
+        .then(d=>setMyFeedback(Array.isArray(d)?d:[]))
+        .catch(()=>setMyFeedback([])),
+      // Submissions
+      GET(`/api/public/projects/${activeHackathon}`)
+        .then(d=>setSubs(d.projects||[]))
+        .catch(()=>setSubs([])),
+      // Judge team assignments
+      GET(`/api/judge/assigned-teams?hackathonId=${activeHackathon}`)
+        .then(d=>setAssignments(d.isFiltered ? d.teams.map(t=>t.id) : []))
+        .catch(()=>setAssignments([])),
+    ]).finally(()=>setLoading(false));
+  },[activeHackathon]);
 
-  const selectTeam = team => {
-    setSelTeam(team);
-    // Pre-populate existing feedback if any
-    const fb = team.scores ? team : null;
-    setScores(fb?.scores || {});
-    setComments(fb?.comments || {});
-    setOverall(fb?.overall || "");
-    setPrivNotes(fb?.privateNotes || "");
-    setSubTab("submission");
-  };
-
-  const saveFeedback = async () => {
-    if (!selTeam) return;
-    setSaving(true);
-    try {
-      await POST("/api/judge/feedback", {
-        hackathonId: activeHackathon,
-        teamId: selTeam.id,
-        scores, comments, overall,
-        privateNotes: privNotes,
-      });
-      toast("✓ Feedback saved!");
-      loadTeams();
-    } catch(e) { toast(e.message, "error"); } finally { setSaving(false); }
-  };
-
-  const criteria    = teamData.criteria || [];
-  const teams       = teamData.teams    || [];
-  const isFiltered  = teamData.isFiltered;
+  // Filter teams based on assignments
+  const allTeams = db.teams.filter(t=>t.hackathonId===activeHackathon);
+  const teams = assignments?.length
+    ? allTeams.filter(t=>assignments.includes(t.id))
+    : allTeams;
+  const criteria = db.criteria.filter(c=>c.hackathonId===activeHackathon);
   const totalWeight = criteria.reduce((s,c)=>s+c.weight,0)||1;
 
-  const myScore = team => {
-    if (!team.scores || !Object.keys(team.scores).length) return null;
-    const ws = criteria.reduce((s,c)=>s+((team.scores[c.id]||0)/c.maxScore)*c.weight,0);
+  const selectTeam = team => {
+    const fb = myFeedback.find(f=>f.teamId===team.id);
+    setSelTeam(team);
+    setScores(fb?.scores||{});
+    setComments(fb?.comments||{});
+    setOverall(fb?.overall||"");
+    setPrivNotes(fb?.privateNotes||"");
+    const sub = subs.find(s=>s.teamId===team.id);
+    setSubTab(sub?"submission":"scoring");
+  };
+
+  const saveFeedback = async()=>{
+    if(!selTeam) return;
+    setSaving(true);
+    try{
+      // Use the new judge/feedback route
+      await POST("/api/judge/feedback",{
+        hackathonId:activeHackathon, teamId:selTeam.id,
+        scores, comments, overall, privateNotes:privNotes,
+      });
+      // Refresh feedback list
+      const updated=await GET(`/api/feedbacks?hackathonId=${activeHackathon}`);
+      setMyFeedback(Array.isArray(updated)?updated:[]);
+      toast("✓ Feedback saved!");
+    }catch(e){
+      // Fallback: try old route
+      try{
+        const judgeId=currentUser?.judgeId;
+        if(!judgeId) throw new Error("No judge profile linked. Ask admin to link your account to a judge profile in User Management.");
+        await POST("/api/feedbacks",{
+          hackathonId:activeHackathon, teamId:selTeam.id, judgeId,
+          scores, comments, overall,
+        });
+        const updated=await GET(`/api/feedbacks?hackathonId=${activeHackathon}`);
+        setMyFeedback(Array.isArray(updated)?updated:[]);
+        toast("✓ Feedback saved!");
+      }catch(e2){ toast(e2.message,"error"); }
+    }
+    setSaving(false);
+  };
+
+  const myScore = team=>{
+    const fb=myFeedback.find(f=>f.teamId===team.id);
+    if(!fb||!Object.keys(fb.scores||{}).length) return null;
+    const ws=criteria.reduce((s,c)=>s+((fb.scores[c.id]||0)/c.maxScore)*c.weight,0);
     return ((ws/totalWeight)*10).toFixed(1);
   };
 
-  // Sub-link pill style
-  const tabBtn = (id, label) => (
-    <button onClick={()=>setSubTab(id)} style={{ ...FONT, fontSize:13, fontWeight:600,
-      padding:"7px 18px", borderRadius:8, border:"none", cursor:"pointer",
+  const sub = selTeam ? subs.find(s=>s.teamId===selTeam.id)||null : null;
+  const tabBtn=(id,label)=>(
+    <button onClick={()=>setSubTab(id)} style={{...FONT,fontSize:13,fontWeight:600,
+      padding:"7px 18px",borderRadius:8,border:"none",cursor:"pointer",
       background:subTab===id?C.blue:"transparent",
-      color:subTab===id?"#fff":C.text3 }}>
+      color:subTab===id?"#fff":C.text3}}>
       {label}
     </button>
   );
 
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"280px 1fr", gap:0, height:"calc(100vh - 60px)",
-      overflow:"hidden", marginTop:-24, marginLeft:-24, marginRight:-24 }}>
+  if(!activeHackathon) return <Empty icon="📋" title="Select a hackathon" sub="Choose a hackathon from the dropdown above." />;
+
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"260px 1fr",gap:0,
+      height:"calc(100vh - 60px)",overflow:"hidden",
+      marginTop:-24,marginLeft:-24,marginRight:-24}}>
 
       {/* ── LEFT: Team list ── */}
-      <div style={{ borderRight:`1px solid ${C.border}`, overflowY:"auto", background:C.bg2 }}>
-        <div style={{ padding:"16px 14px 12px", borderBottom:`1px solid ${C.border}` }}>
-          <div style={{ ...FONT, fontSize:13, fontWeight:700, color:C.text, marginBottom:3 }}>
-            {isFiltered ? "🎯 Your Assigned Teams" : "All Teams"}
+      <div style={{borderRight:`1px solid ${C.border}`,overflowY:"auto",background:C.bg2}}>
+        <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{...FONT,fontSize:13,fontWeight:700,color:C.text,marginBottom:2}}>
+            {assignments?.length ? `🎯 Your Teams (${teams.length})` : `All Teams (${teams.length})`}
           </div>
-          {isFiltered
-            ? <div style={{ ...FONT, fontSize:11, color:C.blue }}>Showing {teams.length} assigned team{teams.length!==1?"s":""}</div>
-            : <div style={{ ...FONT, fontSize:11, color:C.text3 }}>No specific assignments — showing all</div>
+          {assignments?.length
+            ? <div style={{...FONT,fontSize:11,color:C.blue}}>Filtered to your assignments</div>
+            : <div style={{...FONT,fontSize:11,color:C.text3}}>Showing all teams</div>
           }
         </div>
 
-        {loading && <div style={{ ...FONT, fontSize:13, color:C.text3, padding:20, textAlign:"center" }}><Spinner/></div>}
+        {loading && <div style={{...FONT,fontSize:13,color:C.text3,padding:20,textAlign:"center"}}><Spinner/> Loading…</div>}
 
-        {teams.map(team => {
+        {!loading && teams.length===0 && (
+          <div style={{padding:"16px 14px"}}>
+            <div style={{...FONT,fontSize:13,color:C.text3,marginBottom:6}}>No teams found</div>
+            <div style={{...FONT,fontSize:11,color:C.text3,lineHeight:1.6}}>
+              {allTeams.length===0
+                ? "No teams added to this hackathon yet."
+                : "No teams assigned to you. Ask your admin."}
+            </div>
+          </div>
+        )}
+
+        {teams.map(team=>{
           const score  = myScore(team);
-          const scored = !!team.feedbackId;
-          const hasSub = !!team.subId;
-          const isSel  = selTeam?.id === team.id;
-
-          return (
-            <div key={team.id} onClick={()=>!team.hasConflict&&selectTeam(team)}
-              style={{ padding:"12px 14px", cursor:team.hasConflict?"not-allowed":"pointer",
+          const scored = !!myFeedback.find(f=>f.teamId===team.id);
+          const hasSub = !!subs.find(s=>s.teamId===team.id);
+          const isSel  = selTeam?.id===team.id;
+          return(
+            <div key={team.id} onClick={()=>selectTeam(team)}
+              style={{padding:"11px 14px",cursor:"pointer",
                 borderBottom:`1px solid ${C.border}`,
-                background:isSel?C.bgBlue:team.hasConflict?"rgba(239,68,68,0.04)":"transparent",
                 borderLeft:`3px solid ${isSel?C.blue:scored?"#10b981":"transparent"}`,
-                opacity:team.hasConflict?0.5:1, transition:"all 0.15s" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                <div style={{ ...FONT, fontSize:13, fontWeight:600, color:isSel?C.blue:C.text, flex:1 }}>
-                  {team.name}
-                </div>
-                {score && <span style={{ ...MONO, fontSize:13, fontWeight:700,
-                  color:C.green, flexShrink:0, marginLeft:8 }}>{score}</span>}
+                background:isSel?C.bgBlue:"transparent",transition:"all 0.12s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:3}}>
+                <div style={{...FONT,fontSize:13,fontWeight:600,color:isSel?C.blue:C.text,flex:1}}>{team.name}</div>
+                {score&&<span style={{...MONO,fontSize:13,fontWeight:700,color:C.green,flexShrink:0,marginLeft:8}}>{score}</span>}
               </div>
-              <div style={{ ...FONT, fontSize:11, color:C.text3 }}>
-                {team.project||team.category||"No project name"}
-              </div>
-              <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
-                {hasSub && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:9999,
-                  background:"rgba(16,185,129,0.1)", color:C.green }}>📦 Has submission</span>}
-                {scored  && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:9999,
-                  background:"rgba(99,102,241,0.1)", color:C.blue }}>✓ Scored</span>}
-                {team.hasConflict && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:9999,
-                  background:"rgba(239,68,68,0.1)", color:C.red }}>⚡ Conflict</span>}
+              <div style={{...FONT,fontSize:11,color:C.text3,marginBottom:4}}>{team.project||team.category||"—"}</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {hasSub&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:9999,background:"rgba(16,185,129,0.1)",color:C.green}}>📦 Submitted</span>}
+                {scored &&<span style={{fontSize:10,padding:"1px 6px",borderRadius:9999,background:C.bgBlue,color:C.blue}}>✓ Scored</span>}
               </div>
             </div>
           );
         })}
-
-        {!loading && teams.length === 0 && (
-          <div style={{ ...FONT, fontSize:13, color:C.text3, padding:24, textAlign:"center" }}>
-            {!activeHackathon ? "Select a hackathon" : "No teams assigned"}
-          </div>
-        )}
       </div>
 
       {/* ── RIGHT: Submission + Scoring ── */}
-      <div style={{ overflowY:"auto", padding:"20px 24px" }}>
-        {!selTeam ? (
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-            height:"100%", color:C.text3, textAlign:"center" }}>
-            <div style={{ fontSize:56, marginBottom:16 }}>👈</div>
-            <div style={{ ...FONT, fontSize:16, fontWeight:600, color:C.text, marginBottom:8 }}>
-              Select a team to begin
+      <div style={{overflowY:"auto",padding:"20px 24px"}}>
+        {!selTeam?(
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",
+            justifyContent:"center",height:"100%",textAlign:"center"}}>
+            <div style={{fontSize:52,marginBottom:12}}>👈</div>
+            <div style={{...FONT,fontSize:16,fontWeight:600,color:C.text,marginBottom:6}}>Select a team to begin</div>
+            <div style={{...FONT,fontSize:13,color:C.text3}}>
+              Choose a team from the left to view their submission and score them.
             </div>
-            <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
-              {isFiltered
-                ? "Your assigned teams are shown on the left"
-                : "All teams are shown — contact your organizer if you need specific assignments"}
-            </div>
+            {criteria.length===0&&activeHackathon&&(
+              <div style={{marginTop:16,padding:"12px 16px",background:C.bgAmber,
+                border:`1px solid ${C.bdAmber}`,borderRadius:R.md,fontSize:13,...FONT,color:C.amber}}>
+                ⚠ No judging criteria set up. Ask admin to add criteria in the Criteria page.
+              </div>
+            )}
           </div>
-        ) : (
+        ):(
           <div>
-            {/* Team header */}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
               <div>
-                <h2 style={{ ...FONT, fontSize:20, fontWeight:800, color:C.text, marginBottom:3 }}>{selTeam.name}</h2>
-                <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
-                  {[selTeam.project, selTeam.category].filter(Boolean).join(" · ")}
+                <h2 style={{...FONT,fontSize:19,fontWeight:800,color:C.text,marginBottom:3}}>{selTeam.name}</h2>
+                <div style={{...FONT,fontSize:13,color:C.text3}}>
+                  {[selTeam.project,selTeam.category].filter(Boolean).join(" · ")||"—"}
                 </div>
               </div>
-              {myScore(selTeam) && (
-                <div style={{ textAlign:"center", background:C.bgGreen, border:`1px solid ${C.bdGreen}`,
-                  borderRadius:12, padding:"10px 18px" }}>
-                  <div style={{ ...MONO, fontSize:24, fontWeight:800, color:C.green }}>{myScore(selTeam)}</div>
-                  <div style={{ ...FONT, fontSize:11, color:C.green }}>Your score</div>
+              {myScore(selTeam)&&(
+                <div style={{textAlign:"center",background:C.bgGreen,border:`1px solid ${C.bdGreen}`,
+                  borderRadius:12,padding:"10px 16px"}}>
+                  <div style={{...MONO,fontSize:22,fontWeight:800,color:C.green}}>{myScore(selTeam)}</div>
+                  <div style={{...FONT,fontSize:11,color:C.green}}>Your score</div>
                 </div>
               )}
             </div>
 
-            {/* Tab switcher */}
-            <div style={{ display:"flex", gap:2, background:C.bg3, borderRadius:10, padding:3,
-              marginBottom:20, width:"fit-content" }}>
-              {tabBtn("submission", "📦 Submission")}
-              {tabBtn("scoring",    "⭐ Score & Feedback")}
+            {/* Tabs */}
+            <div style={{display:"flex",gap:2,background:C.bg3,borderRadius:10,padding:3,
+              marginBottom:18,width:"fit-content"}}>
+              {tabBtn("submission","📦 Submission")}
+              {tabBtn("scoring","⭐ Score & Feedback")}
             </div>
 
-            {/* ── SUBMISSION TAB ── */}
-            {subTab==="submission" && (
-              <div>
-                {selTeam.subId ? (
-                  <div>
-                    <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
-                      {selTeam.githubUrl && <a href={selTeam.githubUrl} target="_blank" rel="noopener"
-                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
-                          background:"#24292e", color:"#fff", textDecoration:"none" }}>GitHub →</a>}
-                      {selTeam.demoUrl   && <a href={selTeam.demoUrl}   target="_blank" rel="noopener"
-                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
-                          background:"#10b981", color:"#fff", textDecoration:"none" }}>Live Demo →</a>}
-                      {selTeam.videoUrl  && <a href={selTeam.videoUrl}  target="_blank" rel="noopener"
-                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
-                          background:"#4f46e5", color:"#fff", textDecoration:"none" }}>Watch Video →</a>}
-                      {selTeam.deckUrl   && <a href={selTeam.deckUrl}   target="_blank" rel="noopener"
-                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
-                          background:"#f59e0b", color:"#fff", textDecoration:"none" }}>Pitch Deck →</a>}
-                    </div>
-
-                    {selTeam.subTitle && (
-                      <Card style={{ marginBottom:14 }}>
-                        <div style={{ ...FONT, fontSize:17, fontWeight:700, color:C.text, marginBottom:5 }}>{selTeam.subTitle}</div>
-                        {selTeam.tagline && <div style={{ ...FONT, fontSize:14, color:C.text3, fontStyle:"italic", marginBottom:12 }}>{selTeam.tagline}</div>}
-                        {selTeam.track  && <Chip label={selTeam.track} color="blue" />}
-                      </Card>
-                    )}
-
-                    {selTeam.problemStatement && (
-                      <Card style={{ marginBottom:12 }}>
-                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
-                          letterSpacing:"0.08em", marginBottom:8 }}>Problem Statement</div>
-                        <div style={{ ...FONT, fontSize:14, color:C.text2, lineHeight:1.75 }}>{selTeam.problemStatement}</div>
-                      </Card>
-                    )}
-
-                    {selTeam.solution && (
-                      <Card style={{ marginBottom:12 }}>
-                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
-                          letterSpacing:"0.08em", marginBottom:8 }}>Solution</div>
-                        <div style={{ ...FONT, fontSize:14, color:C.text2, lineHeight:1.75 }}>{selTeam.solution}</div>
-                      </Card>
-                    )}
-
-                    {selTeam.description && (
-                      <Card style={{ marginBottom:12 }}>
-                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
-                          letterSpacing:"0.08em", marginBottom:8 }}>Description</div>
-                        <div style={{ ...FONT, fontSize:14, color:C.text2, lineHeight:1.75 }}>{selTeam.description}</div>
-                      </Card>
-                    )}
-
-                    {selTeam.techStack && (
-                      <Card style={{ marginBottom:12 }}>
-                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
-                          letterSpacing:"0.08em", marginBottom:8 }}>Tech Stack</div>
-                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                          {selTeam.techStack.split(",").map(t=>t.trim()).filter(Boolean).map(t=>(
-                            <span key={t} style={{ ...FONT, fontSize:12, padding:"3px 10px", borderRadius:9999,
-                              background:C.bgBlue, color:C.blue }}>{t}</span>
-                          ))}
-                        </div>
-                      </Card>
-                    )}
-
-                    {selTeam.members && (
-                      <Card>
-                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
-                          letterSpacing:"0.08em", marginBottom:8 }}>Team Members</div>
-                        <div style={{ ...FONT, fontSize:14, color:C.text2 }}>{selTeam.members}</div>
-                      </Card>
-                    )}
-
-                    <div style={{ marginTop:16 }}>
-                      <Btn onClick={()=>setSubTab("scoring")}>
-                        ⭐ Score This Team →
-                      </Btn>
-                    </div>
+            {/* SUBMISSION TAB */}
+            {subTab==="submission"&&(
+              sub?(
+                <div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                    {sub.githubUrl&&<a href={sub.githubUrl} target="_blank" rel="noopener"
+                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
+                        background:"#24292e",color:"#fff",textDecoration:"none"}}>GitHub →</a>}
+                    {sub.demoUrl&&<a href={sub.demoUrl} target="_blank" rel="noopener"
+                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
+                        background:C.green,color:"#fff",textDecoration:"none"}}>Live Demo →</a>}
+                    {sub.videoUrl&&<a href={sub.videoUrl} target="_blank" rel="noopener"
+                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
+                        background:C.blue,color:"#fff",textDecoration:"none"}}>Video →</a>}
+                    {sub.deckUrl&&<a href={sub.deckUrl} target="_blank" rel="noopener"
+                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
+                        background:C.amber,color:"#fff",textDecoration:"none"}}>Deck →</a>}
                   </div>
-                ) : (
-                  <Card style={{ textAlign:"center", padding:"40px 24px" }}>
-                    <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
-                    <div style={{ ...FONT, fontSize:15, fontWeight:600, color:C.text, marginBottom:8 }}>No submission yet</div>
-                    <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
-                      This team hasn't submitted their project. You can still score them based on their presentation.
-                    </div>
-                    <div style={{ marginTop:16 }}>
-                      <Btn onClick={()=>setSubTab("scoring")}>Score Anyway →</Btn>
-                    </div>
-                  </Card>
-                )}
-              </div>
+
+                  {[
+                    {label:"Project",         val:sub.title},
+                    {label:"Tagline",         val:sub.tagline},
+                    {label:"Problem",         val:sub.problemStatement},
+                    {label:"Solution",        val:sub.solution},
+                    {label:"Description",     val:sub.description},
+                  ].filter(r=>r.val).map(r=>(
+                    <Card key={r.label} style={{marginBottom:10}}>
+                      <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                        textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>{r.label}</div>
+                      <div style={{...FONT,fontSize:14,color:C.text2,lineHeight:1.75}}>{r.val}</div>
+                    </Card>
+                  ))}
+
+                  {sub.techStack&&(
+                    <Card style={{marginBottom:10}}>
+                      <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                        textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Tech Stack</div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        {sub.techStack.split(",").map(t=>t.trim()).filter(Boolean).map(t=>(
+                          <span key={t} style={{...FONT,fontSize:12,padding:"3px 10px",
+                            borderRadius:9999,background:C.bgBlue,color:C.blue}}>{t}</span>
+                        ))}
+                      </div>
+                    </Card>
+                  )}
+
+                  {selTeam.members&&(
+                    <Card>
+                      <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                        textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Members</div>
+                      <div style={{...FONT,fontSize:14,color:C.text2}}>{selTeam.members}</div>
+                    </Card>
+                  )}
+
+                  <div style={{marginTop:14}}>
+                    <Btn onClick={()=>setSubTab("scoring")}>⭐ Score this team →</Btn>
+                  </div>
+                </div>
+              ):(
+                <Card style={{textAlign:"center",padding:"40px 24px"}}>
+                  <div style={{fontSize:40,marginBottom:10}}>📭</div>
+                  <div style={{...FONT,fontSize:15,fontWeight:600,color:C.text,marginBottom:8}}>No project submitted yet</div>
+                  <div style={{...FONT,fontSize:13,color:C.text3,marginBottom:16}}>
+                    This team hasn't submitted their project. You can still score them.
+                  </div>
+                  <Btn onClick={()=>setSubTab("scoring")}>Score anyway →</Btn>
+                </Card>
+              )
             )}
 
-            {/* ── SCORING TAB ── */}
-            {subTab==="scoring" && (
-              <div>
-                {criteria.length === 0 ? (
-                  <Card style={{ textAlign:"center", padding:32 }}>
-                    <div style={{ fontSize:32, marginBottom:10 }}>⚙</div>
-                    <div style={{ ...FONT, fontSize:14, color:C.text3 }}>No criteria set up. Ask your admin to add judging criteria.</div>
+            {/* SCORING TAB */}
+            {subTab==="scoring"&&(
+              criteria.length===0?(
+                <Card style={{textAlign:"center",padding:32}}>
+                  <div style={{fontSize:32,marginBottom:10}}>⚙</div>
+                  <div style={{...FONT,fontSize:14,color:C.text3}}>
+                    No judging criteria set up. Ask admin to add criteria in the <strong>Criteria</strong> page.
+                  </div>
+                </Card>
+              ):(
+                <>
+                  {criteria.map(c=>(
+                    <Card key={c.id} style={{marginBottom:12}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                        <div style={{flex:1}}>
+                          <div style={{...FONT,fontSize:14,fontWeight:700,color:C.text,marginBottom:2}}>{c.name}</div>
+                          {c.description&&<div style={{...FONT,fontSize:12,color:C.text3}}>{c.description}</div>}
+                          <div style={{...FONT,fontSize:11,color:C.text3,marginTop:2}}>Weight: {c.weight}%</div>
+                        </div>
+                        <div style={{textAlign:"center",minWidth:72}}>
+                          <div style={{...MONO,fontSize:28,fontWeight:800,
+                            color:(scores[c.id]||0)>0?C.blue:C.text3}}>
+                            {scores[c.id]||0}
+                          </div>
+                          <div style={{...FONT,fontSize:11,color:C.text3}}>/ {c.maxScore}</div>
+                        </div>
+                      </div>
+
+                      {/* Quick score buttons */}
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
+                        {Array.from({length:c.maxScore+1},(_,i)=>i).map(v=>(
+                          <button key={v} onClick={()=>setScores(s=>({...s,[c.id]:v}))}
+                            style={{...FONT,fontSize:12,fontWeight:600,width:34,height:28,
+                              borderRadius:6,border:"none",cursor:"pointer",transition:"all 0.1s",
+                              background:(scores[c.id]||0)===v?C.blue:C.bg3,
+                              color:(scores[c.id]||0)===v?"#fff":C.text3}}>{v}
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea value={comments[c.id]||""} onChange={e=>setComments(cs=>({...cs,[c.id]:e.target.value}))}
+                        placeholder={`Comments on ${c.name}…`}
+                        style={{...FONT,width:"100%",padding:"8px 12px",borderRadius:8,
+                          border:`1px solid ${C.border2}`,background:C.bg,fontSize:13,
+                          color:C.text,resize:"vertical",minHeight:56}}/>
+                    </Card>
+                  ))}
+
+                  <Card style={{marginBottom:12}}>
+                    <div style={{...FONT,fontSize:13,fontWeight:700,color:C.text,marginBottom:8}}>Overall Feedback</div>
+                    <textarea value={overall} onChange={e=>setOverall(e.target.value)}
+                      placeholder="Overall assessment of this team and their project…"
+                      style={{...FONT,width:"100%",padding:"10px 14px",borderRadius:10,
+                        border:`1px solid ${C.border2}`,background:C.bg,fontSize:14,
+                        color:C.text,resize:"vertical",minHeight:90}}/>
                   </Card>
-                ) : (
-                  <>
-                    {criteria.map(c => (
-                      <Card key={c.id} style={{ marginBottom:12 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                          <div style={{ flex:1 }}>
-                            <div style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{c.name}</div>
-                            {c.description && <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{c.description}</div>}
-                            <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:2 }}>Weight: {c.weight}%</div>
-                          </div>
-                          <div style={{ textAlign:"center", minWidth:80 }}>
-                            <div style={{ ...MONO, fontSize:28, fontWeight:800,
-                              color:scores[c.id]>0?C.blue:C.text3 }}>
-                              {scores[c.id]||0}
-                            </div>
-                            <div style={{ ...FONT, fontSize:11, color:C.text3 }}>/ {c.maxScore}</div>
-                          </div>
-                        </div>
 
-                        {/* Score slider */}
-                        <div style={{ marginBottom:12 }}>
-                          <input type="range" min="0" max={c.maxScore} value={scores[c.id]||0}
-                            onChange={e=>setScores(s=>({...s,[c.id]:+e.target.value}))}
-                            style={{ width:"100%", accentColor:C.blue }} />
-                          <div style={{ display:"flex", justifyContent:"space-between" }}>
-                            <span style={{ ...FONT, fontSize:10, color:C.text3 }}>0</span>
-                            <span style={{ ...FONT, fontSize:10, color:C.text3 }}>{c.maxScore}</span>
-                          </div>
-                        </div>
+                  <Card style={{marginBottom:20,background:C.bg3,border:`1px dashed ${C.border2}`}}>
+                    <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,marginBottom:6,
+                      textTransform:"uppercase",letterSpacing:"0.06em"}}>🔒 Private Notes (only you see this)</div>
+                    <textarea value={privNotes} onChange={e=>setPrivNotes(e.target.value)}
+                      placeholder="Your private thoughts or reminders…"
+                      style={{...FONT,width:"100%",padding:"8px 12px",borderRadius:8,
+                        border:`1px solid ${C.border}`,background:C.bg2,fontSize:13,
+                        color:C.text,resize:"vertical",minHeight:52}}/>
+                  </Card>
 
-                        {/* Score buttons for quick input */}
-                        <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
-                          {Array.from({length:c.maxScore+1},(_,i)=>i).map(v=>(
-                            <button key={v} onClick={()=>setScores(s=>({...s,[c.id]:v}))}
-                              style={{ ...FONT, fontSize:12, fontWeight:600, width:32, height:28,
-                                borderRadius:6, border:"none", cursor:"pointer", transition:"all 0.1s",
-                                background:scores[c.id]===v?C.blue:C.bg3,
-                                color:scores[c.id]===v?"#fff":C.text3 }}>{v}</button>
-                          ))}
-                        </div>
-
-                        <textarea value={comments[c.id]||""} onChange={e=>setComments(cs=>({...cs,[c.id]:e.target.value}))}
-                          placeholder={`Comments on ${c.name}…`}
-                          style={{ ...FONT, width:"100%", padding:"8px 12px", borderRadius:8,
-                            border:`1px solid ${C.border2}`, background:C.bg, fontSize:13,
-                            color:C.text, resize:"vertical", minHeight:60 }} />
-                      </Card>
-                    ))}
-
-                    {/* Overall */}
-                    <Card style={{ marginBottom:14 }}>
-                      <div style={{ ...FONT, fontSize:13, fontWeight:700, color:C.text, marginBottom:8 }}>
-                        Overall Feedback
-                      </div>
-                      <textarea value={overall} onChange={e=>setOverall(e.target.value)}
-                        placeholder="Summarize your overall assessment of this team's project…"
-                        style={{ ...FONT, width:"100%", padding:"10px 14px", borderRadius:10,
-                          border:`1px solid ${C.border2}`, background:C.bg, fontSize:14,
-                          color:C.text, resize:"vertical", minHeight:100 }} />
-                    </Card>
-
-                    <Card style={{ marginBottom:20, background:C.bg3, border:`1px dashed ${C.border2}` }}>
-                      <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, marginBottom:6,
-                        textTransform:"uppercase", letterSpacing:"0.06em" }}>🔒 Private Notes (only you can see this)</div>
-                      <textarea value={privNotes} onChange={e=>setPrivNotes(e.target.value)}
-                        placeholder="Private thoughts, concerns, or reminders for yourself…"
-                        style={{ ...FONT, width:"100%", padding:"8px 12px", borderRadius:8,
-                          border:`1px solid ${C.border}`, background:C.bg2, fontSize:13,
-                          color:C.text, resize:"vertical", minHeight:60 }} />
-                    </Card>
-
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                      <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
-                        Weighted score: <strong style={{ color:C.text }}>
-                          {criteria.length
-                            ? ((criteria.reduce((s,c)=>s+((scores[c.id]||0)/c.maxScore)*c.weight,0)/totalWeight)*10).toFixed(1)
-                            : "—"}
-                          /10
-                        </strong>
-                      </div>
-                      <Btn onClick={saveFeedback} disabled={saving}>
-                        {saving ? <><Spinner/> Saving…</> : "💾 Save Feedback"}
-                      </Btn>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{...FONT,fontSize:13,color:C.text3}}>
+                      Weighted score: <strong style={{color:C.text,fontSize:15}}>
+                        {((criteria.reduce((s,c)=>s+((scores[c.id]||0)/c.maxScore)*c.weight,0)/totalWeight)*10).toFixed(1)}/10
+                      </strong>
                     </div>
-                  </>
-                )}
-              </div>
+                    <Btn onClick={saveFeedback} disabled={saving}>
+                      {saving?<><Spinner/> Saving…</>:"💾 Save Feedback"}
+                    </Btn>
+                  </div>
+                </>
+              )
             )}
           </div>
         )}
