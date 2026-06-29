@@ -550,7 +550,7 @@ function AppShell() {
   // Reload data whenever user logs in
   useEffect(() => { if (currentUser) reload(); }, [currentUser]);
 
-  if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setPage(u.role==="admin"?"dashboard":"feedback"); }} />;
+  if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setPage(u.role==="admin"?"dashboard":u.role==="team"?"team-home":"feedback"); }} />;
 
   const isAdmin = currentUser.role === "admin";
 
@@ -723,7 +723,7 @@ function AppShell() {
         {page==="email-center" && isAdmin &&   <EmailCenterPage   {...props} db={db} currentUser={currentUser} />}
         {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
         {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
-        {(page==="team-home"||page==="team-submit") && isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}
+        {isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
