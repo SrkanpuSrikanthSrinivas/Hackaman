@@ -2398,6 +2398,455 @@ export function QAAdminPage({ db, toast, activeHackathon }) {
 }
 
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TEAM EXCEL IMPORT PAGE
+   Uses SheetJS (xlsx) — already in the React bundle
+══════════════════════════════════════════════════════════════════════════ */
+export function TeamImportPage({ db, toast, activeHackathon }) {
+  const [step,       setStep]      = useState(1);   // 1=upload 2=preview 3=done
+  const [fileName,   setFileName]  = useState("");
+  const [rawRows,    setRawRows]   = useState([]);
+  const [teams,      setTeams]     = useState([]);
+  const [importing,  setImporting] = useState(false);
+  const [result,     setResult]    = useState(null);
+  const [mode,       setMode]      = useState("skip");
+  const [dragOver,   setDragOver]  = useState(false);
+  const fileRef  = useRef(null);
+  const hack     = db.hackathons.find(h => h.id === activeHackathon);
+
+  // ── Download template ─────────────────────────────────────────────────────
+  const downloadTemplate = () => {
+    // Use SheetJS if available, otherwise CSV fallback
+    const rows = [
+      ["Team Name *", "Project Name", "Track / Category", "Member Name *", "Member Email", "Member Role"],
+      ["Team Alpha",  "AI Health Scanner", "AI/ML",       "Alice Johnson",  "alice@example.com", "Team Lead"],
+      ["Team Alpha",  "",                  "",             "Bob Chen",       "bob@example.com",   "Backend Dev"],
+      ["Team Alpha",  "",                  "",             "Carol Smith",    "carol@example.com", "UI Designer"],
+      ["Team Beta",   "GreenGrid",         "Sustainability","Dave Kumar",    "dave@example.com",  "Full Stack"],
+      ["Team Beta",   "",                  "",             "Eve Martinez",   "eve@example.com",   "Data Scientist"],
+      ["Team Gamma",  "SecureVault",       "Security",     "Frank Lee",      "frank@example.com", "Security Engineer"],
+    ];
+
+    if (window.XLSX) {
+      const ws = window.XLSX.utils.aoa_to_sheet(rows);
+      // Style header row
+      ws["!cols"] = [20,22,18,20,26,18].map(w=>({wch:w}));
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, "Teams & Members");
+      // Instructions sheet
+      const inst = window.XLSX.utils.aoa_to_sheet([
+        ["HackFest Hub — Team Import Template"],
+        [""],
+        ["INSTRUCTIONS:"],
+        ["1. Fill one row per team member"],
+        ["2. Repeat the Team Name for each member of the same team"],
+        ["3. Only enter Project Name and Track in the FIRST row of each team"],
+        ["4. Team Name and Member Name are required (marked with *)"],
+        ["5. Delete these example rows before uploading"],
+        ["6. Save as .xlsx or .csv"],
+        [""],
+        ["COLUMNS:"],
+        ["Team Name *",   "Required. All rows for the same team must have identical team names"],
+        ["Project Name",  "Optional. Enter only on the first row of each team"],
+        ["Track / Category", "Optional. e.g. AI/ML, Sustainability, Security"],
+        ["Member Name *", "Required. Full name of the team member"],
+        ["Member Email",  "Optional but recommended. Used to link participant accounts"],
+        ["Member Role",   "Optional. e.g. Team Lead, Backend Dev, UI Designer"],
+      ]);
+      inst["!cols"] = [{wch:24},{wch:60}];
+      window.XLSX.utils.book_append_sheet(wb, inst, "Instructions");
+      window.XLSX.writeFile(wb, "hackfesthub-team-template.xlsx");
+    } else {
+      // CSV fallback
+      const csv = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type:"text/csv" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+      a.download = "hackfesthub-team-template.csv"; a.click();
+    }
+    toast("Template downloaded!");
+  };
+
+  // ── Parse uploaded file ───────────────────────────────────────────────────
+  const parseFile = file => {
+    if (!file) return;
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        let rows = [];
+
+        if (file.name.endsWith(".csv")) {
+          // Parse CSV
+          const text = e.target.result;
+          rows = text.split("\n").map(line =>
+            line.split(",").map(c => c.replace(/^"|"$/g,"").trim())
+          ).filter(r => r.some(c => c));
+        } else if (window.XLSX) {
+          // Parse XLSX using SheetJS
+          const data = new Uint8Array(e.target.result);
+          const wb   = window.XLSX.read(data, { type:"array" });
+          const ws   = wb.Sheets[wb.SheetNames[0]];
+          rows       = window.XLSX.utils.sheet_to_json(ws, { header:1, defval:"" });
+        } else {
+          toast("SheetJS not loaded. Please use a CSV file.", "error");
+          return;
+        }
+
+        // Find header row (look for "Team Name" in first 3 rows)
+        let headerIdx = -1;
+        for (let i = 0; i < Math.min(rows.length, 5); i++) {
+          const r = rows[i].map(c => String(c).toLowerCase());
+          if (r.some(c => c.includes("team"))) { headerIdx = i; break; }
+        }
+        if (headerIdx < 0) { toast("Could not find header row. Make sure first column is 'Team Name'.", "error"); return; }
+
+        const headers = rows[headerIdx].map(c => String(c).toLowerCase().trim());
+        const dataRows = rows.slice(headerIdx + 1).filter(r => r.some(c => String(c).trim()));
+
+        // Map columns flexibly
+        const col = name => {
+          const idx = headers.findIndex(h =>
+            h.includes(name) || (name==="team" && h.includes("team name")) ||
+            (name==="project" && (h.includes("project") || h.includes("submission"))) ||
+            (name==="category" && (h.includes("track") || h.includes("category") || h.includes("theme"))) ||
+            (name==="mname" && (h.includes("member name") || (h.includes("member") && h.includes("name")))) ||
+            (name==="memail" && (h.includes("member email") || (h.includes("member") && h.includes("email")))) ||
+            (name==="mrole" && (h.includes("role") || h.includes("position")))
+          );
+          return idx;
+        };
+
+        const colTeam  = col("team");
+        const colProj  = col("project");
+        const colCat   = col("category");
+        const colMName = col("mname");
+        const colMEmail= col("memail");
+        const colMRole = col("mrole");
+
+        if (colTeam < 0) { toast("Could not find 'Team Name' column.", "error"); return; }
+        if (colMName < 0) { toast("Could not find 'Member Name' column.", "error"); return; }
+
+        // Group rows by team name
+        const teamMap = new Map();
+        let   rowErrors = [];
+
+        dataRows.forEach((row, i) => {
+          const teamName = String(row[colTeam]||"").trim();
+          if (!teamName) return; // skip blank team rows
+
+          if (!teamMap.has(teamName)) {
+            teamMap.set(teamName, {
+              name: teamName,
+              project:  colProj  >= 0 ? String(row[colProj]||"").trim()  : "",
+              category: colCat   >= 0 ? String(row[colCat]||"").trim()   : "",
+              members:  [],
+              rowStart: headerIdx + i + 2,
+            });
+          } else if (colProj >= 0 && !teamMap.get(teamName).project) {
+            // Pick up project name from any row that has it
+            const proj = String(row[colProj]||"").trim();
+            if (proj) teamMap.get(teamName).project = proj;
+          }
+
+          const memberName = String(row[colMName]||"").trim();
+          if (!memberName) { rowErrors.push(`Row ${headerIdx+i+2}: missing member name (team: ${teamName})`); return; }
+
+          teamMap.get(teamName).members.push({
+            name:  memberName,
+            email: colMEmail >= 0 ? String(row[colMEmail]||"").trim() : "",
+            role:  colMRole  >= 0 ? String(row[colMRole]||"").trim()  : "",
+          });
+        });
+
+        const parsed = Array.from(teamMap.values());
+        setRawRows(dataRows);
+        setTeams(parsed);
+        setStep(2);
+        if (rowErrors.length) toast(`Parsed with ${rowErrors.length} warning(s)`, "error");
+        else toast(`✓ Found ${parsed.length} team${parsed.length!==1?"s":""} with ${dataRows.length} member rows`);
+
+      } catch(err) {
+        toast(`Parse error: ${err.message}`, "error");
+      }
+    };
+
+    if (file.name.endsWith(".csv")) reader.readAsText(file);
+    else reader.readAsArrayBuffer(file);
+  };
+
+  const handleFile = e => parseFile(e.target.files[0]);
+  const handleDrop = e => {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) parseFile(file);
+  };
+
+  // ── Import teams ──────────────────────────────────────────────────────────
+  const runImport = async () => {
+    if (!activeHackathon) { toast("Select a hackathon first", "error"); return; }
+    setImporting(true);
+    try {
+      const r = await POST("/api/teams/bulk-import", { hackathonId: activeHackathon, teams, mode });
+      setResult(r);
+      setStep(3);
+      if (r.created || r.updated) toast(`✓ Import complete — ${r.created} created, ${r.updated} updated`);
+      else toast("Import complete — no new teams added", "error");
+    } catch(e) { toast(e.message, "error"); } finally { setImporting(false); }
+  };
+
+  const reset = () => { setStep(1); setTeams([]); setRawRows([]); setFileName(""); setResult(null); if(fileRef.current) fileRef.current.value=""; };
+
+  // ── Total members across all teams
+  const totalMembers = teams.reduce((s,t)=>s+t.members.length, 0);
+
+  // ── RENDER ────────────────────────────────────────────────────────────────
+  return (
+    <div>
+      <SectionHeader title="Import Teams from Excel"
+        action={<Btn variant="secondary" onClick={downloadTemplate}>⬇ Download Template</Btn>}
+      />
+
+      {/* Hackathon selector warning */}
+      {!activeHackathon && (
+        <div style={{...FONT,padding:"12px 16px",background:C.bgAmber,border:`1px solid ${C.bdAmber}`,
+          borderRadius:R.md,fontSize:13,color:C.amber,marginBottom:16}}>
+          ⚠ Select a hackathon from the top dropdown before importing.
+        </div>
+      )}
+
+      {/* ── Step indicator ── */}
+      <div style={{display:"flex",gap:0,marginBottom:24}}>
+        {[{n:1,l:"Upload File"},{n:2,l:"Preview & Validate"},{n:3,l:"Done"}].map((s,i)=>(
+          <div key={s.n} style={{display:"flex",alignItems:"center",flex:1}}>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
+              <div style={{width:32,height:32,borderRadius:"50%",display:"flex",alignItems:"center",
+                justifyContent:"center",fontSize:14,fontWeight:700,
+                background:step>=s.n?C.blue:C.bg3,
+                color:step>=s.n?"#fff":C.text3,
+                border:`2px solid ${step>=s.n?C.blue:C.border}`,
+                transition:"all 0.2s"}}>
+                {step>s.n?"✓":s.n}
+              </div>
+              <div style={{...FONT,fontSize:11,color:step>=s.n?C.blue:C.text3,marginTop:5,fontWeight:step===s.n?600:400}}>
+                {s.l}
+              </div>
+            </div>
+            {i<2&&<div style={{flex:1,height:2,background:step>s.n?C.blue:C.border,marginBottom:18,transition:"background 0.3s"}}/>}
+          </div>
+        ))}
+      </div>
+
+      {/* ── STEP 1: Upload ── */}
+      {step===1&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+          {/* Drop zone */}
+          <Card style={{padding:0}}>
+            <div
+              onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+              onDragLeave={()=>setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={()=>fileRef.current?.click()}
+              style={{padding:"48px 32px",textAlign:"center",cursor:"pointer",borderRadius:R.md,
+                border:`2px dashed ${dragOver?C.blue:C.border2}`,
+                background:dragOver?C.bgBlue:"transparent",
+                transition:"all 0.2s"}}>
+              <div style={{fontSize:48,marginBottom:12}}>📊</div>
+              <div style={{...FONT,fontSize:15,fontWeight:600,color:C.text,marginBottom:6}}>
+                {dragOver?"Drop it!":"Drop your Excel or CSV file here"}
+              </div>
+              <div style={{...FONT,fontSize:13,color:C.text3,marginBottom:16}}>or click to browse</div>
+              <Chip label=".xlsx supported" color="blue" />
+              <span style={{margin:"0 6px"}}/>
+              <Chip label=".csv supported" color="neutral" />
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile}
+                style={{display:"none"}} />
+            </div>
+          </Card>
+
+          {/* Instructions */}
+          <div>
+            <Card style={{marginBottom:12}}>
+              <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>
+                📋 Expected format
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                  <thead>
+                    <tr style={{background:C.bg3}}>
+                      {["Team Name *","Project Name","Track","Member Name *","Email","Role"].map(h=>(
+                        <th key={h} style={{...FONT,padding:"6px 8px",textAlign:"left",
+                          color:C.text3,fontWeight:600,whiteSpace:"nowrap",
+                          border:`1px solid ${C.border}`}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      ["Team Alpha","AI Scanner","AI/ML","Alice J.","alice@…","Lead"],
+                      ["Team Alpha","","","Bob C.","bob@…","Dev"],
+                      ["Team Beta","GreenGrid","Sustainability","Dave K.","dave@…","Full Stack"],
+                    ].map((row,i)=>(
+                      <tr key={i} style={{background:i%2?C.bg2:C.bg}}>
+                        {row.map((cell,j)=>(
+                          <td key={j} style={{...FONT,padding:"5px 8px",color:cell?"#10b981":C.text3,
+                            border:`1px solid ${C.border}`,fontSize:11}}>
+                            {cell||<span style={{color:C.text3,fontStyle:"italic"}}>same team</span>}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            <Card>
+              <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>💡 Tips</div>
+              {[
+                "One row per team member — repeat Team Name for each member",
+                "Only fill Project Name & Track on the first row of each team",
+                "Team Name and Member Name are the only required fields",
+                "Email helps link members to participant accounts",
+                "Download the template for a ready-to-fill example",
+              ].map((tip,i)=>(
+                <div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:6,
+                  display:"flex",gap:8,alignItems:"flex-start",lineHeight:1.5}}>
+                  <span style={{color:C.green,flexShrink:0}}>✓</span> {tip}
+                </div>
+              ))}
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 2: Preview & Validate ── */}
+      {step===2&&(
+        <div>
+          {/* Summary bar */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+            <Stat label="File"        value={fileName} />
+            <Stat label="Teams found" value={teams.length}        color={C.green} />
+            <Stat label="Total members" value={totalMembers}       color={C.blue}  />
+            <Stat label="Raw rows"    value={rawRows.length}       color={C.text3} />
+          </div>
+
+          {/* Import mode */}
+          <Card style={{marginBottom:14,padding:"14px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+              <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>If team name already exists:</div>
+              {[{v:"skip",l:"Skip (keep existing)"},{v:"overwrite",l:"Overwrite (update project & members)"}].map(opt=>(
+                <label key={opt.v} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                  <input type="radio" value={opt.v} checked={mode===opt.v} onChange={e=>setMode(e.target.value)} />
+                  <span style={{...FONT,fontSize:13,color:C.text}}>{opt.l}</span>
+                </label>
+              ))}
+            </div>
+          </Card>
+
+          {/* Teams preview */}
+          {teams.map((team,i)=>(
+            <Card key={i} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <div style={{...FONT,fontSize:14,fontWeight:700,color:C.text}}>{team.name}</div>
+                  <div style={{...FONT,fontSize:12,color:C.text3,marginTop:2}}>
+                    {[team.project,team.category].filter(Boolean).join(" · ")||"No project details"}
+                  </div>
+                </div>
+                <Chip label={`${team.members.length} member${team.members.length!==1?"s":""}`} color="blue" />
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{background:C.bg3}}>
+                    {["Name","Email","Role"].map(h=>(
+                      <th key={h} style={{...FONT,fontSize:11,color:C.text3,padding:"5px 10px",
+                        textAlign:"left",border:`1px solid ${C.border}`,fontWeight:600}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {team.members.map((m,j)=>(
+                    <tr key={j} style={{background:j%2?C.bg2:C.bg}}>
+                      <td style={{...FONT,fontSize:13,color:C.text,padding:"6px 10px",
+                        border:`1px solid ${C.border}`,fontWeight:500}}>{m.name}</td>
+                      <td style={{...FONT,fontSize:12,color:m.email?C.text3:"rgba(107,114,128,0.4)",
+                        padding:"6px 10px",border:`1px solid ${C.border}`,fontStyle:m.email?"normal":"italic"}}>
+                        {m.email||"—"}
+                      </td>
+                      <td style={{...FONT,fontSize:12,color:C.text3,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+                        {m.role||"—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          ))}
+
+          {/* Actions */}
+          <div style={{display:"flex",gap:10,marginTop:16}}>
+            <Btn onClick={runImport} disabled={importing||!activeHackathon||!teams.length}>
+              {importing?<><Spinner/> Importing…</>:`✓ Import ${teams.length} team${teams.length!==1?"s":""} →`}
+            </Btn>
+            <Btn variant="secondary" onClick={reset}>← Start Over</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 3: Results ── */}
+      {step===3&&result&&(
+        <div>
+          <Card style={{textAlign:"center",padding:"40px 32px",marginBottom:16}}>
+            <div style={{fontSize:56,marginBottom:16}}>
+              {result.errors?.length?"⚠️":"🎉"}
+            </div>
+            <div style={{...FONT,fontSize:20,fontWeight:700,color:C.text,marginBottom:8}}>
+              Import {result.errors?.length?"Completed with Warnings":"Successful!"}
+            </div>
+            <div style={{display:"flex",gap:24,justifyContent:"center",marginTop:16,flexWrap:"wrap"}}>
+              {result.created>0&&<div style={{textAlign:"center"}}>
+                <div style={{...MONO,fontSize:32,fontWeight:800,color:C.green}}>{result.created}</div>
+                <div style={{...FONT,fontSize:12,color:C.text3}}>Teams created</div>
+              </div>}
+              {result.updated>0&&<div style={{textAlign:"center"}}>
+                <div style={{...MONO,fontSize:32,fontWeight:800,color:C.blue}}>{result.updated}</div>
+                <div style={{...FONT,fontSize:12,color:C.text3}}>Teams updated</div>
+              </div>}
+              {result.skipped>0&&<div style={{textAlign:"center"}}>
+                <div style={{...MONO,fontSize:32,fontWeight:800,color:C.text3}}>{result.skipped}</div>
+                <div style={{...FONT,fontSize:12,color:C.text3}}>Skipped (existing)</div>
+              </div>}
+              {result.errors?.length>0&&<div style={{textAlign:"center"}}>
+                <div style={{...MONO,fontSize:32,fontWeight:800,color:C.amber}}>{result.errors.length}</div>
+                <div style={{...FONT,fontSize:12,color:C.text3}}>Warnings</div>
+              </div>}
+            </div>
+          </Card>
+
+          {result.errors?.length>0&&(
+            <Card style={{marginBottom:16,border:`1px solid ${C.bdAmber}`}}>
+              <div style={{...FONT,fontSize:13,fontWeight:600,color:C.amber,marginBottom:8}}>⚠ Import warnings</div>
+              {result.errors.map((e,i)=>(
+                <div key={i} style={{...FONT,fontSize:12,color:C.text3,marginBottom:4}}>• {e}</div>
+              ))}
+            </Card>
+          )}
+
+          <div style={{display:"flex",gap:10}}>
+            <Btn onClick={reset}>⬆ Import Another File</Btn>
+            <Btn variant="secondary" onClick={()=>toast("Go to Teams page to view imported teams")}>
+              View Teams →
+            </Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 /* ─── AI COMPONENTS ──────────────────────────────────────────────────────── */
 
 // Shared AI button + result panel used across multiple pages

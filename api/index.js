@@ -2193,6 +2193,110 @@ app.get(["/api/public/meta/:hackathonId", "/public/meta/:hackathonId"], async (r
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXCEL BULK IMPORT — Teams + Members
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.post(["/api/teams/bulk-import", "/teams/bulk-import"], admin, async (req, res) => {
+    const { hackathonId, teams, mode = "skip" } = req.body;
+    // mode: "skip" = skip existing team names | "overwrite" = update existing
+
+    if (!hackathonId || !Array.isArray(teams) || !teams.length)
+    return res.status(400).json({ error: "hackathonId and teams[] required" });
+
+    const results = { created: 0, updated: 0, skipped: 0, errors: [] };
+
+    for (const team of teams) {
+        if (!team.name?.trim()) { results.errors.push(`Row skipped: missing team name`); continue; }
+
+        try {
+            // Check if team already exists
+            const { rows: existing } = await q(
+                "SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",
+                [hackathonId, team.name.trim()]
+            );
+
+            let teamId;
+
+            if (existing.length) {
+                if (mode === "skip") {
+                    results.skipped++;
+                    continue;
+                }
+                // overwrite — update team
+                teamId = existing[0].id;
+                await q(
+                    "UPDATE teams SET project=$1,category=$2,members=$3,updated_at=NOW() WHERE id=$4",
+                    [team.project||null, team.category||null,
+                        team.members?.map(m=>m.name).join(", ")||null, teamId]
+                );
+                results.updated++;
+            } else {
+                // Create new team
+                teamId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                const memberNames = team.members?.map(m => m.name).filter(Boolean).join(", ") || null;
+                await q(
+                    "INSERT INTO teams(id,hackathon_id,name,project,category,members) VALUES($1,$2,$3,$4,$5,$6)",
+                    [teamId, hackathonId, team.name.trim(),
+                        team.project?.trim()||null, team.category?.trim()||null, memberNames]
+                );
+                results.created++;
+            }
+
+            // Insert participants + team_members if we have member emails
+            if (team.members?.length) {
+                for (const member of team.members) {
+                    if (!member.name?.trim()) continue;
+                    try {
+                        // Try to link to participant account if email matches
+                        if (member.email?.trim()) {
+                            const { rows: [p] } = await q(
+                                "SELECT id FROM participants WHERE email=LOWER($1)",
+                                [member.email.trim()]
+                            ).catch(() => ({ rows: [] }));
+
+                            if (p) {
+                                const mId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+                                await q(
+                                    "INSERT INTO team_members(id,team_id,participant_id,role,status) VALUES($1,$2,$3,$4,'accepted') ON CONFLICT(team_id,participant_id) DO NOTHING",
+                                    [mId, teamId, p.id, member.role?.trim()||"Member"]
+                                ).catch(() => {});
+                            }
+                        }
+                    } catch(_) { /* non-fatal */ }
+                }
+            }
+        } catch(e) {
+            results.errors.push(`Team "${team.name}": ${e.message}`);
+        }
+    }
+
+    res.json({ ...results, total: teams.length });
+});
+
+// Template columns info (for frontend reference)
+app.get(["/api/teams/import-template-info", "/teams/import-template-info"], auth, (_req, res) => {
+    res.json({
+        format: "normalized",
+        description: "One row per team member. Teams are grouped by Team Name.",
+        columns: [
+            { key: "teamName",    label: "Team Name *",    required: true,  example: "Team Alpha"      },
+            { key: "projectName", label: "Project Name",   required: false, example: "AI Health Scanner"},
+            { key: "category",    label: "Track / Category",required:false,  example: "AI/ML"           },
+            { key: "memberName",  label: "Member Name *",  required: true,  example: "John Smith"      },
+            { key: "memberEmail", label: "Member Email",   required: false, example: "john@example.com"},
+            { key: "memberRole",  label: "Member Role",    required: false, example: "Team Lead"       },
+        ],
+        notes: [
+            "Repeat Team Name for each member of the same team",
+            "First row for a team sets the Project Name and Track",
+            "Maximum 5 members per team recommended",
+            "Duplicate team names are skipped by default",
+        ]
+    });
+});
+
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
     res.status(404).json({

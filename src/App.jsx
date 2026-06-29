@@ -12,7 +12,7 @@ import {
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -416,6 +416,7 @@ const ADMIN_NAV = [
   {id:"dashboard",     label:"Dashboard",             section:"overview"},
   {id:"hackathons",    label:"Hackathons",             section:"overview"},
   {id:"teams",         label:"Teams",                  section:"overview"},
+  {id:"team-import",   label:"Import Teams (Excel)",   section:"overview"},
   {id:"judges",        label:"Judges",                 section:"overview"},
   {id:"criteria",      label:"Criteria",               section:"overview"},
   {id:"feedback",      label:"Submit Feedback",        section:"judging"},
@@ -698,6 +699,7 @@ function AppShell() {
         {page==="export"       && isAdmin &&   <ExportPage        {...props} db={db} />}
         {page==="email-center" && isAdmin &&   <EmailCenterPage   {...props} db={db} currentUser={currentUser} />}
         {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
+        {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
