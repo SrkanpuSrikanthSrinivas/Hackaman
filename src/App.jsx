@@ -464,9 +464,7 @@ function getJudgeNav(user) {
 
 function getTeamNav() {
   return [
-    {id:"team-home",    label:"My Dashboard",    section:"team"},
-    {id:"team-submit",  label:"Submit Project",  section:"team"},
-    {id:"announcements",label:"Announcements",   section:"team"},
+    {id:"team-home", label:"My Team & Project", section:"team"},
   ];
 }
 

@@ -3064,12 +3064,12 @@ function CreateLoginBtn({ regId, email, onCreated }) {
    TEAM DASHBOARD — shown when currentUser.role === "team"
    Lives inside the same AppShell as admin/judge
 ══════════════════════════════════════════════════════════════════════════ */
-export function TeamDashboardPage({ activeHackathon, currentUser, toast, db }) {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [view,    setView]    = useState("home"); // home | submit
-  const [form,    setForm]    = useState({});
-  const [saving,  setSaving]  = useState(false);
+export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
+  const [data,   setData]   = useState(null);
+  const [loading,setLoading]= useState(false);
+  const [editing,setEditing]= useState(false);
+  const [form,   setForm]   = useState({});
+  const [saving, setSaving] = useState(false);
   const sf = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
   const load = () => {
@@ -3092,298 +3092,205 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast, db }) {
           track:            d.submission.track            || "",
         });
       })
-      .catch(e => toast(e.message, "error"))
-      .finally(() => setLoading(false));
+      .catch(e => toast(e.message,"error"))
+      .finally(()=>setLoading(false));
   };
 
-  useEffect(() => { load(); }, [activeHackathon]);
+  useEffect(()=>{ load(); },[activeHackathon]);
 
-  const saveSubmission = async () => {
-    if (!form.title?.trim()) { toast("Project title is required", "error"); return; }
+  const save = async () => {
+    if (!form.title?.trim()) { toast("Project title is required","error"); return; }
     setSaving(true);
     try {
-      await POST("/api/portal/submit", { hackathonId: activeHackathon, ...form });
-      toast("✓ Project submitted!"); load(); setView("home");
-    } catch(e) { toast(e.message, "error"); } finally { setSaving(false); }
+      await POST("/api/portal/submit",{ hackathonId:activeHackathon,...form });
+      toast("✓ Project saved!"); load(); setEditing(false);
+    } catch(e){ toast(e.message,"error"); } finally{ setSaving(false); }
   };
 
-  const hack  = data?.hackathon;
-  const team  = data?.team;
-  const sub   = data?.submission;
-  const reg   = data?.registration;
-  const anns  = data?.announcements || [];
-  const accent= hack?.bannerColor || "#4f46e5";
-
-  const STATUS = {
-    submitted:   { bg:"#dcfce7", c:"#166534", l:"✓ Submitted"   },
-    draft:       { bg:"#fef3c7", c:"#92400e", l:"Draft"         },
-    shortlisted: { bg:"#ede9fe", c:"#5b21b6", l:"⭐ Shortlisted" },
-    winner:      { bg:"#fef9c3", c:"#854d0e", l:"🏆 Winner"     },
-    approved:    { bg:"#dcfce7", c:"#166534", l:"✓ Approved"    },
-    pending:     { bg:"#f3f4f6", c:"#4b5563", l:"Pending"       },
-  };
-
-  const Badge = ({status}) => {
-    const s=STATUS[status]||STATUS.pending;
-    return <span style={{...FONT,fontSize:12,fontWeight:600,padding:"3px 12px",borderRadius:9999,background:s.bg,color:s.c}}>{s.l}</span>;
-  };
-
-  const IN2={...IN,background:C.bg,fontSize:13};
-  const TA2={...TA,background:C.bg,fontSize:13};
+  const hack = data?.hackathon;
+  const team = data?.team;
+  const sub  = data?.submission;
+  const submissionsOpen = hack?.submissionsOpen !== false;
 
   if (loading && !data) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60}}>
-      <Spinner/><span style={{...FONT,marginLeft:10,color:C.text3}}>Loading your dashboard…</span>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:80}}>
+      <Spinner/><span style={{...FONT,marginLeft:10,color:C.text3}}>Loading…</span>
     </div>
   );
 
-  if (!activeHackathon) return (
-    <Empty icon="⚡" title="Select your hackathon" sub="Use the dropdown above to choose your event." />
-  );
-
-  if (!hack && data) return (
-    <Empty icon="🔍" title="Hackathon not found" sub="This event may not be published yet." />
-  );
+  const IN2 = {...IN, background:C.bg, fontSize:13};
+  const TA2 = {...TA, background:C.bg, fontSize:13};
 
   return (
-    <div>
-      {/* Welcome banner */}
-      <div style={{background:`linear-gradient(135deg,${accent}dd,${accent}99)`,
-        borderRadius:R.lg,padding:"24px 28px",marginBottom:20,color:"#fff"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
-          <div>
-            <div style={{...FONT,fontSize:13,opacity:0.7,marginBottom:4}}>Welcome back,</div>
-            <div style={{...FONT,fontSize:22,fontWeight:800,letterSpacing:"-0.02em"}}>
-              {currentUser?.name} 👋
-            </div>
-            <div style={{...FONT,fontSize:13,opacity:0.7,marginTop:3}}>
-              {team ? `🚀 Team: ${team.name}` : "No team linked yet"}
-              {hack ? ` · ${hack.name}` : ""}
-            </div>
-          </div>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>setView(view==="submit"?"home":"submit")}
-              style={{...FONT,padding:"10px 22px",borderRadius:10,border:"none",cursor:"pointer",
-                background:"rgba(255,255,255,0.2)",color:"#fff",fontSize:14,fontWeight:700}}>
-              {sub?"✏ Update Submission":"📤 Submit Project"}
-            </button>
-          </div>
+    <div style={{maxWidth:700}}>
+      {/* Team card */}
+      <Card style={{marginBottom:16}}>
+        <div style={{...FONT,fontSize:11,fontWeight:700,color:C.text3,textTransform:"uppercase",
+          letterSpacing:"0.08em",marginBottom:10}}>Your Team</div>
+        <div style={{...FONT,fontSize:20,fontWeight:800,color:C.text,marginBottom:4}}>
+          {team?.name || "—"}
         </div>
-      </div>
-
-      {view === "home" ? (
-        <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:16,alignItems:"start"}}>
-          {/* Left: Main content */}
-          <div>
-            {/* Status cards */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
-              {[
-                {label:"Registration", value:<Badge status={reg?.status||"pending"}/>, icon:"📋"},
-                {label:"Submission",   value:sub?<Badge status={sub.status}/>:<span style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>Not submitted</span>, icon:"📦"},
-                {label:"Event",        value:<Badge status={hack?.status||"upcoming"}/>, icon:"🏆"},
-              ].map((s,i)=>(
-                <Card key={i} style={{textAlign:"center",padding:"18px 14px"}}>
-                  <div style={{fontSize:24,marginBottom:8}}>{s.icon}</div>
-                  <div style={{...FONT,fontSize:11,color:C.text3,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>{s.label}</div>
-                  {s.value}
-                </Card>
+        {team?.category && <Chip label={team.category} color="blue" />}
+        {team?.members && (
+          <div style={{marginTop:12}}>
+            <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,textTransform:"uppercase",
+              letterSpacing:"0.07em",marginBottom:6}}>Members</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {team.members.split(",").map(m=>m.trim()).filter(Boolean).map(m=>(
+                <span key={m} style={{...FONT,fontSize:13,padding:"4px 12px",borderRadius:9999,
+                  background:C.bg3,color:C.text,border:`1px solid ${C.border}`}}>
+                  👤 {m}
+                </span>
               ))}
             </div>
-
-            {/* Submission card */}
-            {sub ? (
-              <Card style={{marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-                  <div>
-                    <div style={{...FONT,fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>{sub.title}</div>
-                    {sub.tagline&&<div style={{...FONT,fontSize:14,color:C.text3,fontStyle:"italic"}}>{sub.tagline}</div>}
-                  </div>
-                  <Badge status={sub.status}/>
-                </div>
-
-                {sub.description&&<div style={{...FONT,fontSize:14,color:C.text2,lineHeight:1.75,marginBottom:12}}>{sub.description}</div>}
-
-                {sub.techStack&&(
-                  <div style={{marginBottom:12}}>
-                    <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Tech Stack</div>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {sub.techStack.split(",").map(t=>t.trim()).filter(Boolean).map(t=>(
-                        <span key={t} style={{...FONT,fontSize:12,padding:"3px 10px",borderRadius:9999,background:C.bgBlue,color:C.blue}}>{t}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
-                  {sub.githubUrl&&<a href={sub.githubUrl} target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:"#24292e",color:"#fff",textDecoration:"none"}}>GitHub →</a>}
-                  {sub.demoUrl  &&<a href={sub.demoUrl}   target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:C.green,color:"#fff",textDecoration:"none"}}>Live Demo →</a>}
-                  {sub.videoUrl &&<a href={sub.videoUrl}  target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:C.blue,color:"#fff",textDecoration:"none"}}>Video →</a>}
-                  {sub.deckUrl  &&<a href={sub.deckUrl}   target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:C.amber,color:"#fff",textDecoration:"none"}}>Deck →</a>}
-                </div>
-
-                <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{...FONT,fontSize:11,color:C.text3}}>Last updated {new Date(sub.submittedAt).toLocaleString()}</div>
-                  <Btn size="sm" onClick={()=>setView("submit")}>✏ Edit Submission</Btn>
-                </div>
-              </Card>
-            ) : (
-              <Card style={{textAlign:"center",padding:"40px 24px",border:`2px dashed ${C.border2}`,marginBottom:12}}>
-                <div style={{fontSize:48,marginBottom:12}}>📦</div>
-                <div style={{...FONT,fontSize:16,fontWeight:600,color:C.text,marginBottom:8}}>No submission yet</div>
-                <div style={{...FONT,fontSize:13,color:C.text3,marginBottom:20}}>
-                  {hack?.submissionsOpen===false
-                    ? "Submissions are currently closed."
-                    : "Submit your project so judges can evaluate it."}
-                </div>
-                {hack?.submissionsOpen!==false&&(
-                  <Btn onClick={()=>setView("submit")}>Submit Project →</Btn>
-                )}
-              </Card>
-            )}
-
-            {/* Team members */}
-            {team?.members&&(
-              <Card>
-                <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>👥 Team Members</div>
-                <div style={{...FONT,fontSize:14,color:C.text2}}>{team.members}</div>
-              </Card>
-            )}
           </div>
-
-          {/* Right: Announcements + event info */}
-          <div>
-            {/* Event info */}
-            {hack&&(
-              <Card style={{marginBottom:12}}>
-                <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>📅 Event Info</div>
-                {[
-                  ["Event",    hack.name],
-                  ["Status",   hack.status],
-                  ["Dates",    hack.startDate?`${hack.startDate}${hack.endDate?` → ${hack.endDate}`:""}`:null],
-                  ["Tracks",   hack.tracks],
-                  ["Prize",    hack.prizePool],
-                  ["Deadline", hack.submissionDeadline?`Submissions due ${hack.submissionDeadline}`:null],
-                ].filter(([,v])=>v).map(([k,v])=>(
-                  <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:8,gap:8}}>
-                    <span style={{...FONT,fontSize:12,color:C.text3,flexShrink:0}}>{k}</span>
-                    <span style={{...FONT,fontSize:12,color:C.text,fontWeight:500,textAlign:"right"}}>{v}</span>
-                  </div>
-                ))}
-              </Card>
-            )}
-
-            {/* Announcements */}
-            {anns.length>0&&(
-              <Card>
-                <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>📢 Announcements</div>
-                {anns.map(ann=>(
-                  <div key={ann.id} style={{marginBottom:12,paddingBottom:12,
-                    borderBottom:`1px solid ${C.border}`,lastChild:{borderBottom:"none"}}}>
-                    <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
-                      {ann.pinned&&<span style={{fontSize:11}}>📌</span>}
-                      <span style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{ann.title}</span>
-                    </div>
-                    <div style={{...FONT,fontSize:12,color:C.text3,lineHeight:1.65}}>{ann.body}</div>
-                  </div>
-                ))}
-              </Card>
-            )}
+        )}
+        {!team && (
+          <div style={{...FONT,fontSize:13,color:C.amber,marginTop:8}}>
+            ⚠ Your team hasn't been set up yet. Contact your organizer.
           </div>
-        </div>
-      ) : (
-        /* Submission form */
-        <div>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
-            <Btn variant="secondary" onClick={()=>setView("home")}>← Back</Btn>
-            <h2 style={{...FONT,fontSize:18,fontWeight:800,color:C.text}}>{sub?"Update Submission":"Submit Project"}</h2>
-          </div>
+        )}
+      </Card>
 
-          {hack?.submissionsOpen===false&&(
-            <div style={{...FONT,padding:"12px 16px",background:"rgba(239,68,68,0.08)",border:`1px solid ${C.bdRed}`,borderRadius:R.md,color:C.red,fontSize:13,marginBottom:16}}>
-              ⚠ Submissions are currently closed. Contact your organizer.
-            </div>
-          )}
-
-          <Card>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <div style={{gridColumn:"1/-1"}}>
-                <Field label="Project Title" required><input style={IN2} value={form.title||""} onChange={sf("title")} placeholder="Give your project a catchy name" /></Field>
-              </div>
-              <div style={{gridColumn:"1/-1"}}>
-                <Field label="Tagline"><input style={IN2} value={form.tagline||""} onChange={sf("tagline")} placeholder="One sentence that captures what it does" /></Field>
-              </div>
-            </div>
-
-            <Field label="Problem Statement">
-              <textarea style={{...TA2,minHeight:80}} value={form.problemStatement||""} onChange={sf("problemStatement")} placeholder="What problem are you solving and who faces it?" />
-            </Field>
-            <Field label="Your Solution">
-              <textarea style={{...TA2,minHeight:80}} value={form.solution||""} onChange={sf("solution")} placeholder="How does your project solve this? What makes it unique?" />
-            </Field>
-            <Field label="Full Description">
-              <textarea style={{...TA2,minHeight:100}} value={form.description||""} onChange={sf("description")} placeholder="Describe what it does, how you built it, and the impact." />
-            </Field>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <Field label="Tech Stack"><input style={IN2} value={form.techStack||""} onChange={sf("techStack")} placeholder="React, Node.js, PostgreSQL, etc." /></Field>
-              <Field label="Track"><input style={IN2} value={form.track||""} onChange={sf("track")} placeholder="AI/ML, Sustainability, Security…" /></Field>
-              <Field label="GitHub URL"><input type="url" style={IN2} value={form.githubUrl||""} onChange={sf("githubUrl")} placeholder="https://github.com/…" /></Field>
-              <Field label="Live Demo URL"><input type="url" style={IN2} value={form.demoUrl||""} onChange={sf("demoUrl")} placeholder="https://…" /></Field>
-              <Field label="Video URL"><input type="url" style={IN2} value={form.videoUrl||""} onChange={sf("videoUrl")} placeholder="YouTube, Loom, etc." /></Field>
-              <Field label="Pitch Deck URL"><input type="url" style={IN2} value={form.deckUrl||""} onChange={sf("deckUrl")} placeholder="Google Slides, Canva, etc." /></Field>
-            </div>
-
-            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
-              <Btn variant="secondary" onClick={()=>setView("home")}>Cancel</Btn>
-              <Btn onClick={saveSubmission} disabled={saving||hack?.submissionsOpen===false}>
-                {saving?<><Spinner/> Saving…</>:sub?"✓ Update Submission":"📤 Submit Project"}
+      {/* Submission */}
+      {!editing ? (
+        <Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{...FONT,fontSize:11,fontWeight:700,color:C.text3,textTransform:"uppercase",
+              letterSpacing:"0.08em"}}>Project Submission</div>
+            {submissionsOpen && (
+              <Btn size="sm" onClick={()=>setEditing(true)}>
+                {sub ? "✏ Edit Submission" : "📤 Submit Project"}
               </Btn>
-            </div>
-          </Card>
-        </div>
-      )}
-    </div>
-  );
-}
+            )}
+          </div>
 
-
-/* ─── AI COMPONENTS ──────────────────────────────────────────────────────── */
-
-// Shared AI button + result panel used across multiple pages
-function AIPanel({ title, icon, onRun, running, result, error, children }) {
-  const [open, setOpen] = useState(false);
-  const run = async () => { setOpen(true); await onRun(); };
-  return (
-    <div style={{marginTop:12}}>
-      <Btn size="sm" variant="secondary" onClick={run} disabled={running}
-        style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",
-          display:"inline-flex",alignItems:"center",gap:6}}>
-        {running ? <><Spinner size={10}/> Analysing…</> : <>{icon} {title}</>}
-      </Btn>
-      {open && (error || result) && (
-        <div style={{marginTop:10,padding:16,background:C.bg2,borderRadius:R.md,
-          border:`1px solid ${error?C.bdRed:C.bdBlue}`}}>
-          {error && (
+          {sub ? (
             <div>
-              <div style={{...FONT,fontSize:13,color:C.red,marginBottom:6}}>⚠ {error}</div>
-              {error.includes("GEMINI_API_KEY")&&(
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener"
-                  style={{...FONT,fontSize:12,color:C.blue,display:"inline-flex",alignItems:"center",
-                    gap:5,padding:"5px 10px",borderRadius:R.sm,border:`1px solid ${C.bdBlue}`,
-                    background:C.bgBlue,textDecoration:"none"}}>
-                  🔑 Get your free Gemini API key →
-                </a>
+              <div style={{...FONT,fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>{sub.title}</div>
+              {sub.tagline && <div style={{...FONT,fontSize:14,color:C.text3,fontStyle:"italic",marginBottom:12}}>{sub.tagline}</div>}
+
+              {sub.description && (
+                <div style={{...FONT,fontSize:14,color:C.text2,lineHeight:1.75,marginBottom:14}}>{sub.description}</div>
               )}
+
+              {sub.techStack && (
+                <div style={{marginBottom:14}}>
+                  <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,textTransform:"uppercase",
+                    letterSpacing:"0.07em",marginBottom:6}}>Tech Stack</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {sub.techStack.split(",").map(t=>t.trim()).filter(Boolean).map(t=>(
+                      <span key={t} style={{...FONT,fontSize:12,padding:"3px 10px",
+                        borderRadius:9999,background:C.bgBlue,color:C.blue}}>{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {sub.githubUrl&&<a href={sub.githubUrl} target="_blank" rel="noopener"
+                  style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 14px",borderRadius:8,
+                    background:"#24292e",color:"#fff",textDecoration:"none"}}>GitHub →</a>}
+                {sub.demoUrl&&<a href={sub.demoUrl} target="_blank" rel="noopener"
+                  style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 14px",borderRadius:8,
+                    background:C.green,color:"#fff",textDecoration:"none"}}>Live Demo →</a>}
+                {sub.videoUrl&&<a href={sub.videoUrl} target="_blank" rel="noopener"
+                  style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 14px",borderRadius:8,
+                    background:C.blue,color:"#fff",textDecoration:"none"}}>Video →</a>}
+                {sub.deckUrl&&<a href={sub.deckUrl} target="_blank" rel="noopener"
+                  style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 14px",borderRadius:8,
+                    background:C.amber,color:"#fff",textDecoration:"none"}}>Deck →</a>}
+              </div>
+
+              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:12,paddingTop:12,
+                borderTop:`1px solid ${C.border}`}}>
+                Last updated {new Date(sub.submittedAt).toLocaleString()}
+              </div>
+            </div>
+          ) : (
+            <div style={{textAlign:"center",padding:"32px 0"}}>
+              <div style={{fontSize:44,marginBottom:12}}>📦</div>
+              <div style={{...FONT,fontSize:15,fontWeight:600,color:C.text,marginBottom:6}}>
+                No submission yet
+              </div>
+              <div style={{...FONT,fontSize:13,color:C.text3}}>
+                {submissionsOpen
+                  ? "Click "Submit Project" to add your project details."
+                  : "Submissions are currently closed."}
+              </div>
             </div>
           )}
-          {result && children}
-        </div>
+        </Card>
+      ) : (
+        /* Edit form */
+        <Card>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+            <div style={{...FONT,fontSize:14,fontWeight:700,color:C.text}}>
+              {sub ? "Edit Submission" : "Submit Project"}
+            </div>
+            <Btn size="sm" variant="secondary" onClick={()=>setEditing(false)}>Cancel</Btn>
+          </div>
+
+          <Field label="Project Title" required>
+            <input style={IN2} value={form.title||""} onChange={sf("title")}
+              placeholder="Give your project a clear, catchy name" />
+          </Field>
+          <Field label="Tagline">
+            <input style={IN2} value={form.tagline||""} onChange={sf("tagline")}
+              placeholder="One sentence — what does it do?" />
+          </Field>
+          <Field label="Problem Statement">
+            <textarea style={{...TA2,minHeight:72}} value={form.problemStatement||""} onChange={sf("problemStatement")}
+              placeholder="What problem are you solving and who faces it?" />
+          </Field>
+          <Field label="Your Solution">
+            <textarea style={{...TA2,minHeight:72}} value={form.solution||""} onChange={sf("solution")}
+              placeholder="How does your project solve this? What makes it unique?" />
+          </Field>
+          <Field label="Description">
+            <textarea style={{...TA2,minHeight:90}} value={form.description||""} onChange={sf("description")}
+              placeholder="Full description — what it does, how it works, and the impact." />
+          </Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Tech Stack">
+              <input style={IN2} value={form.techStack||""} onChange={sf("techStack")}
+                placeholder="React, Node.js, PostgreSQL…" />
+            </Field>
+            <Field label="Track">
+              <input style={IN2} value={form.track||""} onChange={sf("track")}
+                placeholder="AI/ML, Sustainability…" />
+            </Field>
+            <Field label="GitHub URL">
+              <input type="url" style={IN2} value={form.githubUrl||""} onChange={sf("githubUrl")}
+                placeholder="https://github.com/…" />
+            </Field>
+            <Field label="Live Demo URL">
+              <input type="url" style={IN2} value={form.demoUrl||""} onChange={sf("demoUrl")}
+                placeholder="https://…" />
+            </Field>
+            <Field label="Video URL">
+              <input type="url" style={IN2} value={form.videoUrl||""} onChange={sf("videoUrl")}
+                placeholder="YouTube, Loom…" />
+            </Field>
+            <Field label="Pitch Deck URL">
+              <input type="url" style={IN2} value={form.deckUrl||""} onChange={sf("deckUrl")}
+                placeholder="Google Slides, Canva…" />
+            </Field>
+          </div>
+
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+            <Btn variant="secondary" onClick={()=>setEditing(false)}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving}>
+              {saving ? <><Spinner/> Saving…</> : sub ? "✓ Save Changes" : "📤 Submit Project"}
+            </Btn>
+          </div>
+        </Card>
       )}
     </div>
   );
 }
 
-// ── AI Team Insights ─────────────────────────────────────────────────────────
+
 export function AITeamInsights({ teamId, hackathonId, toast }) {
   const [running,  setRunning]  = useState(false);
   const [result,   setResult]   = useState(null);
