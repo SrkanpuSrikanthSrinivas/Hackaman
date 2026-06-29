@@ -3152,7 +3152,7 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast, db }) {
               {hack ? ` · ${hack.name}` : ""}
             </div>
           </div>
-          <div style={{display:"flex",gap:10"}}>
+          <div style={{display:"flex",gap:10}}>
             <button onClick={()=>setView(view==="submit"?"home":"submit")}
               style={{...FONT,padding:"10px 22px",borderRadius:10,border:"none",cursor:"pointer",
                 background:"rgba(255,255,255,0.2)",color:"#fff",fontSize:14,fontWeight:700}}>
