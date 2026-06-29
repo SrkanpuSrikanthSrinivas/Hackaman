@@ -2434,12 +2434,22 @@ app.post(["/api/portal/submit","/portal/submit"], async (req,res)=>{
         if(hack?.submission_deadline&&new Date(hack.submission_deadline)<new Date())
         return res.status(403).json({error:"The submission deadline has passed"});
 
-        // Find their team
-        const{rows:[p]}=await q("SELECT email FROM participants WHERE id=$1",[payload.id]);
-        const{rows:[reg]}=await q("SELECT team_name FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",[p.email,hackathonId]);
-        if(!reg?.team_name) return res.status(403).json({error:"No team found for your account in this hackathon"});
+        // Find their team — users table (team role) not participants
+        const{rows:[u]}=await q("SELECT email,team_id FROM users WHERE id=$1",[payload.id]);
+        if(!u) return res.status(404).json({error:"User not found"});
 
-        const{rows:[team]}=await q("SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",[hackathonId,reg.team_name]);
+        // Try direct team_id link first, then fallback to registration lookup
+        let team=null;
+        if(u.team_id){
+            const{rows:[t]}=await q("SELECT id FROM teams WHERE id=$1 AND hackathon_id=$2",[u.team_id,hackathonId]);
+            team=t||null;
+        }
+        if(!team){
+            const{rows:[reg]}=await q("SELECT team_name FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",[u.email,hackathonId]);
+            if(!reg?.team_name) return res.status(403).json({error:"No team found for your account in this hackathon. Contact your organizer."});
+            const{rows:[t]}=await q("SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",[hackathonId,reg.team_name]);
+            team=t||null;
+        }
         if(!team) return res.status(404).json({error:"Team not found. Ask your organizer to add your team first."});
 
         // Upsert submission
