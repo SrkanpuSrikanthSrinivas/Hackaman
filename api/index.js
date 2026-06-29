@@ -41,10 +41,34 @@ async function buildUserPayload(user) {
     const { rows: hj }    = await q("SELECT hackathon_id FROM hackathon_judges WHERE user_id=$1", [user.id]);
     const { rows: perms } = await q("SELECT hackathon_id, page FROM user_permissions WHERE user_id=$1", [user.id]);
     const { rows: jta }   = await q("SELECT team_id, hackathon_id FROM judge_team_assignments WHERE user_id=$1", [user.id]).catch(()=>({rows:[]}));
+
+    // Team users: auto-resolve their hackathon from their linked team or registration
+    let teamHackathonId = null, teamName = null;
+    if (user.role === "team") {
+        if (user.team_id) {
+            const { rows: [t] } = await q("SELECT hackathon_id, name FROM teams WHERE id=$1", [user.team_id]).catch(()=>({rows:[]}));
+            teamHackathonId = t?.hackathon_id || null;
+            teamName = t?.name || null;
+        }
+        if (!teamHackathonId && user.email) {
+            const { rows: [reg] } = await q(
+                "SELECT r.hackathon_id, r.team_name FROM registrations r WHERE LOWER(r.email)=LOWER($1) ORDER BY r.created_at DESC LIMIT 1",
+                [user.email]
+            ).catch(()=>({rows:[]}));
+            teamHackathonId = reg?.hackathon_id || null;
+            teamName = teamName || reg?.team_name || null;
+        }
+    }
+
     return {
         id: user.id, name: user.name, email: user.email,
-        role: user.role, judgeId: user.judge_id, avatarUrl: user.avatar_url,
-        assignedHackathons: hj.map(r => r.hackathon_id),
+        role: user.role, judgeId: user.judge_id,
+        teamId: user.team_id || null, teamName,
+        avatarUrl: user.avatar_url,
+        assignedHackathons: user.role === "team"
+        ? (teamHackathonId ? [teamHackathonId] : [])
+        : hj.map(r => r.hackathon_id),
+        hackathonId: teamHackathonId,   // auto-select for team users
         permissions: perms.map(r => ({ hackathonId: r.hackathon_id, page: r.page })),
         assignedTeams: jta.map(r => r.team_id),
     };

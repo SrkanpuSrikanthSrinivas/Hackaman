@@ -497,12 +497,17 @@ function AppShell() {
 
   useEffect(() => {
     if (!activeHackathon && db.hackathons.length) {
-      if (currentUser?.role === "judge") {
+      if (currentUser?.role === "team" && currentUser?.hackathonId) {
+        // Team user: always lock to their hackathon
+        setActive(currentUser.hackathonId);
+      } else if (currentUser?.role === "judge") {
         const first = db.hackathons.find(h => (currentUser.assignedHackathons || []).includes(h.id));
         if (first) setActive(first.id);
-      } else setActive(db.hackathons[0].id);
+      } else {
+        setActive(db.hackathons[0].id);
+      }
     }
-  }, [db.hackathons]);
+  }, [db.hackathons, currentUser]);
 
   const logout = () => {
     // Log the logout event before clearing session
@@ -631,10 +636,18 @@ function AppShell() {
         {/* Hackathon picker */}
         <div style={{ padding:"10px 10px 8px", borderBottom:`1px solid ${C.border}` }}>
           <div style={{ ...FONT, fontSize:10, fontWeight:500, color:C.text3, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:5, paddingLeft:4 }}>Active Event</div>
+          {isTeam ? (
+            <div style={{ ...FONT, fontSize:12, fontWeight:600, color:C.text,
+              padding:"7px 8px", borderRadius:R.sm, background:C.bg3,
+              border:`1px solid ${C.border}` }}>
+              ⚡ {db.hackathons.find(h=>h.id===activeHackathon)?.name || "Loading…"}
+            </div>
+          ) : (
           <select style={{ width:"100%", background:C.bg2, border:`1px solid ${C.border}`, borderRadius:R.sm, padding:"6px 8px", fontSize:12, color:C.text, cursor:"pointer", outline:"none" }}
             value={activeHackathon} onChange={e => setActive(e.target.value)}>
             {visibleH.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
+          )}
           {hack && (
             <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:5, paddingLeft:2 }}>
               <div style={{ width:6, height:6, borderRadius:"50%", background: hack.status==="active"?C.green:hack.status==="upcoming"?C.amber:C.text3 }} />
