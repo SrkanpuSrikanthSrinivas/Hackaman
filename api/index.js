@@ -2297,6 +2297,399 @@ app.get(["/api/teams/import-template-info", "/teams/import-template-info"], auth
     });
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEAM PORTAL — Login, submission, dashboard
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Team portal: register or login with registration email ─────────────────
+app.post(["/api/portal/auth","/portal/auth"], async (req,res)=>{
+    const{email,password,hackathonId,action="login"}=req.body;
+    if(!email||!password) return res.status(400).json({error:"Email and password required"});
+    try{
+        if(action==="register"){
+            // Check they have an approved registration for this hackathon
+            const{rows:[reg]}=await q(
+                "SELECT * FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",
+                [email,hackathonId]
+            );
+            if(!reg) return res.status(404).json({error:"No registration found for this email. Please register for the hackathon first."});
+
+            // Check if participant account already exists
+            const{rows:[existing]}=await q("SELECT id FROM participants WHERE LOWER(email)=LOWER($1)",[email]);
+            if(existing) return res.status(409).json({error:"Account already exists. Please sign in instead."});
+
+            // Create participant account
+            const hash=await bcrypt.hash(password,10);
+            const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+            const{rows:[p]}=await q(
+                "INSERT INTO participants(id,name,email,password_hash) VALUES($1,$2,LOWER($3),$4) RETURNING *",
+                [id,reg.name,email,hash]
+            );
+
+            // Link participant to their team if team exists
+            if(reg.team_name){
+                const{rows:[team]}=await q(
+                    "SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",
+                    [hackathonId,reg.team_name]
+                );
+                if(team){
+                    const mid=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+                    await q(
+                        "INSERT INTO participant_hackathons(participant_id,hackathon_id,team_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+                        [p.id,hackathonId,team.id]
+                    ).catch(()=>{});
+                }
+            }
+            await logEvent("login",{id:p.id,name:p.name,email:p.email,role:"team"},req,"portal");
+            const token=jwt.sign({id:p.id,name:p.name,email:p.email,role:"team"},process.env.JWT_SECRET||JWT_SECRET,{expiresIn:"7d"});
+            return res.status(201).json({token,participant:camel(p),registration:camel(reg)});
+        }
+
+        // Login
+        const{rows:[p]}=await q("SELECT * FROM participants WHERE LOWER(email)=LOWER($1)",[email]);
+        if(!p) return res.status(401).json({error:"No account found. Please create an account first."});
+        const ok=await bcrypt.compare(password,p.password_hash);
+        if(!ok){await logEvent("failed",{email,role:"team"},req,"portal"); return res.status(401).json({error:"Incorrect password"});}
+        await logEvent("login",{id:p.id,name:p.name,email:p.email,role:"team"},req,"portal");
+        const token=jwt.sign({id:p.id,name:p.name,email:p.email,role:"team"},process.env.JWT_SECRET||JWT_SECRET,{expiresIn:"7d"});
+        res.json({token,participant:camel(p)});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── Team portal dashboard ─────────────────────────────────────────────────
+app.get(["/api/portal/dashboard","/portal/dashboard"], async (req,res)=>{
+    const token=(req.headers.authorization||"").replace("Bearer ","");
+    if(!token) return res.status(401).json({error:"Unauthorized"});
+    try{
+        const payload=jwt.verify(token,process.env.JWT_SECRET||JWT_SECRET);
+        const{hackathonId}=req.query;
+        const{rows:[p]}=await q("SELECT id,name,email,bio,skills,github_url,linkedin_url FROM participants WHERE id=$1",[payload.id]);
+        if(!p) return res.status(404).json({error:"Not found"});
+
+        // Find their registration for this hackathon
+        const{rows:[reg]}=await q(
+            "SELECT * FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",
+            [p.email,hackathonId]
+        );
+
+        // Find their team
+        let team=null,submission=null;
+        if(reg?.team_name){
+            const{rows:[t]}=await q(
+                "SELECT * FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",
+                [hackathonId,reg.team_name]
+            );
+            if(t){
+                team=camel(t);
+                const{rows:[s]}=await q("SELECT * FROM submissions WHERE team_id=$1 AND hackathon_id=$2",[t.id,hackathonId]);
+                if(s) submission=camel(s);
+            }
+        }
+
+        // Hackathon info
+        const{rows:[hack]}=await q("SELECT id,name,status,start_date,end_date,tracks,submissions_open,submission_deadline,prize_pool,banner_color FROM hackathons WHERE id=$1",[hackathonId]);
+
+        res.json({participant:camel(p),registration:reg?camel(reg):null,team,submission,hackathon:hack?camel(hack):null});
+    }catch(e){res.status(401).json({error:"Invalid session"});}
+});
+
+// ── Submit/update project ─────────────────────────────────────────────────
+app.post(["/api/portal/submit","/portal/submit"], async (req,res)=>{
+    const token=(req.headers.authorization||"").replace("Bearer ","");
+    if(!token) return res.status(401).json({error:"Unauthorized"});
+    try{
+        const payload=jwt.verify(token,process.env.JWT_SECRET||JWT_SECRET);
+        const{hackathonId,title,tagline,description,problemStatement,solution,techStack,githubUrl,demoUrl,videoUrl,deckUrl,screenshots,track}=req.body;
+        if(!hackathonId||!title?.trim()) return res.status(400).json({error:"Hackathon and project title required"});
+
+        // Check submissions are open
+        const{rows:[hack]}=await q("SELECT submissions_open,submission_deadline FROM hackathons WHERE id=$1",[hackathonId]);
+        if(hack&&hack.submissions_open===false) return res.status(403).json({error:"Submissions are currently closed for this hackathon"});
+        if(hack?.submission_deadline&&new Date(hack.submission_deadline)<new Date())
+        return res.status(403).json({error:"The submission deadline has passed"});
+
+        // Find their team
+        const{rows:[p]}=await q("SELECT email FROM participants WHERE id=$1",[payload.id]);
+        const{rows:[reg]}=await q("SELECT team_name FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",[p.email,hackathonId]);
+        if(!reg?.team_name) return res.status(403).json({error:"No team found for your account in this hackathon"});
+
+        const{rows:[team]}=await q("SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",[hackathonId,reg.team_name]);
+        if(!team) return res.status(404).json({error:"Team not found. Ask your organizer to add your team first."});
+
+        // Upsert submission
+        const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+        const{rows:[sub]}=await q(`
+      INSERT INTO submissions(id,hackathon_id,team_id,title,tagline,description,problem_statement,solution,
+        tech_stack,github_url,demo_url,video_url,deck_url,screenshots,track,status,submitted_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'submitted',NOW())
+      ON CONFLICT(hackathon_id,team_id) DO UPDATE SET
+        title=$4,tagline=$5,description=$6,problem_statement=$7,solution=$8,
+        tech_stack=$9,github_url=$10,demo_url=$11,video_url=$12,deck_url=$13,
+        screenshots=$14,track=$15,status='submitted',submitted_at=NOW(),updated_at=NOW()
+      RETURNING *`,
+            [id,hackathonId,team.id,title,tagline,description,problemStatement,solution,
+                techStack,githubUrl,demoUrl,videoUrl,deckUrl,screenshots,track]
+        );
+        res.json(camel(sub));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── Judge: get assigned teams with submissions ─────────────────────────────
+app.get(["/api/judge/assigned-teams","/judge/assigned-teams"], auth, async (req,res)=>{
+    const{hackathonId}=req.query;
+    try{
+        // Check if this judge has specific assignments
+        const{rows:assignments}=await q(
+            "SELECT team_id FROM judge_team_assignments WHERE user_id=$1 AND hackathon_id=$2",
+            [req.user.id,hackathonId]
+        ).catch(()=>({rows:[]}));
+
+        let teamsQuery;
+        const params=[hackathonId];
+
+        if(assignments.length){
+            // Only assigned teams
+            const ids=assignments.map(a=>a.team_id);
+            const placeholders=ids.map((_,i)=>`$${i+2}`).join(",");
+            params.push(...ids);
+            teamsQuery=`SELECT t.*,
+        s.id as sub_id,s.title as sub_title,s.tagline,s.description,s.problem_statement,
+        s.solution,s.tech_stack,s.github_url,s.demo_url,s.video_url,s.deck_url,
+        s.screenshots,s.track,s.status as sub_status,s.submitted_at,
+        f.id as feedback_id,f.scores,f.comments,f.overall,f.private_notes,f.submitted_at as scored_at
+        FROM teams t
+        LEFT JOIN submissions s ON s.team_id=t.id AND s.hackathon_id=$1
+        LEFT JOIN feedbacks f ON f.team_id=t.id AND f.hackathon_id=$1 AND f.judge_id=(
+          SELECT judge_id FROM users WHERE id=$2 LIMIT 1
+        )
+        WHERE t.hackathon_id=$1 AND t.id IN (${placeholders})
+        ORDER BY t.name`;
+            params.splice(1,0,req.user.id);
+        }else{
+            // No specific assignments — show all (fallback for unassigned judges)
+            teamsQuery=`SELECT t.*,
+        s.id as sub_id,s.title as sub_title,s.tagline,s.description,s.problem_statement,
+        s.solution,s.tech_stack,s.github_url,s.demo_url,s.video_url,s.deck_url,
+        s.screenshots,s.track,s.status as sub_status,s.submitted_at,
+        f.id as feedback_id,f.scores,f.comments,f.overall,f.private_notes,f.submitted_at as scored_at
+        FROM teams t
+        LEFT JOIN submissions s ON s.team_id=t.id AND s.hackathon_id=$1
+        LEFT JOIN feedbacks f ON f.team_id=t.id AND f.hackathon_id=$1 AND f.judge_id=(
+          SELECT judge_id FROM users WHERE id=$2 LIMIT 1
+        )
+        WHERE t.hackathon_id=$1
+        ORDER BY t.name`;
+            params.splice(1,0,req.user.id);
+        }
+
+        const{rows:teams}=await q(teamsQuery,params);
+        const{rows:criteria}=await q("SELECT * FROM criteria WHERE hackathon_id=$1 ORDER BY weight DESC",[hackathonId]);
+        const{rows:conflicts}=await q(
+            "SELECT team_id FROM judge_conflicts WHERE user_id=$1 AND hackathon_id=$2",
+            [req.user.id,hackathonId]
+        ).catch(()=>({rows:[]}));
+
+        const conflictIds=new Set(conflicts.map(c=>c.team_id));
+
+        res.json({
+            teams:teams.map(t=>({...camel(t),hasConflict:conflictIds.has(t.id)})),
+            criteria:criteria.map(camel),
+            isFiltered:assignments.length>0,
+            assignedCount:assignments.length,
+        });
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── Save judge feedback (enhanced) ────────────────────────────────────────
+app.post(["/api/judge/feedback","/judge/feedback"], auth, async (req,res)=>{
+    const{hackathonId,teamId,scores,comments,overall,privateNotes}=req.body;
+    try{
+        // Verify this judge is assigned to this team (if assignments exist)
+        const{rows:assignments}=await q(
+            "SELECT 1 FROM judge_team_assignments WHERE user_id=$1 AND hackathon_id=$2",
+            [req.user.id,hackathonId]
+        ).catch(()=>({rows:[]}));
+
+        if(assignments.length){
+            const{rows:allowed}=await q(
+                "SELECT 1 FROM judge_team_assignments WHERE user_id=$1 AND team_id=$2 AND hackathon_id=$3",
+                [req.user.id,teamId,hackathonId]
+            );
+            if(!allowed.length) return res.status(403).json({error:"You are not assigned to evaluate this team"});
+        }
+
+        // Check no conflict
+        const{rows:conflict}=await q(
+            "SELECT 1 FROM judge_conflicts WHERE user_id=$1 AND team_id=$2",
+            [req.user.id,teamId]
+        ).catch(()=>({rows:[]}));
+        if(conflict.length) return res.status(403).json({error:"You declared a conflict of interest for this team"});
+
+        const{rows:[judge]}=await q("SELECT judge_id FROM users WHERE id=$1",[req.user.id]);
+        const judgeId=judge?.judge_id;
+        if(!judgeId) return res.status(403).json({error:"No judge profile linked to your account"});
+
+        // Upsert feedback
+        const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+        const{rows:[fb]}=await q(`
+      INSERT INTO feedbacks(id,hackathon_id,team_id,judge_id,scores,comments,overall,private_notes)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT(hackathon_id,team_id,judge_id) DO UPDATE SET
+        scores=$5,comments=$6,overall=$7,private_notes=$8,updated_at=NOW()
+      RETURNING *`,
+            [id,hackathonId,teamId,judgeId,JSON.stringify(scores||{}),
+                JSON.stringify(comments||{}),overall||null,privateNotes||null]
+        );
+        res.json(camel(fb));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEAM USER MANAGEMENT (admin creates logins from registrations)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Create a team login from a registration
+app.post(["/api/registrations/:id/create-login","/registrations/:id/create-login"], admin, async (req,res)=>{
+    const{sendEmail:doEmail=true}=req.body;
+    try{
+        const{rows:[reg]}=await q(
+            "SELECT r.*,h.name as hack_name FROM registrations r JOIN hackathons h ON h.id=r.hackathon_id WHERE r.id=$1",
+            [req.params.id]
+        );
+        if(!reg) return res.status(404).json({error:"Registration not found"});
+        if(!reg.email) return res.status(400).json({error:"Registration has no email"});
+
+        // Check if user already exists for this email
+        const{rows:[existing]}=await q("SELECT id,role FROM users WHERE email=LOWER($1)",[reg.email]);
+        if(existing) return res.json({exists:true,message:`Login already exists for ${reg.email} (role: ${existing.role})`});
+
+        // Find their team
+        const{rows:[team]}=await q(
+            "SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",
+            [reg.hackathon_id,reg.team_name||""]
+        ).catch(()=>({rows:[]}));
+
+        // Generate temp password
+        const crypto=require("crypto");
+        const tempPass=crypto.randomBytes(5).toString("hex"); // 10 char hex
+        const hash=await bcrypt.hash(tempPass,10);
+        const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+
+        await q(
+            "INSERT INTO users(id,name,email,password_hash,role,team_id) VALUES($1,$2,LOWER($3),$4,'team',$5)",
+            [id,reg.name,reg.email,hash,team?.id||null]
+        );
+
+        await logEvent("login",{id,name:reg.name,email:reg.email,role:"team"},req,"admin-created");
+
+        // Send credentials email
+        if(doEmail&&process.env.RESEND_API_KEY&&reg.email){
+            const SITE=process.env.FRONTEND_URL||"https://hackfesthub.com";
+            const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <style>body{font-family:'Segoe UI',sans-serif;background:#f4f6f8;margin:0;padding:0;}
+        .wrap{max-width:520px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
+        .hdr{background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:32px 36px;text-align:center;}
+        .hdr h1{color:#fff;font-size:20px;font-weight:800;margin:0 0 4px;}
+        .hdr p{color:rgba(255,255,255,0.6);font-size:13px;margin:0;}
+        .body{padding:32px 36px;}
+        .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:18px 22px;margin:16px 0;}
+        .label{font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px;}
+        .value{font-size:15px;color:#111827;font-weight:700;font-family:monospace;}
+        .btn{display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;
+          padding:13px 28px;border-radius:10px;font-size:15px;font-weight:700;margin:20px 0;}
+        .footer{padding:20px 36px;background:#f8fafc;border-top:1px solid #e5e7eb;text-align:center;font-size:12px;color:#9ca3af;}
+        </style></head><body>
+        <div class="wrap">
+          <div class="hdr"><h1>⚡ HackFest Hub</h1><p>${reg.hack_name}</p></div>
+          <div class="body">
+            <p style="font-size:16px;font-weight:700;color:#111827;">Hi ${reg.name}! 👋</p>
+            <p style="font-size:14px;color:#4b5563;line-height:1.7;">Your team login has been created. Sign in to submit your project and track your hackathon status.</p>
+            <div class="card">
+              <div class="label">Login URL</div>
+              <div class="value" style="font-size:13px">${SITE}</div>
+            </div>
+            <div class="card">
+              <div class="label">Email</div>
+              <div class="value">${reg.email}</div>
+            </div>
+            <div class="card">
+              <div class="label">Temporary Password</div>
+              <div class="value">${tempPass}</div>
+            </div>
+            <p style="font-size:12px;color:#ef4444;font-weight:600;">⚠ Please sign in and change your password.</p>
+            <a href="${SITE}" class="btn">Sign in to HackFest Hub →</a>
+          </div>
+          <div class="footer">You're registered for ${reg.hack_name}. Questions? Reply to this email.</div>
+        </div></body></html>`;
+            await sendEmail(reg.email,`Your login for ${reg.hack_name} — sign in to submit your project`,html);
+        }
+
+        res.json({created:true,email:reg.email,tempPassword:tempPass,loginUrl:process.env.FRONTEND_URL||"https://hackfesthub.com"});
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// Team dashboard data (for team role users)
+app.get(["/api/team/dashboard","/team/dashboard"], auth, async (req,res)=>{
+    if(req.user.role!=="team"&&req.user.role!=="admin")
+    return res.status(403).json({error:"Team access only"});
+    const{hackathonId}=req.query;
+    try{
+        // Get the team linked to this user
+        const{rows:[u]}=await q("SELECT u.*,t.name as team_name,t.id as team_id_direct FROM users u LEFT JOIN teams t ON t.id=u.team_id WHERE u.id=$1",[req.user.id]);
+
+        let team=null,submission=null;
+        const tid=u?.team_id||u?.team_id_direct;
+
+        if(tid){
+            const{rows:[t]}=await q("SELECT * FROM teams WHERE id=$1",[tid]);
+            team=t?camel(t):null;
+            if(team){
+                const{rows:[s]}=await q("SELECT * FROM submissions WHERE team_id=$1 AND hackathon_id=$2",[tid,hackathonId]);
+                submission=s?camel(s):null;
+            }
+        }else if(u?.email){
+            // Fallback: find team by email in registrations
+            const{rows:[reg]}=await q(
+                "SELECT r.team_name FROM registrations r WHERE LOWER(r.email)=LOWER($1) AND r.hackathon_id=$2",
+                [u.email,hackathonId]
+            );
+            if(reg?.team_name){
+                const{rows:[t]}=await q("SELECT * FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",[hackathonId,reg.team_name]);
+                team=t?camel(t):null;
+                if(team){
+                    const{rows:[s]}=await q("SELECT * FROM submissions WHERE team_id=$1 AND hackathon_id=$2",[t.id,hackathonId]);
+                    submission=s?camel(s):null;
+                }
+            }
+        }
+
+        const{rows:[reg]}=await q(
+            "SELECT * FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",
+            [u?.email,hackathonId]
+        ).catch(()=>({rows:[]}));
+
+        const{rows:[hack]}=await q(
+            "SELECT id,name,status,start_date,end_date,banner_color,submissions_open,submission_deadline,tracks,prize_pool FROM hackathons WHERE id=$1 AND published=true",
+            [hackathonId]
+        );
+
+        const{rows:anns}=await q(
+            "SELECT id,title,body,priority,pinned,created_at FROM announcements WHERE hackathon_id=$1 AND (audience='all' OR audience='teams') ORDER BY pinned DESC,created_at DESC LIMIT 10",
+            [hackathonId]
+        ).catch(()=>({rows:[]}));
+
+        res.json({
+            user:{name:u?.name,email:u?.email,role:u?.role},
+            team,submission,
+            registration:reg?camel(reg):null,
+            hackathon:hack?camel(hack):null,
+            announcements:anns.map(camel),
+        });
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
     res.status(404).json({

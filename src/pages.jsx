@@ -440,204 +440,374 @@ export function CriteriaPage({ db, reload, toast, activeHackathon }) {
 }
 
 /* ─── SUBMIT FEEDBACK (custom form with project metadata) ──────────────── */
-export function FeedbackPage({ db, reload, toast, activeHackathon, currentUser }) {
-  const hack=db.hackathons.find(h=>h.id===activeHackathon);
-  const allTeams=db.teams.filter(t=>t.hackathonId===activeHackathon);
-  // If judge has specific team assignments, only show those teams
-  const assignedTeamIds = currentUser?.role==="judge" ? (currentUser?.assignedTeams||[]) : [];
-  const teams = assignedTeamIds.length>0
-    ? allTeams.filter(t=>assignedTeamIds.includes(t.id))
-    : allTeams;
-  const criteria=db.criteria.filter(c=>c.hackathonId===activeHackathon);
-  const [teamId,setTeamId]=useState(teams[0]?.id||"");
-  // Judges see only their own linked record. Admins get a dropdown defaulting to first judge.
-  const defaultJudgeId = currentUser?.role === "judge"
-    ? (currentUser?.judgeId || "")          // judge: use THEIR id, never fall back
-    : (db.judges[0]?.id || "");             // admin: default to first judge
-  const [judgeId,setJudgeId] = useState(defaultJudgeId);
-  // Re-sync ONLY when db loads AND user is admin (judges must use their own id)
-  useEffect(() => {
-    if (!judgeId && db.judges.length && currentUser?.role !== "judge") {
-      setJudgeId(db.judges[0]?.id || "");
-    }
-  }, [db.judges.length]);
-  const [scores,setScores]=useState({});
-  const [comments,setComments]=useState({});
-  const [overall,setOverall]=useState("");
-  const [meta,setMeta]=useState({submissionNumber:"",demoVideoLink:"NA",githubRepo:"",liveProjectLink:"NA",pptsPhotos:"NA"});
-  const [saving,setSaving]=useState(false);const [savedOk,setSavedOk]=useState(false);
-  const isJudge=currentUser?.role==="judge";
-  const existing=db.feedbacks.find(f=>f.teamId===teamId&&f.judgeId===judgeId&&f.hackathonId===activeHackathon);
+export function FeedbackPage({ db, currentUser, toast, activeHackathon, isAdmin }) {
+  const [teamData,  setTeamData]  = useState({ teams:[], criteria:[], isFiltered:false });
+  const [selTeam,   setSelTeam]   = useState(null);
+  const [scores,    setScores]    = useState({});
+  const [comments,  setComments]  = useState({});
+  const [overall,   setOverall]   = useState("");
+  const [privNotes, setPrivNotes] = useState("");
+  const [saving,    setSaving]    = useState(false);
+  const [loading,   setLoading]   = useState(false);
+  const [subTab,    setSubTab]    = useState("submission"); // submission | scoring
 
-  useEffect(()=>{
-    if(existing){
-      setScores(existing.scores||{});setComments(existing.comments||{});setOverall(existing.overall||"");
-      setMeta({submissionNumber:existing.submissionNumber||"",demoVideoLink:existing.demoVideoLink||"NA",githubRepo:existing.githubRepo||"",liveProjectLink:existing.liveProjectLink||"NA",pptsPhotos:existing.pptsPhotos||"NA"});
-    } else { setScores({});setComments({});setOverall("");setMeta({submissionNumber:"",demoVideoLink:"NA",githubRepo:"",liveProjectLink:"NA",pptsPhotos:"NA"}); }
-    setSavedOk(false);
-  },[teamId,judgeId]);
-
-  const score=calcScore(scores,criteria);
-  const fm=k=>e=>setMeta(p=>({...p,[k]:e.target.value}));
-
-  const submit=async()=>{
-    if(isJudge && !judgeId) return toast("Your account is not linked to a judge record. Contact an admin.","error");
-    if(!criteria.every(c=>scores[c.id]!=null))return toast("Please score all criteria before submitting","error");
-    setSaving(true);
-    try{
-      await POST("/api/feedbacks",{hackathonId:activeHackathon,teamId,judgeId,scores,comments,overall,...meta});
-      await reload();toast("Feedback saved successfully");setSavedOk(true);
-    }catch(e){toast(e.message,"error");}
-    setSaving(false);
+  const loadTeams = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/judge/assigned-teams?hackathonId=${activeHackathon}`)
+      .then(d => { setTeamData(d); })
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
   };
 
-  if(!activeHackathon) return <Empty icon="✍️" title="Select a hackathon" />;
-  if(!criteria.length) return <Empty icon="📋" title="No criteria defined" sub="An admin needs to add evaluation criteria first." />;
-  if(!teams.length && allTeams.length>0) return <Empty icon="👥" title="No teams assigned to you"
-    sub="An admin needs to assign specific teams to your account in User Management → Team Assignments." />;
-  if(!teams.length)    return <Empty icon="👥" title="No teams registered" sub="An admin needs to add teams first." />;
+  useEffect(() => { loadTeams(); setSelTeam(null); }, [activeHackathon]);
 
-  const judge=db.judges.find(j=>j.id===judgeId);
+  const selectTeam = team => {
+    setSelTeam(team);
+    // Pre-populate existing feedback if any
+    const fb = team.scores ? team : null;
+    setScores(fb?.scores || {});
+    setComments(fb?.comments || {});
+    setOverall(fb?.overall || "");
+    setPrivNotes(fb?.privateNotes || "");
+    setSubTab("submission");
+  };
+
+  const saveFeedback = async () => {
+    if (!selTeam) return;
+    setSaving(true);
+    try {
+      await POST("/api/judge/feedback", {
+        hackathonId: activeHackathon,
+        teamId: selTeam.id,
+        scores, comments, overall,
+        privateNotes: privNotes,
+      });
+      toast("✓ Feedback saved!");
+      loadTeams();
+    } catch(e) { toast(e.message, "error"); } finally { setSaving(false); }
+  };
+
+  const criteria    = teamData.criteria || [];
+  const teams       = teamData.teams    || [];
+  const isFiltered  = teamData.isFiltered;
+  const totalWeight = criteria.reduce((s,c)=>s+c.weight,0)||1;
+
+  const myScore = team => {
+    if (!team.scores || !Object.keys(team.scores).length) return null;
+    const ws = criteria.reduce((s,c)=>s+((team.scores[c.id]||0)/c.maxScore)*c.weight,0);
+    return ((ws/totalWeight)*10).toFixed(1);
+  };
+
+  // Sub-link pill style
+  const tabBtn = (id, label) => (
+    <button onClick={()=>setSubTab(id)} style={{ ...FONT, fontSize:13, fontWeight:600,
+      padding:"7px 18px", borderRadius:8, border:"none", cursor:"pointer",
+      background:subTab===id?C.blue:"transparent",
+      color:subTab===id?"#fff":C.text3 }}>
+      {label}
+    </button>
+  );
 
   return (
-    <div>
-      <SectionHeader title="Submit Feedback" count={hack?.name} />
-      {/* Judge + Team selectors */}
-      <Card style={{marginBottom:14,background:"#f8faff",border:`1px solid ${C.bdBlue}`}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          <Field label="Team">
-            <select style={IN} value={teamId} onChange={e=>setTeamId(e.target.value)}>
-              {teams.map(t=><option key={t.id} value={t.id}>{t.name} — {t.project}</option>)}
-            </select>
-          </Field>
-          <Field label="Judge">
-            {isJudge
-              ? judgeId && judge
-                ? <div style={{...IN,background:C.bg2,color:C.text,cursor:"default",display:"flex",alignItems:"center",gap:8,fontWeight:500}}>
-                    <Avatar name={judge.name} src={judge.avatarUrl} size={22}/>{judge.name}
-                    <span style={{...FONT,fontSize:11,color:C.text3,fontWeight:400}}>· {judge.org}</span>
-                  </div>
-                : <div style={{...IN,background:"#fffbeb",border:"1px solid #fde68a",color:C.amber,cursor:"default",fontSize:12,lineHeight:1.5}}>
-                    ⚠ Your account is not linked to a judge profile.<br/>
-                    Ask an admin: User Management → select your user → Link to Judge Record.
-                  </div>
-              : <select style={IN} value={judgeId} onChange={e=>setJudgeId(e.target.value)}>
-                  {db.judges.map(j=><option key={j.id} value={j.id}>{j.name} ({j.org})</option>)}
-                </select>
-            }
-          </Field>
-        </div>
-      </Card>
+    <div style={{ display:"grid", gridTemplateColumns:"280px 1fr", gap:0, height:"calc(100vh - 60px)",
+      overflow:"hidden", marginTop:-24, marginLeft:-24, marginRight:-24 }}>
 
-      {existing&&<div style={{...FONT,background:C.bgBlue,border:`1px solid ${C.bdBlue}`,borderRadius:R.sm,padding:"9px 13px",fontSize:12,color:C.blue,marginBottom:14}}>
-        ✏️ Editing existing submission — last saved {fmtDt(existing.submittedAt)}. Saving will overwrite.
-      </div>}
-
-      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:16}}>
-        <div>
-          {/* Project Metadata Section */}
-          <Card style={{marginBottom:14}}>
-            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:14,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
-              📋 Project Details
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <Field label="Submission Project Number">
-                <input style={IN} value={meta.submissionNumber} onChange={fm("submissionNumber")} placeholder="e.g. SUB-001" />
-              </Field>
-              <Field label="Judge ID">
-                <input style={{...IN,background:C.bg2,color:C.text3}} value={judgeId} readOnly />
-              </Field>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <Field label="Demo Video Link" hint="Enter NA if not available">
-                <input style={IN} value={meta.demoVideoLink} onChange={fm("demoVideoLink")} placeholder="https://youtube.com/... or NA" />
-              </Field>
-              <Field label="GitHub Repository">
-                <input style={IN} value={meta.githubRepo} onChange={fm("githubRepo")} placeholder="https://github.com/..." />
-              </Field>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <Field label="Live Project Link" hint="Enter NA if not available">
-                <input style={IN} value={meta.liveProjectLink} onChange={fm("liveProjectLink")} placeholder="https://... or NA" />
-              </Field>
-              <Field label="PPTs & Photos">
-                <input style={IN} value={meta.pptsPhotos} onChange={fm("pptsPhotos")} placeholder="Drive link or NA" />
-              </Field>
-            </div>
-          </Card>
-
-          {/* Scoring Section */}
-          <Card>
-            <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16,paddingBottom:10,borderBottom:`1px solid ${C.border}`}}>
-              ⭐ Scoring Criteria
-            </div>
-            {criteria.map(c=>{
-              const s=scores[c.id]??0;const has=scores[c.id]!=null;
-              const sc=has?(s>=8?C.green:s>=6?C.blue:s>=4?C.amber:C.red):C.text3;
-              return(
-                <div key={c.id} style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${C.border}`}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-                    <div>
-                      <div style={{...FONT,fontSize:14,fontWeight:600,color:C.text}}>{c.name}</div>
-                      <div style={{...FONT,fontSize:12,color:C.text3,marginTop:1}}>{c.description}</div>
-                    </div>
-                    <div style={{textAlign:"right"}}>
-                      <div style={{...MONO,fontSize:24,fontWeight:600,color:sc,lineHeight:1}}>{has?s:"—"}</div>
-                      <div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>/ {c.maxScore} pts · {c.weight}%</div>
-                    </div>
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                    <input type="range" min={0} max={c.maxScore} value={s} style={{flex:1,accentColor:"#2563eb",cursor:"pointer"}} onChange={e=>setScores(p=>({...p,[c.id]:+e.target.value}))} />
-                    <div style={{display:"flex",gap:4}}>
-                      {[0,2,4,6,8,10].filter(v=>v<=c.maxScore).map(v=>(
-                        <button key={v} onClick={()=>setScores(p=>({...p,[c.id]:v}))}
-                          style={{...MONO,width:28,height:24,fontSize:11,border:`1px solid ${scores[c.id]===v?C.blue:C.border}`,borderRadius:4,cursor:"pointer",background:scores[c.id]===v?C.bgBlue:C.bg,color:scores[c.id]===v?C.blue:C.text3}}>
-                          {v}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <textarea style={{...TA,minHeight:56}} placeholder={`Detailed comments on ${c.name}...`} value={comments[c.id]||""} onChange={e=>setComments(p=>({...p,[c.id]:e.target.value}))} />
-                </div>
-              );
-            })}
-          </Card>
+      {/* ── LEFT: Team list ── */}
+      <div style={{ borderRight:`1px solid ${C.border}`, overflowY:"auto", background:C.bg2 }}>
+        <div style={{ padding:"16px 14px 12px", borderBottom:`1px solid ${C.border}` }}>
+          <div style={{ ...FONT, fontSize:13, fontWeight:700, color:C.text, marginBottom:3 }}>
+            {isFiltered ? "🎯 Your Assigned Teams" : "All Teams"}
+          </div>
+          {isFiltered
+            ? <div style={{ ...FONT, fontSize:11, color:C.blue }}>Showing {teams.length} assigned team{teams.length!==1?"s":""}</div>
+            : <div style={{ ...FONT, fontSize:11, color:C.text3 }}>No specific assignments — showing all</div>
+          }
         </div>
 
-        {/* Summary panel */}
-        <div style={{position:"sticky",top:20,alignSelf:"start"}}>
-          <Card>
-            <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:16}}>Score Summary</div>
-            <div style={{textAlign:"center",padding:"16px 0 20px",borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
-              <div style={{...MONO,fontSize:56,fontWeight:500,lineHeight:1,color:score==null?C.border:score>=8?C.green:score>=6?C.blue:C.amber}}>{score??"—"}</div>
-              <div style={{...FONT,fontSize:11,color:C.text3,marginTop:6}}>weighted score / 10</div>
-            </div>
-            {criteria.map(c=>(
-              <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                <div style={{flex:1}}>
-                  <div style={{...FONT,fontSize:12,color:C.text2}}>{c.name}</div>
-                  <div style={{...FONT,fontSize:10,color:C.text3}}>{c.weight}% weight</div>
+        {loading && <div style={{ ...FONT, fontSize:13, color:C.text3, padding:20, textAlign:"center" }}><Spinner/></div>}
+
+        {teams.map(team => {
+          const score  = myScore(team);
+          const scored = !!team.feedbackId;
+          const hasSub = !!team.subId;
+          const isSel  = selTeam?.id === team.id;
+
+          return (
+            <div key={team.id} onClick={()=>!team.hasConflict&&selectTeam(team)}
+              style={{ padding:"12px 14px", cursor:team.hasConflict?"not-allowed":"pointer",
+                borderBottom:`1px solid ${C.border}`,
+                background:isSel?C.bgBlue:team.hasConflict?"rgba(239,68,68,0.04)":"transparent",
+                borderLeft:`3px solid ${isSel?C.blue:scored?"#10b981":"transparent"}`,
+                opacity:team.hasConflict?0.5:1, transition:"all 0.15s" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+                <div style={{ ...FONT, fontSize:13, fontWeight:600, color:isSel?C.blue:C.text, flex:1 }}>
+                  {team.name}
                 </div>
-                <span style={{...MONO,fontSize:12,color:scores[c.id]!=null?C.text:C.text3}}>
-                  {scores[c.id]!=null?`${scores[c.id]}/${c.maxScore}`:"—"}
-                </span>
+                {score && <span style={{ ...MONO, fontSize:13, fontWeight:700,
+                  color:C.green, flexShrink:0, marginLeft:8 }}>{score}</span>}
               </div>
-            ))}
-            <div style={{borderTop:`1px solid ${C.border}`,marginTop:14,paddingTop:14}}>
-              <Field label="Overall Summary">
-                <textarea style={{...TA,minHeight:72}} value={overall} onChange={e=>setOverall(e.target.value)} placeholder="Overall assessment of this team..." />
-              </Field>
-              <Btn full size="lg" onClick={submit} disabled={saving}>{saving&&<Spinner/>} {existing?"Update Feedback":"Submit Feedback"}</Btn>
-              {savedOk&&<div style={{...FONT,textAlign:"center",fontSize:12,color:C.green,marginTop:10}}>✓ Saved to database</div>}
+              <div style={{ ...FONT, fontSize:11, color:C.text3 }}>
+                {team.project||team.category||"No project name"}
+              </div>
+              <div style={{ display:"flex", gap:5, marginTop:5, flexWrap:"wrap" }}>
+                {hasSub && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:9999,
+                  background:"rgba(16,185,129,0.1)", color:C.green }}>📦 Has submission</span>}
+                {scored  && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:9999,
+                  background:"rgba(99,102,241,0.1)", color:C.blue }}>✓ Scored</span>}
+                {team.hasConflict && <span style={{ fontSize:10, padding:"2px 7px", borderRadius:9999,
+                  background:"rgba(239,68,68,0.1)", color:C.red }}>⚡ Conflict</span>}
+              </div>
             </div>
-          </Card>
-        </div>
+          );
+        })}
+
+        {!loading && teams.length === 0 && (
+          <div style={{ ...FONT, fontSize:13, color:C.text3, padding:24, textAlign:"center" }}>
+            {!activeHackathon ? "Select a hackathon" : "No teams assigned"}
+          </div>
+        )}
+      </div>
+
+      {/* ── RIGHT: Submission + Scoring ── */}
+      <div style={{ overflowY:"auto", padding:"20px 24px" }}>
+        {!selTeam ? (
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+            height:"100%", color:C.text3, textAlign:"center" }}>
+            <div style={{ fontSize:56, marginBottom:16 }}>👈</div>
+            <div style={{ ...FONT, fontSize:16, fontWeight:600, color:C.text, marginBottom:8 }}>
+              Select a team to begin
+            </div>
+            <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
+              {isFiltered
+                ? "Your assigned teams are shown on the left"
+                : "All teams are shown — contact your organizer if you need specific assignments"}
+            </div>
+          </div>
+        ) : (
+          <div>
+            {/* Team header */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+              <div>
+                <h2 style={{ ...FONT, fontSize:20, fontWeight:800, color:C.text, marginBottom:3 }}>{selTeam.name}</h2>
+                <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
+                  {[selTeam.project, selTeam.category].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+              {myScore(selTeam) && (
+                <div style={{ textAlign:"center", background:C.bgGreen, border:`1px solid ${C.bdGreen}`,
+                  borderRadius:12, padding:"10px 18px" }}>
+                  <div style={{ ...MONO, fontSize:24, fontWeight:800, color:C.green }}>{myScore(selTeam)}</div>
+                  <div style={{ ...FONT, fontSize:11, color:C.green }}>Your score</div>
+                </div>
+              )}
+            </div>
+
+            {/* Tab switcher */}
+            <div style={{ display:"flex", gap:2, background:C.bg3, borderRadius:10, padding:3,
+              marginBottom:20, width:"fit-content" }}>
+              {tabBtn("submission", "📦 Submission")}
+              {tabBtn("scoring",    "⭐ Score & Feedback")}
+            </div>
+
+            {/* ── SUBMISSION TAB ── */}
+            {subTab==="submission" && (
+              <div>
+                {selTeam.subId ? (
+                  <div>
+                    <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
+                      {selTeam.githubUrl && <a href={selTeam.githubUrl} target="_blank" rel="noopener"
+                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
+                          background:"#24292e", color:"#fff", textDecoration:"none" }}>GitHub →</a>}
+                      {selTeam.demoUrl   && <a href={selTeam.demoUrl}   target="_blank" rel="noopener"
+                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
+                          background:"#10b981", color:"#fff", textDecoration:"none" }}>Live Demo →</a>}
+                      {selTeam.videoUrl  && <a href={selTeam.videoUrl}  target="_blank" rel="noopener"
+                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
+                          background:"#4f46e5", color:"#fff", textDecoration:"none" }}>Watch Video →</a>}
+                      {selTeam.deckUrl   && <a href={selTeam.deckUrl}   target="_blank" rel="noopener"
+                        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
+                          background:"#f59e0b", color:"#fff", textDecoration:"none" }}>Pitch Deck →</a>}
+                    </div>
+
+                    {selTeam.subTitle && (
+                      <Card style={{ marginBottom:14 }}>
+                        <div style={{ ...FONT, fontSize:17, fontWeight:700, color:C.text, marginBottom:5 }}>{selTeam.subTitle}</div>
+                        {selTeam.tagline && <div style={{ ...FONT, fontSize:14, color:C.text3, fontStyle:"italic", marginBottom:12 }}>{selTeam.tagline}</div>}
+                        {selTeam.track  && <Chip label={selTeam.track} color="blue" />}
+                      </Card>
+                    )}
+
+                    {selTeam.problemStatement && (
+                      <Card style={{ marginBottom:12 }}>
+                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
+                          letterSpacing:"0.08em", marginBottom:8 }}>Problem Statement</div>
+                        <div style={{ ...FONT, fontSize:14, color:C.text2, lineHeight:1.75 }}>{selTeam.problemStatement}</div>
+                      </Card>
+                    )}
+
+                    {selTeam.solution && (
+                      <Card style={{ marginBottom:12 }}>
+                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
+                          letterSpacing:"0.08em", marginBottom:8 }}>Solution</div>
+                        <div style={{ ...FONT, fontSize:14, color:C.text2, lineHeight:1.75 }}>{selTeam.solution}</div>
+                      </Card>
+                    )}
+
+                    {selTeam.description && (
+                      <Card style={{ marginBottom:12 }}>
+                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
+                          letterSpacing:"0.08em", marginBottom:8 }}>Description</div>
+                        <div style={{ ...FONT, fontSize:14, color:C.text2, lineHeight:1.75 }}>{selTeam.description}</div>
+                      </Card>
+                    )}
+
+                    {selTeam.techStack && (
+                      <Card style={{ marginBottom:12 }}>
+                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
+                          letterSpacing:"0.08em", marginBottom:8 }}>Tech Stack</div>
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                          {selTeam.techStack.split(",").map(t=>t.trim()).filter(Boolean).map(t=>(
+                            <span key={t} style={{ ...FONT, fontSize:12, padding:"3px 10px", borderRadius:9999,
+                              background:C.bgBlue, color:C.blue }}>{t}</span>
+                          ))}
+                        </div>
+                      </Card>
+                    )}
+
+                    {selTeam.members && (
+                      <Card>
+                        <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.text3, textTransform:"uppercase",
+                          letterSpacing:"0.08em", marginBottom:8 }}>Team Members</div>
+                        <div style={{ ...FONT, fontSize:14, color:C.text2 }}>{selTeam.members}</div>
+                      </Card>
+                    )}
+
+                    <div style={{ marginTop:16 }}>
+                      <Btn onClick={()=>setSubTab("scoring")}>
+                        ⭐ Score This Team →
+                      </Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <Card style={{ textAlign:"center", padding:"40px 24px" }}>
+                    <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
+                    <div style={{ ...FONT, fontSize:15, fontWeight:600, color:C.text, marginBottom:8 }}>No submission yet</div>
+                    <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
+                      This team hasn't submitted their project. You can still score them based on their presentation.
+                    </div>
+                    <div style={{ marginTop:16 }}>
+                      <Btn onClick={()=>setSubTab("scoring")}>Score Anyway →</Btn>
+                    </div>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {/* ── SCORING TAB ── */}
+            {subTab==="scoring" && (
+              <div>
+                {criteria.length === 0 ? (
+                  <Card style={{ textAlign:"center", padding:32 }}>
+                    <div style={{ fontSize:32, marginBottom:10 }}>⚙</div>
+                    <div style={{ ...FONT, fontSize:14, color:C.text3 }}>No criteria set up. Ask your admin to add judging criteria.</div>
+                  </Card>
+                ) : (
+                  <>
+                    {criteria.map(c => (
+                      <Card key={c.id} style={{ marginBottom:12 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
+                          <div style={{ flex:1 }}>
+                            <div style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text, marginBottom:2 }}>{c.name}</div>
+                            {c.description && <div style={{ ...FONT, fontSize:12, color:C.text3 }}>{c.description}</div>}
+                            <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:2 }}>Weight: {c.weight}%</div>
+                          </div>
+                          <div style={{ textAlign:"center", minWidth:80 }}>
+                            <div style={{ ...MONO, fontSize:28, fontWeight:800,
+                              color:scores[c.id]>0?C.blue:C.text3 }}>
+                              {scores[c.id]||0}
+                            </div>
+                            <div style={{ ...FONT, fontSize:11, color:C.text3 }}>/ {c.maxScore}</div>
+                          </div>
+                        </div>
+
+                        {/* Score slider */}
+                        <div style={{ marginBottom:12 }}>
+                          <input type="range" min="0" max={c.maxScore} value={scores[c.id]||0}
+                            onChange={e=>setScores(s=>({...s,[c.id]:+e.target.value}))}
+                            style={{ width:"100%", accentColor:C.blue }} />
+                          <div style={{ display:"flex", justifyContent:"space-between" }}>
+                            <span style={{ ...FONT, fontSize:10, color:C.text3 }}>0</span>
+                            <span style={{ ...FONT, fontSize:10, color:C.text3 }}>{c.maxScore}</span>
+                          </div>
+                        </div>
+
+                        {/* Score buttons for quick input */}
+                        <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
+                          {Array.from({length:c.maxScore+1},(_,i)=>i).map(v=>(
+                            <button key={v} onClick={()=>setScores(s=>({...s,[c.id]:v}))}
+                              style={{ ...FONT, fontSize:12, fontWeight:600, width:32, height:28,
+                                borderRadius:6, border:"none", cursor:"pointer", transition:"all 0.1s",
+                                background:scores[c.id]===v?C.blue:C.bg3,
+                                color:scores[c.id]===v?"#fff":C.text3 }}>{v}</button>
+                          ))}
+                        </div>
+
+                        <textarea value={comments[c.id]||""} onChange={e=>setComments(cs=>({...cs,[c.id]:e.target.value}))}
+                          placeholder={`Comments on ${c.name}…`}
+                          style={{ ...FONT, width:"100%", padding:"8px 12px", borderRadius:8,
+                            border:`1px solid ${C.border2}`, background:C.bg, fontSize:13,
+                            color:C.text, resize:"vertical", minHeight:60 }} />
+                      </Card>
+                    ))}
+
+                    {/* Overall */}
+                    <Card style={{ marginBottom:14 }}>
+                      <div style={{ ...FONT, fontSize:13, fontWeight:700, color:C.text, marginBottom:8 }}>
+                        Overall Feedback
+                      </div>
+                      <textarea value={overall} onChange={e=>setOverall(e.target.value)}
+                        placeholder="Summarize your overall assessment of this team's project…"
+                        style={{ ...FONT, width:"100%", padding:"10px 14px", borderRadius:10,
+                          border:`1px solid ${C.border2}`, background:C.bg, fontSize:14,
+                          color:C.text, resize:"vertical", minHeight:100 }} />
+                    </Card>
+
+                    <Card style={{ marginBottom:20, background:C.bg3, border:`1px dashed ${C.border2}` }}>
+                      <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3, marginBottom:6,
+                        textTransform:"uppercase", letterSpacing:"0.06em" }}>🔒 Private Notes (only you can see this)</div>
+                      <textarea value={privNotes} onChange={e=>setPrivNotes(e.target.value)}
+                        placeholder="Private thoughts, concerns, or reminders for yourself…"
+                        style={{ ...FONT, width:"100%", padding:"8px 12px", borderRadius:8,
+                          border:`1px solid ${C.border}`, background:C.bg2, fontSize:13,
+                          color:C.text, resize:"vertical", minHeight:60 }} />
+                    </Card>
+
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <div style={{ ...FONT, fontSize:13, color:C.text3 }}>
+                        Weighted score: <strong style={{ color:C.text }}>
+                          {criteria.length
+                            ? ((criteria.reduce((s,c)=>s+((scores[c.id]||0)/c.maxScore)*c.weight,0)/totalWeight)*10).toFixed(1)
+                            : "—"}
+                          /10
+                        </strong>
+                      </div>
+                      <Btn onClick={saveFeedback} disabled={saving}>
+                        {saving ? <><Spinner/> Saving…</> : "💾 Save Feedback"}
+                      </Btn>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-/* ─── ALL FEEDBACK ─────────────────────────────────────────────────────── */
+
 export function AllFeedbackPage({ db, reload, toast, activeHackathon, currentUser }) {
   const isJudge = currentUser?.role === "judge";
   const [ft,setFt]=useState("all");
@@ -2102,7 +2272,7 @@ export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
   }, []);
 
   const send = async (action, body = {}) => {
-    setSending(action); 
+    setSending(action);
     try {
       const r = await POST(`/api/email/${action}`, { hackathonId: activeHackathon, ...body });
       if (r.error) toast(r.error, "error");
@@ -2840,6 +3010,327 @@ export function TeamImportPage({ db, toast, activeHackathon }) {
               View Teams →
             </Btn>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+/* ── Create Login Button ─────────────────────────────────────────────────── */
+function CreateLoginBtn({ regId, email, onCreated }) {
+  const [loading, setLoading] = useState(false);
+  const [done,    setDone]    = useState(false);
+  const [creds,   setCreds]   = useState(null);
+
+  const create = async () => {
+    if (!confirm(`Create a team login for ${email}?\nThey'll receive an email with login credentials.`)) return;
+    setLoading(true);
+    try {
+      const d = await POST(`/api/registrations/${regId}/create-login`, { sendEmail: true });
+      if (d.exists) { alert(d.message); setDone(true); return; }
+      setCreds(d); setDone(true); onCreated?.();
+    } catch(e) { alert(e.message); } finally { setLoading(false); }
+  };
+
+  if (done && creds) return (
+    <div style={{marginTop:8,padding:"8px 12px",background:C.bgGreen,border:`1px solid ${C.bdGreen}`,borderRadius:R.sm}}>
+      <div style={{...FONT,fontSize:12,color:C.green,fontWeight:600,marginBottom:3}}>✓ Login created & emailed</div>
+      <div style={{...FONT,fontSize:11,color:C.text3}}>Temp password: <code style={{background:C.bg3,padding:"1px 5px",borderRadius:3}}>{creds.tempPassword}</code></div>
+    </div>
+  );
+  if (done) return <div style={{...FONT,fontSize:12,color:C.green,marginTop:6}}>✓ Login already exists</div>;
+
+  return (
+    <Btn size="sm" variant="secondary" onClick={create} disabled={loading}
+      style={{marginTop:6,background:C.bgBlue,color:C.blue,border:`1px solid ${C.bdBlue}`}}>
+      {loading?<Spinner/>:"🔑"} {loading?"Creating…":"Create Team Login"}
+    </Btn>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TEAM DASHBOARD — shown when currentUser.role === "team"
+   Lives inside the same AppShell as admin/judge
+══════════════════════════════════════════════════════════════════════════ */
+export function TeamDashboardPage({ activeHackathon, currentUser, toast, db }) {
+  const [data,    setData]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [view,    setView]    = useState("home"); // home | submit
+  const [form,    setForm]    = useState({});
+  const [saving,  setSaving]  = useState(false);
+  const sf = k => e => setForm(p=>({...p,[k]:e.target.value}));
+
+  const load = () => {
+    if (!activeHackathon) return;
+    setLoading(true);
+    GET(`/api/team/dashboard?hackathonId=${activeHackathon}`)
+      .then(d => {
+        setData(d);
+        if (d.submission) setForm({
+          title:            d.submission.title            || "",
+          tagline:          d.submission.tagline          || "",
+          description:      d.submission.description      || "",
+          problemStatement: d.submission.problemStatement || "",
+          solution:         d.submission.solution         || "",
+          techStack:        d.submission.techStack        || "",
+          githubUrl:        d.submission.githubUrl        || "",
+          demoUrl:          d.submission.demoUrl          || "",
+          videoUrl:         d.submission.videoUrl         || "",
+          deckUrl:          d.submission.deckUrl          || "",
+          track:            d.submission.track            || "",
+        });
+      })
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [activeHackathon]);
+
+  const saveSubmission = async () => {
+    if (!form.title?.trim()) { toast("Project title is required", "error"); return; }
+    setSaving(true);
+    try {
+      await POST("/api/portal/submit", { hackathonId: activeHackathon, ...form });
+      toast("✓ Project submitted!"); load(); setView("home");
+    } catch(e) { toast(e.message, "error"); } finally { setSaving(false); }
+  };
+
+  const hack  = data?.hackathon;
+  const team  = data?.team;
+  const sub   = data?.submission;
+  const reg   = data?.registration;
+  const anns  = data?.announcements || [];
+  const accent= hack?.bannerColor || "#4f46e5";
+
+  const STATUS = {
+    submitted:   { bg:"#dcfce7", c:"#166534", l:"✓ Submitted"   },
+    draft:       { bg:"#fef3c7", c:"#92400e", l:"Draft"         },
+    shortlisted: { bg:"#ede9fe", c:"#5b21b6", l:"⭐ Shortlisted" },
+    winner:      { bg:"#fef9c3", c:"#854d0e", l:"🏆 Winner"     },
+    approved:    { bg:"#dcfce7", c:"#166534", l:"✓ Approved"    },
+    pending:     { bg:"#f3f4f6", c:"#4b5563", l:"Pending"       },
+  };
+
+  const Badge = ({status}) => {
+    const s=STATUS[status]||STATUS.pending;
+    return <span style={{...FONT,fontSize:12,fontWeight:600,padding:"3px 12px",borderRadius:9999,background:s.bg,color:s.c}}>{s.l}</span>;
+  };
+
+  const IN2={...IN,background:C.bg,fontSize:13};
+  const TA2={...TA,background:C.bg,fontSize:13};
+
+  if (loading && !data) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60}}>
+      <Spinner/><span style={{...FONT,marginLeft:10,color:C.text3}}>Loading your dashboard…</span>
+    </div>
+  );
+
+  if (!activeHackathon) return (
+    <Empty icon="⚡" title="Select your hackathon" sub="Use the dropdown above to choose your event." />
+  );
+
+  if (!hack && data) return (
+    <Empty icon="🔍" title="Hackathon not found" sub="This event may not be published yet." />
+  );
+
+  return (
+    <div>
+      {/* Welcome banner */}
+      <div style={{background:`linear-gradient(135deg,${accent}dd,${accent}99)`,
+        borderRadius:R.lg,padding:"24px 28px",marginBottom:20,color:"#fff"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+          <div>
+            <div style={{...FONT,fontSize:13,opacity:0.7,marginBottom:4}}>Welcome back,</div>
+            <div style={{...FONT,fontSize:22,fontWeight:800,letterSpacing:"-0.02em"}}>
+              {currentUser?.name} 👋
+            </div>
+            <div style={{...FONT,fontSize:13,opacity:0.7,marginTop:3}}>
+              {team ? `🚀 Team: ${team.name}` : "No team linked yet"}
+              {hack ? ` · ${hack.name}` : ""}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10"}}>
+            <button onClick={()=>setView(view==="submit"?"home":"submit")}
+              style={{...FONT,padding:"10px 22px",borderRadius:10,border:"none",cursor:"pointer",
+                background:"rgba(255,255,255,0.2)",color:"#fff",fontSize:14,fontWeight:700}}>
+              {sub?"✏ Update Submission":"📤 Submit Project"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {view === "home" ? (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:16,alignItems:"start"}}>
+          {/* Left: Main content */}
+          <div>
+            {/* Status cards */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+              {[
+                {label:"Registration", value:<Badge status={reg?.status||"pending"}/>, icon:"📋"},
+                {label:"Submission",   value:sub?<Badge status={sub.status}/>:<span style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic"}}>Not submitted</span>, icon:"📦"},
+                {label:"Event",        value:<Badge status={hack?.status||"upcoming"}/>, icon:"🏆"},
+              ].map((s,i)=>(
+                <Card key={i} style={{textAlign:"center",padding:"18px 14px"}}>
+                  <div style={{fontSize:24,marginBottom:8}}>{s.icon}</div>
+                  <div style={{...FONT,fontSize:11,color:C.text3,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>{s.label}</div>
+                  {s.value}
+                </Card>
+              ))}
+            </div>
+
+            {/* Submission card */}
+            {sub ? (
+              <Card style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                  <div>
+                    <div style={{...FONT,fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>{sub.title}</div>
+                    {sub.tagline&&<div style={{...FONT,fontSize:14,color:C.text3,fontStyle:"italic"}}>{sub.tagline}</div>}
+                  </div>
+                  <Badge status={sub.status}/>
+                </div>
+
+                {sub.description&&<div style={{...FONT,fontSize:14,color:C.text2,lineHeight:1.75,marginBottom:12}}>{sub.description}</div>}
+
+                {sub.techStack&&(
+                  <div style={{marginBottom:12}}>
+                    <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Tech Stack</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {sub.techStack.split(",").map(t=>t.trim()).filter(Boolean).map(t=>(
+                        <span key={t} style={{...FONT,fontSize:12,padding:"3px 10px",borderRadius:9999,background:C.bgBlue,color:C.blue}}>{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+                  {sub.githubUrl&&<a href={sub.githubUrl} target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:"#24292e",color:"#fff",textDecoration:"none"}}>GitHub →</a>}
+                  {sub.demoUrl  &&<a href={sub.demoUrl}   target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:C.green,color:"#fff",textDecoration:"none"}}>Live Demo →</a>}
+                  {sub.videoUrl &&<a href={sub.videoUrl}  target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:C.blue,color:"#fff",textDecoration:"none"}}>Video →</a>}
+                  {sub.deckUrl  &&<a href={sub.deckUrl}   target="_blank" rel="noopener" style={{...FONT,fontSize:13,fontWeight:600,padding:"7px 16px",borderRadius:8,background:C.amber,color:"#fff",textDecoration:"none"}}>Deck →</a>}
+                </div>
+
+                <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{...FONT,fontSize:11,color:C.text3}}>Last updated {new Date(sub.submittedAt).toLocaleString()}</div>
+                  <Btn size="sm" onClick={()=>setView("submit")}>✏ Edit Submission</Btn>
+                </div>
+              </Card>
+            ) : (
+              <Card style={{textAlign:"center",padding:"40px 24px",border:`2px dashed ${C.border2}`,marginBottom:12}}>
+                <div style={{fontSize:48,marginBottom:12}}>📦</div>
+                <div style={{...FONT,fontSize:16,fontWeight:600,color:C.text,marginBottom:8}}>No submission yet</div>
+                <div style={{...FONT,fontSize:13,color:C.text3,marginBottom:20}}>
+                  {hack?.submissionsOpen===false
+                    ? "Submissions are currently closed."
+                    : "Submit your project so judges can evaluate it."}
+                </div>
+                {hack?.submissionsOpen!==false&&(
+                  <Btn onClick={()=>setView("submit")}>Submit Project →</Btn>
+                )}
+              </Card>
+            )}
+
+            {/* Team members */}
+            {team?.members&&(
+              <Card>
+                <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:10}}>👥 Team Members</div>
+                <div style={{...FONT,fontSize:14,color:C.text2}}>{team.members}</div>
+              </Card>
+            )}
+          </div>
+
+          {/* Right: Announcements + event info */}
+          <div>
+            {/* Event info */}
+            {hack&&(
+              <Card style={{marginBottom:12}}>
+                <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>📅 Event Info</div>
+                {[
+                  ["Event",    hack.name],
+                  ["Status",   hack.status],
+                  ["Dates",    hack.startDate?`${hack.startDate}${hack.endDate?` → ${hack.endDate}`:""}`:null],
+                  ["Tracks",   hack.tracks],
+                  ["Prize",    hack.prizePool],
+                  ["Deadline", hack.submissionDeadline?`Submissions due ${hack.submissionDeadline}`:null],
+                ].filter(([,v])=>v).map(([k,v])=>(
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:8,gap:8}}>
+                    <span style={{...FONT,fontSize:12,color:C.text3,flexShrink:0}}>{k}</span>
+                    <span style={{...FONT,fontSize:12,color:C.text,fontWeight:500,textAlign:"right"}}>{v}</span>
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            {/* Announcements */}
+            {anns.length>0&&(
+              <Card>
+                <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:12}}>📢 Announcements</div>
+                {anns.map(ann=>(
+                  <div key={ann.id} style={{marginBottom:12,paddingBottom:12,
+                    borderBottom:`1px solid ${C.border}`,lastChild:{borderBottom:"none"}}}>
+                    <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:4}}>
+                      {ann.pinned&&<span style={{fontSize:11}}>📌</span>}
+                      <span style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{ann.title}</span>
+                    </div>
+                    <div style={{...FONT,fontSize:12,color:C.text3,lineHeight:1.65}}>{ann.body}</div>
+                  </div>
+                ))}
+              </Card>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Submission form */
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+            <Btn variant="secondary" onClick={()=>setView("home")}>← Back</Btn>
+            <h2 style={{...FONT,fontSize:18,fontWeight:800,color:C.text}}>{sub?"Update Submission":"Submit Project"}</h2>
+          </div>
+
+          {hack?.submissionsOpen===false&&(
+            <div style={{...FONT,padding:"12px 16px",background:"rgba(239,68,68,0.08)",border:`1px solid ${C.bdRed}`,borderRadius:R.md,color:C.red,fontSize:13,marginBottom:16}}>
+              ⚠ Submissions are currently closed. Contact your organizer.
+            </div>
+          )}
+
+          <Card>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div style={{gridColumn:"1/-1"}}>
+                <Field label="Project Title" required><input style={IN2} value={form.title||""} onChange={sf("title")} placeholder="Give your project a catchy name" /></Field>
+              </div>
+              <div style={{gridColumn:"1/-1"}}>
+                <Field label="Tagline"><input style={IN2} value={form.tagline||""} onChange={sf("tagline")} placeholder="One sentence that captures what it does" /></Field>
+              </div>
+            </div>
+
+            <Field label="Problem Statement">
+              <textarea style={{...TA2,minHeight:80}} value={form.problemStatement||""} onChange={sf("problemStatement")} placeholder="What problem are you solving and who faces it?" />
+            </Field>
+            <Field label="Your Solution">
+              <textarea style={{...TA2,minHeight:80}} value={form.solution||""} onChange={sf("solution")} placeholder="How does your project solve this? What makes it unique?" />
+            </Field>
+            <Field label="Full Description">
+              <textarea style={{...TA2,minHeight:100}} value={form.description||""} onChange={sf("description")} placeholder="Describe what it does, how you built it, and the impact." />
+            </Field>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Tech Stack"><input style={IN2} value={form.techStack||""} onChange={sf("techStack")} placeholder="React, Node.js, PostgreSQL, etc." /></Field>
+              <Field label="Track"><input style={IN2} value={form.track||""} onChange={sf("track")} placeholder="AI/ML, Sustainability, Security…" /></Field>
+              <Field label="GitHub URL"><input type="url" style={IN2} value={form.githubUrl||""} onChange={sf("githubUrl")} placeholder="https://github.com/…" /></Field>
+              <Field label="Live Demo URL"><input type="url" style={IN2} value={form.demoUrl||""} onChange={sf("demoUrl")} placeholder="https://…" /></Field>
+              <Field label="Video URL"><input type="url" style={IN2} value={form.videoUrl||""} onChange={sf("videoUrl")} placeholder="YouTube, Loom, etc." /></Field>
+              <Field label="Pitch Deck URL"><input type="url" style={IN2} value={form.deckUrl||""} onChange={sf("deckUrl")} placeholder="Google Slides, Canva, etc." /></Field>
+            </div>
+
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
+              <Btn variant="secondary" onClick={()=>setView("home")}>Cancel</Btn>
+              <Btn onClick={saveSubmission} disabled={saving||hack?.submissionsOpen===false}>
+                {saving?<><Spinner/> Saving…</>:sub?"✓ Update Submission":"📤 Submit Project"}
+              </Btn>
+            </div>
+          </Card>
         </div>
       )}
     </div>
@@ -3854,7 +4345,7 @@ Password: ${tempPassword}`).catch(()=>{});
               <div style={{...FONT,fontSize:12,color:C.text3,marginBottom:3}}>{r.email}{r.org?` · ${r.org}`:""}</div>
               {r.type==="team"&&r.teamName&&(
                 <div style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>
-                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""} 
+                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""}
                 </div>
               )}
               {r.message&&(
@@ -3871,7 +4362,9 @@ Password: ${tempPassword}`).catch(()=>{});
               {r.status!=="rejected"&&<Btn size="sm" variant="danger"  onClick={()=>updateReg(r.id,"rejected")}>Reject</Btn>}
               <Btn size="sm" variant="ghost" onClick={()=>delReg(r.id)}>✕</Btn>
             </div>
-            {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
+            {/* Create team login */}
+              {r.status==="approved"&&<CreateLoginBtn regId={r.id} email={r.email} onCreated={()=>{loadRegs();toast("Login created & emailed!");}}/> }
+              {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
               onApply={async(status)=>{ await PUT(`/api/registrations/${r.id}`,{status}); await loadRegs(); toast("Status updated"); }}
             />}
             {r.status==="approved"&&!alreadyAdded&&(

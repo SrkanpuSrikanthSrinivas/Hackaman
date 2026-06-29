@@ -7,12 +7,13 @@ import {
   useData, STATUS_CHIP,
 } from "./shared.jsx";
 import MarketingPage from "./MarketingPage.jsx";
+import TeamPortal from "./TeamPortal.jsx";
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -462,6 +463,16 @@ function getJudgeNav(user) {
   return [...base, ...extra];
 }
 
+function getTeamNav() {
+  return [
+    {id:"team-home",    label:"My Dashboard",    section:"team"},
+    {id:"team-submit",  label:"Submit Project",  section:"team"},
+    {id:"announcements",label:"Announcements",   section:"team"},
+  ];
+}
+
+const TEAM_SECTIONS = [{ id:"team", label:"Team Portal" }];
+
 
 function AppShell() {
   // Initialise from localStorage only — OAuth token handled in useEffect below
@@ -473,7 +484,7 @@ function AppShell() {
       return p.exp * 1000 > Date.now() ? p : (localStorage.removeItem("hf_token"), null);
     } catch { return null; }
   });
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState(currentUser?.role==="team"?"team-home":"dashboard");
   const [activeHackathon, setActive] = useState("");
   const [toasts, setToasts] = useState([]);
 
@@ -584,7 +595,9 @@ function AppShell() {
     </div>
   );
 
-  const navItems = isAdmin ? ADMIN_NAV : getJudgeNav(currentUser);
+  const isTeam = currentUser?.role === "team";
+  const navItems = isAdmin ? ADMIN_NAV : isTeam ? getTeamNav() : getJudgeNav(currentUser);
+  const activeSections = isAdmin ? SECTIONS : isTeam ? TEAM_SECTIONS : [{id:"judging",label:"Judging"},{id:"operations",label:"Operations"}];
   const sections = [...new Set(navItems.map(n => n.section))];
   const sectionLabels = { overview:"Overview", judging:"Judging", admin:"Administration" };
   const visibleH = isAdmin ? db.hackathons : db.hackathons.filter(h => (currentUser.assignedHackathons || []).includes(h.id));
@@ -700,6 +713,7 @@ function AppShell() {
         {page==="email-center" && isAdmin &&   <EmailCenterPage   {...props} db={db} currentUser={currentUser} />}
         {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
         {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
+        {(page==="team-home"||page==="team-submit") && isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
         {page==="public"       && isAdmin && <PublicPagesAdmin  {...props} activeHackathon={activeHackathon} />}
@@ -856,6 +870,7 @@ class ErrorBoundary extends Component {
 /* ── Root App ────────────────────────────────────────────────────────────── */
 export default function App() {
   const path = window.location.pathname;
+  if (path.startsWith("/portal/") || path === "/portal") return <ErrorBoundary><TeamPortal /></ErrorBoundary>;
   // Public event page
   const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;
