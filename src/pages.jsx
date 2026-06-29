@@ -3215,7 +3215,7 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
               </div>
               <div style={{...FONT,fontSize:13,color:C.text3}}>
                 {submissionsOpen
-                  ? "Click "Submit Project" to add your project details."
+                  ? "Click \"Submit Project\" to add your project details."
                   : "Submissions are currently closed."}
               </div>
             </div>
