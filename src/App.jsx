@@ -7,7 +7,6 @@ import {
   useData, STATUS_CHIP,
 } from "./shared.jsx";
 import MarketingPage from "./MarketingPage.jsx";
-import TeamPortal from "./TeamPortal.jsx";
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
@@ -870,7 +869,6 @@ class ErrorBoundary extends Component {
 /* ── Root App ────────────────────────────────────────────────────────────── */
 export default function App() {
   const path = window.location.pathname;
-  if (path.startsWith("/portal/") || path === "/portal") return <ErrorBoundary><TeamPortal /></ErrorBoundary>;
   // Public event page
   const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;
