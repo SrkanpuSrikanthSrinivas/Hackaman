@@ -1011,13 +1011,13 @@ export function UserManagementPage({ db, reload, toast }) {
     try{if(existing)await DEL(`/api/permissions/${existing.id}`);else await POST("/api/permissions",{userId:selUser.id,hackathonId,page});await loadUsers();}
     catch(e){toast(e.message,"error");}
   };
-  const admins=users.filter(u=>u.role==="admin"),judges=users.filter(u=>u.role==="judge");
+  const admins=users.filter(u=>u.role==="admin"),judges=users.filter(u=>u.role==="judge"),teams=users.filter(u=>u.role==="team");
   return(
     <div>
       <SectionHeader title="User Management" count={`${users.length} users`} action={<Btn onClick={()=>open(null)}>+ Add User</Btn>} />
       <div style={{display:"grid",gridTemplateColumns:"270px 1fr",gap:14,alignItems:"start"}}>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {[{label:"Admins",list:admins},{label:"Judges",list:judges}].map(({label,list})=>(
+          {[{label:"Admins",list:admins},{label:"Judges",list:judges},{label:"Teams",list:teams}].map(({label,list})=>(
             <Card key={label} pad={0} style={{overflow:"hidden"}}>
               <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,letterSpacing:"0.05em",textTransform:"uppercase",padding:"8px 14px",background:C.bg2,borderBottom:`1px solid ${C.border}`}}>{label}</div>
               {list.length===0?<div style={{...FONT,fontSize:12,color:C.text3,padding:"10px 14px",fontStyle:"italic"}}>None yet.</div>
@@ -1034,6 +1034,7 @@ export function UserManagementPage({ db, reload, toast }) {
                           {u.oauthProvider&&<span style={{fontSize:10,color:C.purple}}>●</span>}
                         </div>
                         <div style={{...FONT,fontSize:11,color:C.text3}}>{u.email}</div>
+                        {u.role==="team"&&<div style={{...FONT,fontSize:10,color:C.blue,fontWeight:500}}>🚀 {db.teams?.find(t=>t.id===u.teamId)?.name||"No team linked"}</div>}
                         {u.role==="judge"&&!(u.assignedHackathons||[]).length&&(
                           <div style={{...FONT,fontSize:10,color:C.amber,fontWeight:500}}>⚠ Not assigned</div>
                         )}
@@ -1064,7 +1065,7 @@ export function UserManagementPage({ db, reload, toast }) {
                       <span style={{...FONT,fontSize:15,fontWeight:600,color:C.text}}>{selUser.name}</span>
                       <button title="Click to toggle role"
                         onClick={async()=>{
-                          const newRole=selUser.role==="admin"?"judge":"admin";
+                          const roles=["admin","judge","team"]; const newRole=roles[(roles.indexOf(selUser.role)+1)%roles.length];
                           if(!confirm(`Change ${selUser.name} to ${newRole}?`))return;
                           try{await PUT(`/api/users/${selUser.id}`,{...selUser,role:newRole,judgeId:selUser.judgeId||undefined});await loadUsers();toast(`Role changed to ${newRole}`);}
                           catch(e){toast(e.message,"error");}
@@ -1081,11 +1082,19 @@ export function UserManagementPage({ db, reload, toast }) {
                       {selUser.oauthProvider&&<Chip label={`via ${selUser.oauthProvider}`} color="purple" />}
                     </div>
                     <div style={{...FONT,fontSize:12,color:C.text3}}>{selUser.email}</div>
-                    {selUser.judgeId&&<div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>Linked to: {db.judges?.find(j=>j.id===selUser.judgeId)?.name||selUser.judgeId}</div>}
+                    {selUser.judgeId&&<div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>Judge profile: {db.judges?.find(j=>j.id===selUser.judgeId)?.name||selUser.judgeId}</div>}
+                    {selUser.role==="team"&&selUser.teamId&&<div style={{...FONT,fontSize:11,color:C.text3,marginTop:1}}>🚀 Team: {db.teams?.find(t=>t.id===selUser.teamId)?.name||selUser.teamId}</div>}
+                    {selUser.role==="team"&&!selUser.teamId&&<div style={{...FONT,fontSize:11,color:C.amber,marginTop:1}}>⚠ No team linked — check registration</div>}
                   </div>
                 </div>
                 <div style={{display:"flex",gap:6}}>
                   <Btn size="sm" variant="secondary" onClick={()=>open(selUser)}>Edit</Btn>
+                  <Btn size="sm" variant="secondary" onClick={async()=>{
+                    const np=prompt("Enter new password (min 8 chars):");
+                    if(!np||np.length<8)return toast("Password must be at least 8 characters","error");
+                    try{await PUT(`/api/users/${selUser.id}`,{...selUser,password:np});await loadUsers();toast("Password reset!");}
+                    catch(e){toast(e.message,"error");}
+                  }}>🔑 Reset Password</Btn>
                   <Btn size="sm" variant="danger" onClick={()=>del(selUser.id)}>Delete</Btn>
                 </div>
               </div>
@@ -1212,7 +1221,7 @@ export function UserManagementPage({ db, reload, toast }) {
         <Modal title={modal==="new"?"Add User":"Edit User"} onClose={close}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Field label="Full Name" required><input style={IN} value={form.name||""} onChange={f("name")} /></Field>
-            <Field label="Role"><select style={IN} value={form.role||"judge"} onChange={f("role")}><option value="judge">Judge</option><option value="admin">Admin</option></select></Field>
+            <Field label="Role"><select style={IN} value={form.role||"judge"} onChange={f("role")}><option value="judge">Judge</option><option value="admin">Admin</option><option value="team">Team</option></select></Field>
           </div>
           <Field label="Email" required><input type="email" style={IN} value={form.email||""} onChange={f("email")} /></Field>
           <Field label={modal==="new"?"Password":"New Password"} hint={modal!=="new"?"Leave blank to keep current password":undefined}>

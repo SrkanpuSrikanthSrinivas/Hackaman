@@ -261,7 +261,7 @@ app.get(["/api/auth/gitlab/callback", "/auth/gitlab/callback"], async (req, res)
 // ─── USERS ────────────────────────────────────────────────────────────────────
 app.get(["/api/users", "/users"], admin, async (_req, res) => {
     try {
-        const { rows: users } = await q("SELECT id,name,email,role,judge_id,avatar_url,oauth_provider,created_at FROM users ORDER BY role,name");
+        const { rows: users } = await q("SELECT id,name,email,role,judge_id,team_id,avatar_url,oauth_provider,created_at FROM users ORDER BY role,name");
         const { rows: hj }    = await q("SELECT user_id,hackathon_id FROM hackathon_judges");
         const { rows: perms } = await q("SELECT id,user_id,hackathon_id,page FROM user_permissions");
         // Include team assignments — graceful if migration_v6 hasn't been run yet
@@ -277,13 +277,13 @@ app.get(["/api/users", "/users"], admin, async (_req, res) => {
 });
 
 app.post(["/api/users", "/users"], admin, async (req, res) => {
-    const { name, email, password, role = "judge", judgeId } = req.body;
+    const { name, email, password, role = "judge", judgeId, teamId } = req.body;
     if (!name?.trim() || !email?.trim() || !password?.trim()) return res.status(400).json({ error: "name, email, and password required" });
     try {
         const hash = await bcrypt.hash(password, 10);
         const { rows } = await q(
-            "INSERT INTO users (id,name,email,password_hash,role,judge_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id,name,email,role,judge_id",
-            [uid(), name, email.toLowerCase(), hash, role, judgeId || null]
+            "INSERT INTO users (id,name,email,password_hash,role,judge_id,team_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,name,email,role,judge_id,team_id",
+            [uid(), name, email.toLowerCase(), hash, role, judgeId||null, teamId||null]
         );
         res.status(201).json({ ...camel(rows[0]), assignedHackathons: [], permissions: [] });
     } catch (e) {
@@ -293,14 +293,15 @@ app.post(["/api/users", "/users"], admin, async (req, res) => {
 });
 
 app.put(["/api/users/:id", "/users/:id"], admin, async (req, res) => {
-    const { name, email, password, role, judgeId } = req.body;
+    const { name, email, password, role, judgeId, teamId } = req.body;
     try {
-        const params = password
-        ? [name, email.toLowerCase(), await bcrypt.hash(password, 10), role, judgeId || null, req.params.id]
-        : [name, email.toLowerCase(), role, judgeId || null, req.params.id];
-        const sql = password
-        ? "UPDATE users SET name=$1,email=$2,password_hash=$3,role=$4,judge_id=$5 WHERE id=$6 RETURNING id,name,email,role,judge_id"
-        : "UPDATE users SET name=$1,email=$2,role=$3,judge_id=$4 WHERE id=$5 RETURNING id,name,email,role,judge_id";
+        const hash = password ? await bcrypt.hash(password, 10) : null;
+        const params = hash
+        ? [name, email.toLowerCase(), hash, role, judgeId||null, teamId||null, req.params.id]
+        : [name, email.toLowerCase(), role, judgeId||null, teamId||null, req.params.id];
+        const sql = hash
+        ? "UPDATE users SET name=$1,email=$2,password_hash=$3,role=$4,judge_id=$5,team_id=$6 WHERE id=$7 RETURNING id,name,email,role,judge_id,team_id"
+        : "UPDATE users SET name=$1,email=$2,role=$3,judge_id=$4,team_id=$5 WHERE id=$6 RETURNING id,name,email,role,judge_id,team_id";
         const { rows } = await q(sql, params);
         if (!rows.length) return res.status(404).json({ error: "Not found" });
         res.json(camel(rows[0]));
