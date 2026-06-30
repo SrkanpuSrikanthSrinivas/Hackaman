@@ -978,7 +978,7 @@ export function UserManagementPage({ db, reload, toast }) {
   const [users,setUsers]=useState([]);const [sel,setSel]=useState(null);
   const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
-  const loadUsers=useCallback(async()=>{try{setUsers(await GET("/api/users"));}catch(e){toast(e.message,"error");};},[]);
+  const loadUsers=useCallback(async()=>{try{const d=await GET("/api/users");setUsers(Array.isArray(d)?d:[]);}catch(e){toast(e.message,"error");}},[]);
   useEffect(()=>{loadUsers();},[]);
   const selUser=users.find(u=>u.id===sel)||null;
   const open=u=>{setForm(u?{...u,password:""}:{role:"judge"});setModal(u||"new");};
@@ -1008,7 +1008,7 @@ export function UserManagementPage({ db, reload, toast }) {
       <SectionHeader title="User Management" count={`${users.length} users`} action={<Btn onClick={()=>open(null)}>+ Add User</Btn>} />
       <div style={{display:"grid",gridTemplateColumns:"270px 1fr",gap:14,alignItems:"start"}}>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {[{label:"Admins",list:admins},{label:"Judges",list:judges},{label:"Teams",list:teams}].map(({label,list})=>(
+          {[{label:"Admins",list:admins,icon:"🔧"},{label:"Judges",list:judges,icon:"⭐"},{label:"Teams",list:teams,icon:"🚀"}].map(({label,list,icon})=>(
             <Card key={label} pad={0} style={{overflow:"hidden"}}>
               <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,letterSpacing:"0.05em",textTransform:"uppercase",padding:"8px 14px",background:C.bg2,borderBottom:`1px solid ${C.border}`}}>{label}</div>
               {list.length===0?<div style={{...FONT,fontSize:12,color:C.text3,padding:"10px 14px",fontStyle:"italic"}}>None yet.</div>

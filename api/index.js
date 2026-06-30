@@ -18,6 +18,14 @@ async function q(sql, p = []) {
 // ── Audit log helper ─────────────────────────────────────────────────────────
 async function logEvent(action, user, req, method = "email") {
     try {
+        // Auto-create table if migration_v9 hasn't been run
+        await q(`CREATE TABLE IF NOT EXISTS login_logs (
+      id VARCHAR(20) PRIMARY KEY, user_id VARCHAR(20), name VARCHAR(255),
+      email VARCHAR(255), role VARCHAR(20), action VARCHAR(20) NOT NULL,
+      method VARCHAR(30), ip VARCHAR(60), user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`).catch(()=>{});
+
         const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         const ip = ((req.headers["x-forwarded-for"] || "").split(",")[0] || req.socket?.remoteAddress || "").trim().slice(0, 60);
         const ua = (req.headers["user-agent"] || "").slice(0, 300);
