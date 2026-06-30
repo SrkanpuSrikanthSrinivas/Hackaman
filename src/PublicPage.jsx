@@ -366,7 +366,7 @@ export default function PublicPage({hackathonId}){
       )}
 
       {/* ── NAV ── */}
-      <Nav accent={accent} data={data} scrollTo={scrollTo}
+      <Nav accent={accent} data={data} scrollTo={scrollTo} isCompleted={isCompleted}
         tracks={tracks} galleryImages={galleryImages}
         onRegister={()=>scrollTo("register")} />
 
@@ -970,7 +970,7 @@ export default function PublicPage({hackathonId}){
 }
 
 // ── Sticky Nav ────────────────────────────────────────────────────────────────
-function Nav({accent,data,scrollTo,tracks,galleryImages,onRegister}){
+function Nav({accent,data,scrollTo,tracks,galleryImages,onRegister,isCompleted=false}){
   const[sc,setSc]=useState(false);
   useEffect(()=>{const fn=()=>setSc(window.scrollY>50);window.addEventListener("scroll",fn);return()=>window.removeEventListener("scroll",fn);},[]);
   const tabs=[
