@@ -130,6 +130,7 @@ function LoginPage({ onLogin }) {
   const [err,      setErr]     = useState("");
   const [loading,  setLoading] = useState(false);
   const [showPass, setShowPass]= useState(false);
+  const FF = {fontFamily:"'Inter',system-ui,sans-serif"};
 
   const submit = async e => {
     e.preventDefault(); setLoading(true); setErr("");
@@ -138,12 +139,10 @@ function LoginPage({ onLogin }) {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ email, password: pass }),
       }).then(r => r.json());
-
       if (r.error) { setErr(r.error); return; }
-
       const payload = JSON.parse(atob(r.token.split(".")[1]));
       if (payload.role !== "admin") {
-        setErr("This login is for administrators only. Teams and judges sign in from their hackathon page.");
+        setErr("Admin access only. Teams and judges sign in from their hackathon page.");
         return;
       }
       localStorage.setItem("hf_token", r.token);
@@ -152,135 +151,129 @@ function LoginPage({ onLogin }) {
     finally { setLoading(false); }
   };
 
-  const IS = {
-    width:"100%", padding:"11px 14px", borderRadius:10, fontSize:14, color:"#111827",
-    background:"#f9fafb", border:"1.5px solid #e5e7eb", outline:"none",
-    fontFamily:"'Inter',system-ui,sans-serif", transition:"border 0.15s",
+  const inputStyle = {
+    ...FF, width:"100%", padding:"11px 14px 11px 40px",
+    borderRadius:10, fontSize:14, color:"#fff",
+    background:"rgba(255,255,255,0.07)",
+    border:"1.5px solid rgba(255,255,255,0.15)",
+    outline:"none", transition:"border 0.15s",
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)",
-      display:"flex", alignItems:"center", justifyContent:"center", padding:24,
-      fontFamily:"'Inter',system-ui,sans-serif" }}>
-      <style>{"input:focus{outline:none!important;border-color:#4f46e5!important;box-shadow:0 0 0 3px rgba(79,70,229,0.12)!important;}"}</style>
+    <div style={{ minHeight:"100vh",
+      background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:24, ...FF }}>
+      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
 
-      <div style={{ width:"100%", maxWidth:920, display:"grid",
-        gridTemplateColumns:"1fr 1fr", borderRadius:20, overflow:"hidden",
-        boxShadow:"0 20px 60px rgba(0,0,0,0.4)" }}>
-
-        {/* Left panel */}
-        <div style={{ background:"linear-gradient(145deg,#1e1b4b,#312e81,#4c1d95)",
-          padding:"52px 44px", display:"flex", flexDirection:"column",
-          justifyContent:"space-between", position:"relative", overflow:"hidden" }}>
-          <div style={{position:"absolute",top:-60,right:-60,width:240,height:240,
-            borderRadius:"50%",background:"rgba(255,255,255,0.04)",pointerEvents:"none"}}/>
-          <div style={{position:"absolute",bottom:-40,left:-40,width:180,height:180,
-            borderRadius:"50%",background:"rgba(255,255,255,0.04)",pointerEvents:"none"}}/>
-          <div style={{position:"relative"}}>
-            <div style={{ display:"inline-flex", alignItems:"center", gap:10,
-              background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.15)",
-              borderRadius:12, padding:"8px 16px", marginBottom:36 }}>
-              <span style={{fontSize:20}}>⚡</span>
-              <span style={{fontSize:14,fontWeight:700,color:"#fff",letterSpacing:"-0.01em"}}>HackFest Hub</span>
-            </div>
-            <h1 style={{ fontSize:30,fontWeight:900,color:"#fff",lineHeight:1.2,
-              letterSpacing:"-0.03em",marginBottom:12 }}>
-              Admin Portal
-            </h1>
-            <p style={{ fontSize:14,color:"rgba(255,255,255,0.5)",lineHeight:1.7,marginBottom:40 }}>
-              Manage hackathons, judges, submissions, scoring, certificates, and more.
-            </p>
-            {[
-              "🏗️  Create & manage hackathon events",
-              "⭐  Assign judges and track scoring",
-              "📊  AI-powered judging insights",
-              "🎓  Issue certificates & export data",
-              "📧  Automated email notifications",
-            ].map((f,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                <span style={{fontSize:13,color:"rgba(255,255,255,0.65)",lineHeight:1.5}}>{f}</span>
-              </div>
-            ))}
-          </div>
-          <div style={{position:"relative"}}>
-            <p style={{fontSize:11,color:"rgba(255,255,255,0.2)",lineHeight:1.7}}>
-              © {new Date().getFullYear()} HackFest Hub · Admin access only<br/>
-              Teams & Judges: sign in from your hackathon page
-            </p>
+      <div style={{ width:"100%", maxWidth:400 }}>
+        {/* Logo */}
+        <div style={{ textAlign:"center", marginBottom:36 }}>
+          <div style={{ fontSize:44, marginBottom:12 }}>⚡</div>
+          <h1 style={{ fontSize:26, fontWeight:800, color:"#fff",
+            letterSpacing:"-0.03em", marginBottom:6 }}>
+            HackFest Hub
+          </h1>
+          <div style={{ display:"inline-block", padding:"4px 14px",
+            borderRadius:9999, background:"rgba(99,102,241,0.2)",
+            border:"1px solid rgba(99,102,241,0.3)",
+            fontSize:12, color:"rgba(255,255,255,0.6)", fontWeight:600 }}>
+            Admin Portal
           </div>
         </div>
 
-        {/* Right form panel */}
-        <div style={{ background:"#fff", padding:"52px 44px",
-          display:"flex", flexDirection:"column", justifyContent:"center" }}>
-          <div style={{marginBottom:32}}>
-            <h2 style={{fontSize:24,fontWeight:800,color:"#111827",
-              letterSpacing:"-0.03em",marginBottom:6}}>Admin Sign In</h2>
-            <p style={{fontSize:14,color:"#6b7280"}}>
-              Enter your administrator credentials
-            </p>
-          </div>
+        {/* Card */}
+        <div style={{ background:"rgba(255,255,255,0.05)",
+          border:"1px solid rgba(255,255,255,0.1)",
+          borderRadius:18, padding:28, backdropFilter:"blur(12px)" }}>
 
           {err && (
-            <div style={{ display:"flex",alignItems:"flex-start",gap:10,
-              background:"#fef2f2",border:"1px solid #fecaca",
-              borderRadius:10,padding:"12px 14px",marginBottom:20 }}>
-              <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
-              <span style={{fontSize:13,color:"#991b1b",lineHeight:1.5,fontFamily:"'Inter',sans-serif"}}>{err}</span>
+            <div style={{ background:"rgba(239,68,68,0.15)",
+              border:"1px solid rgba(239,68,68,0.3)",
+              borderRadius:8, padding:"10px 14px",
+              fontSize:13, color:"#f87171", marginBottom:16,
+              lineHeight:1.5, ...FF }}>
+              {err}
             </div>
           )}
 
-          <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:18}}>
-            <div>
-              <label style={{display:"block",fontSize:13,fontWeight:600,
-                color:"#374151",marginBottom:7,fontFamily:"'Inter',sans-serif"}}>Email address</label>
-              <div style={{position:"relative"}}>
-                <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",
-                  fontSize:16,color:"#9ca3af",pointerEvents:"none"}}>✉</span>
-                <input type="email" required autoFocus value={email} onChange={e=>setEmail(e.target.value)}
-                  placeholder="admin@yourorg.com" style={{...IS,paddingLeft:38}}/>
+          <form onSubmit={submit}>
+            {/* Email */}
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", ...FF, fontSize:11,
+                fontWeight:600, color:"rgba(255,255,255,0.45)",
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>
+                Email
+              </label>
+              <div style={{ position:"relative" }}>
+                <span style={{ position:"absolute", left:13,
+                  top:"50%", transform:"translateY(-50%)",
+                  fontSize:16, color:"rgba(255,255,255,0.35)",
+                  pointerEvents:"none" }}>✉</span>
+                <input type="email" required autoFocus
+                  value={email} onChange={e=>setEmail(e.target.value)}
+                  placeholder="admin@yourorg.com"
+                  style={inputStyle}
+                  onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
+                  onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
               </div>
             </div>
-            <div>
-              <label style={{display:"block",fontSize:13,fontWeight:600,
-                color:"#374151",marginBottom:7,fontFamily:"'Inter',sans-serif"}}>Password</label>
-              <div style={{position:"relative"}}>
-                <span style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",
-                  fontSize:16,color:"#9ca3af",pointerEvents:"none"}}>🔒</span>
-                <input type={showPass?"text":"password"} required value={pass} onChange={e=>setPass(e.target.value)}
-                  placeholder="Enter your password" style={{...IS,paddingLeft:38,paddingRight:42}}/>
+
+            {/* Password */}
+            <div style={{ marginBottom:22 }}>
+              <label style={{ display:"block", ...FF, fontSize:11,
+                fontWeight:600, color:"rgba(255,255,255,0.45)",
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>
+                Password
+              </label>
+              <div style={{ position:"relative" }}>
+                <span style={{ position:"absolute", left:13,
+                  top:"50%", transform:"translateY(-50%)",
+                  fontSize:16, color:"rgba(255,255,255,0.35)",
+                  pointerEvents:"none" }}>🔒</span>
+                <input type={showPass?"text":"password"} required
+                  value={pass} onChange={e=>setPass(e.target.value)}
+                  placeholder="••••••••"
+                  style={{...inputStyle, paddingRight:44}}
+                  onFocus={e=>e.target.style.borderColor="rgba(99,102,241,0.7)"}
+                  onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"} />
                 <button type="button" onClick={()=>setShowPass(!showPass)}
-                  style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",
-                    background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#9ca3af"}}>
-                  {showPass?"🙈":"👁"}
+                  style={{ position:"absolute", right:12,
+                    top:"50%", transform:"translateY(-50%)",
+                    background:"none", border:"none", cursor:"pointer",
+                    color:"rgba(255,255,255,0.35)", fontSize:16, padding:2 }}>
+                  {showPass ? "🙈" : "👁"}
                 </button>
               </div>
             </div>
+
+            {/* Submit */}
             <button type="submit" disabled={loading}
-              style={{width:"100%",padding:"13px",borderRadius:10,
-                background:loading?"#818cf8":"#4f46e5",color:"#fff",border:"none",
-                cursor:loading?"not-allowed":"pointer",fontSize:15,fontWeight:700,
-                fontFamily:"'Inter',sans-serif",
-                boxShadow:"0 4px 14px rgba(79,70,229,0.35)",transition:"all 0.15s",
-                display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-              {loading
-                ? <><span style={{width:16,height:16,border:"2px solid rgba(255,255,255,0.35)",
-                    borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",
-                    animation:"spin 0.7s linear infinite"}}/> Signing in…</>
-                : "Sign in →"}
+              style={{ ...FF, width:"100%", padding:"12px",
+                borderRadius:10, fontSize:15, fontWeight:700,
+                background:loading?"rgba(99,102,241,0.5)":"#4f46e5",
+                color:"#fff", border:"none",
+                cursor:loading?"not-allowed":"pointer",
+                boxShadow:"0 4px 18px rgba(79,70,229,0.4)",
+                display:"flex", alignItems:"center",
+                justifyContent:"center", gap:8, transition:"all 0.15s" }}>
+              {loading ? (
+                <><span style={{ width:16, height:16,
+                  border:"2px solid rgba(255,255,255,0.35)",
+                  borderTopColor:"#fff", borderRadius:"50%",
+                  display:"inline-block",
+                  animation:"spin 0.7s linear infinite" }}/> Signing in…</>
+              ) : "Sign in →"}
             </button>
           </form>
-
-          <div style={{marginTop:28,padding:"14px 16px",background:"#f8fafc",
-            borderRadius:10,border:"1px solid #e2e8f0"}}>
-            <p style={{fontSize:12,color:"#64748b",lineHeight:1.7,margin:0,fontFamily:"'Inter',sans-serif"}}>
-              <strong style={{color:"#475569"}}>Teams & Judges:</strong> Don't sign in here.<br/>
-              Visit your hackathon page and use the <strong>Sign In</strong> tab.
-            </p>
-          </div>
         </div>
+
+        {/* Footer note */}
+        <p style={{ textAlign:"center", marginTop:20, ...FF,
+          fontSize:12, color:"rgba(255,255,255,0.2)", lineHeight:1.6 }}>
+          Teams &amp; Judges: sign in from your hackathon page
+        </p>
       </div>
-      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
     </div>
   );
 }
