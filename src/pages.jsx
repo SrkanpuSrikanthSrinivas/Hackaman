@@ -3305,6 +3305,41 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
 }
 
 
+/* ─── AI PANEL — shared wrapper for all AI features ─────────────────────── */
+function AIPanel({ title, icon, onRun, running, result, error, children }) {
+  const [open, setOpen] = useState(false);
+  const run = async () => { setOpen(true); await onRun(); };
+  return (
+    <div style={{ marginTop:10 }}>
+      <Btn size="sm" variant="secondary" onClick={run} disabled={running}
+        style={{ background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff",
+          border:"none", display:"inline-flex", alignItems:"center", gap:6 }}>
+        {running ? <><Spinner size={10}/> Analysing…</> : <>{icon} {title}</>}
+      </Btn>
+      {open && (error || result) && (
+        <div style={{ marginTop:8, padding:14, background:C.bg2, borderRadius:R.md,
+          border:`1px solid ${error ? C.bdRed : C.bdBlue}` }}>
+          {error && (
+            <div>
+              <div style={{ ...FONT, fontSize:13, color:C.red, marginBottom:6 }}>⚠ {error}</div>
+              {error.includes("GEMINI_API_KEY") && (
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener"
+                  style={{ ...FONT, fontSize:12, color:C.blue, display:"inline-flex",
+                    alignItems:"center", gap:5, padding:"5px 10px", borderRadius:R.sm,
+                    border:`1px solid ${C.bdBlue}`, background:C.bgBlue, textDecoration:"none" }}>
+                  🔑 Get free Gemini API key →
+                </a>
+              )}
+            </div>
+          )}
+          {result && children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export function AITeamInsights({ teamId, hackathonId, toast }) {
   const [running,  setRunning]  = useState(false);
   const [result,   setResult]   = useState(null);
