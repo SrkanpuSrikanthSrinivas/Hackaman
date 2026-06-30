@@ -872,7 +872,7 @@ export default function PublicPage({hackathonId}){
         </section>
       )}
 
-      {/* ── REGISTER / COMPLETED ── */
+      {/* ── REGISTER / COMPLETED ── */}
       <section id="register" style={{padding:"80px 24px",background:`${accent}0a`,borderTop:`1px solid ${accent}20`}}>
         <div style={{maxWidth:560,margin:"0 auto"}}>
           {isCompleted ? (
