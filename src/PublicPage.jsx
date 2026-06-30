@@ -860,7 +860,19 @@ export default function PublicPage({hackathonId}){
         </section>
       )}
 
-      {/* ── REGISTER / COMPLETED ── */}}
+      {/* ── JUDGE & TEAM LOGIN ── */}
+      {!isCompleted&&(
+        <section id="login" style={{padding:"72px 24px",background:"#09101f",
+          borderTop:`1px solid rgba(255,255,255,0.06)`}}>
+          <div style={{maxWidth:480,margin:"0 auto"}}>
+            <SecHead eyebrow="Participants" title="Sign in to your account" accent={accent}
+              sub="Teams and judges: sign in here to access your dashboard for this event." />
+            <ParticipantLogin hackathonId={hackathonId} accent={accent}/>
+          </div>
+        </section>
+      )}
+
+      {/* ── REGISTER / COMPLETED ── */}}}
       <section id="register" style={{padding:"80px 24px",background:`${accent}0a`,borderTop:`1px solid ${accent}20`}}>
         <div style={{maxWidth:560,margin:"0 auto"}}>
           {isCompleted ? (
@@ -1075,7 +1087,7 @@ function QASection({hackathonId, accent}) {
       <div style={{maxWidth:860,margin:"0 auto"}}>
         <SecHead eyebrow="Community" title="Questions & Answers" accent={accent}
           sub="Ask the organizers anything. Answered questions are shared publicly." />
-        
+
         {/* Existing Q&A */}
         {questions.filter(q=>q.answer).length>0&&(
           <div style={{marginBottom:36}}>
@@ -1242,6 +1254,133 @@ function VotingSection({hackathonId, teams, accent}) {
         </div>
       </div>
     </section>
+  );
+}
+
+
+// ── Judge & Team Login (on hackathon public page) ─────────────────────────
+function ParticipantLogin({ hackathonId, accent }) {
+  const [tab,  setTab]  = useState("team");   // team | judge
+  const [email, setEmail] = useState("");
+  const [pass,  setPass]  = useState("");
+  const [show,  setShow]  = useState(false);
+  const [busy,  setBusy]  = useState(false);
+  const [err,   setErr]   = useState("");
+  const [done,  setDone]  = useState(false);
+
+  const submit = async e => {
+    e.preventDefault(); setBusy(true); setErr("");
+    try {
+      const res = await fetch(`${BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: pass }),
+      }).then(r => r.json());
+
+      if (res.error) { setErr(res.error); setBusy(false); return; }
+
+      // Validate role matches the tab
+      const payload = JSON.parse(atob(res.token.split(".")[1]));
+      if (tab === "judge" && payload.role !== "judge" && payload.role !== "admin") {
+        setErr("This account is not set up as a judge. Contact your organizer."); setBusy(false); return;
+      }
+      if (tab === "team" && payload.role !== "team") {
+        setErr("This account is not a team account. Contact your organizer."); setBusy(false); return;
+      }
+
+      localStorage.setItem("hf_token", res.token);
+      setDone(true);
+      // Small delay then redirect to portal
+      setTimeout(() => { window.location.href = "/admin"; }, 800);
+    } catch(e) { setErr(e.message); setBusy(false); }
+  };
+
+  const IS = {
+    ...FF, width:"100%", padding:"10px 14px", borderRadius:10, fontSize:14, color:"#fff",
+    background:"rgba(255,255,255,0.07)", border:"1.5px solid rgba(255,255,255,0.15)",
+    outline:"none", transition:"border 0.15s",
+  };
+
+  if (done) return (
+    <div style={{textAlign:"center", padding:"20px 0"}}>
+      <div style={{fontSize:40, marginBottom:10}}>✅</div>
+      <div style={{...FF, fontSize:16, fontWeight:700, color:"#fff", marginBottom:6}}>Signed in!</div>
+      <div style={{...FF, fontSize:13, color:"rgba(255,255,255,0.5)"}}>Redirecting to your dashboard…</div>
+    </div>
+  );
+
+  return (
+    <div style={{background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)",
+      borderRadius:16, padding:28}}>
+
+      {/* Tabs */}
+      <div style={{display:"flex", background:"rgba(0,0,0,0.25)", borderRadius:10, padding:3, marginBottom:20}}>
+        {[["team","🚀 Team Login"],["judge","⭐ Judge Login"]].map(([v,l])=>(
+          <button key={v} onClick={()=>{setTab(v);setErr("");}}
+            style={{...FF, flex:1, padding:"9px", borderRadius:8, border:"none", cursor:"pointer",
+              background:tab===v?accent:"transparent",
+              color:tab===v?"#fff":"rgba(255,255,255,0.45)",
+              fontSize:13, fontWeight:600, transition:"all 0.15s"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {tab==="team" && (
+        <div style={{...FF, fontSize:12, color:"rgba(255,255,255,0.35)", marginBottom:14, lineHeight:1.6}}>
+          Use the email and password sent to you when your team login was created.
+        </div>
+      )}
+      {tab==="judge" && (
+        <div style={{...FF, fontSize:12, color:"rgba(255,255,255,0.35)", marginBottom:14, lineHeight:1.6}}>
+          Use your judge credentials provided by the organizer.
+        </div>
+      )}
+
+      {err && (
+        <div style={{background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)",
+          borderRadius:8, padding:"9px 14px", fontSize:13, color:"#f87171", marginBottom:14}}>
+          {err}
+        </div>
+      )}
+
+      <form onSubmit={submit}>
+        <div style={{marginBottom:12}}>
+          <label style={{...FF, display:"block", fontSize:11, fontWeight:600,
+            color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
+            letterSpacing:"0.07em", marginBottom:5}}>Email</label>
+          <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+            placeholder="your@email.com" style={IS}
+            onFocus={e=>e.target.style.borderColor=`${accent}99`}
+            onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"}/>
+        </div>
+        <div style={{marginBottom:18}}>
+          <label style={{...FF, display:"block", fontSize:11, fontWeight:600,
+            color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
+            letterSpacing:"0.07em", marginBottom:5}}>Password</label>
+          <div style={{position:"relative"}}>
+            <input type={show?"text":"password"} required value={pass} onChange={e=>setPass(e.target.value)}
+              placeholder="••••••••" style={{...IS, paddingRight:40}}
+              onFocus={e=>e.target.style.borderColor=`${accent}99`}
+              onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"}/>
+            <button type="button" onClick={()=>setShow(!show)}
+              style={{position:"absolute", right:12, top:"50%", transform:"translateY(-50%)",
+                background:"none", border:"none", cursor:"pointer",
+                color:"rgba(255,255,255,0.35)", fontSize:16}}>
+              {show?"🙈":"👁"}
+            </button>
+          </div>
+        </div>
+        <button type="submit" disabled={busy}
+          style={{...FF, width:"100%", padding:"12px", borderRadius:10,
+            background:busy?"rgba(255,255,255,0.1)":accent,
+            color:"#fff", border:"none", cursor:busy?"not-allowed":"pointer",
+            fontSize:15, fontWeight:700, transition:"all 0.15s",
+            boxShadow:busy?"none":`0 4px 14px ${accent}55`}}>
+          {busy ? "Signing in…" : `Sign in →`}
+        </button>
+      </form>
+    </div>
   );
 }
 
