@@ -3101,7 +3101,16 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
   const hack = data?.hackathon;
   const team = data?.team;
   const sub  = data?.submission;
-  const submissionsOpen = hack?.submissionsOpen !== false;
+
+  const now       = new Date();
+  const startDate = hack?.startDate ? new Date(hack.startDate) : null;
+  const endDate   = hack?.endDate   ? new Date(hack.endDate)   : null;
+  const notStarted  = startDate && now < startDate;
+  const hasEnded    = endDate   && now > endDate;
+  const adminClosed = hack?.submissionsOpen === false;
+  const submissionsOpen = !notStarted && !hasEnded && !adminClosed;
+  const daysToStart = startDate ? Math.ceil((startDate-now)/864e5) : null;
+  const fmt = d => d ? new Date(d).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : "";
 
   if (loading && !data) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:80}}>
@@ -3154,6 +3163,16 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
                 {sub ? "✏ Edit Submission" : "📤 Submit Project"}
               </Btn>
             )}
+            {notStarted && (
+              <div style={{...FONT,fontSize:12,color:C.amber,marginTop:4}}>
+                ⏳ Opens {fmt(hack?.startDate)}
+              </div>
+            )}
+            {hasEnded && (
+              <div style={{...FONT,fontSize:12,color:C.red,marginTop:4}}>
+                🔒 Window closed
+              </div>
+            )}
           </div>
 
           {sub ? (
@@ -3205,9 +3224,13 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
                 No submission yet
               </div>
               <div style={{...FONT,fontSize:13,color:C.text3}}>
-                {submissionsOpen
-                  ? "Click \"Submit Project\" to add your project details."
-                  : "Submissions are currently closed."}
+                {notStarted
+                  ? `Submissions open when the hackathon starts on ${fmt(hack?.startDate)}.${daysToStart>0?` ${daysToStart} day${daysToStart!==1?"s":""} to go!`:""}`
+                  : hasEnded
+                  ? `Submission window closed on ${fmt(hack?.endDate)}.`
+                  : adminClosed
+                  ? "Submissions are currently closed by the organizer."
+                  : 'Click "Submit Project" to add your project details.'}
               </div>
             </div>
           )}
