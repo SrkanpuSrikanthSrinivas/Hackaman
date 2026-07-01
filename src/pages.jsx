@@ -112,8 +112,18 @@ export function HackathonsPage({ db, reload, toast, setActive, setPage }) {
     try{if(modal==="new")await POST("/api/hackathons",form);else await PUT(`/api/hackathons/${modal.id}`,form);await reload();toast(modal==="new"?"Hackathon created":"Updated");close();}
     catch(e){toast(e.message,"error");}setSaving(false);
   };
-  const del=async(id,e)=>{e?.stopPropagation();if(!confirm("Delete this hackathon and all its data?"))return;
-    try{await DEL(`/api/hackathons/${id}`);await reload();toast("Deleted");}catch(e){toast(e.message,"error");}};
+  const del=async(id,e)=>{e?.stopPropagation();
+    const h=db.hackathons.find(x=>x.id===id);
+    const tCount=db.teams.filter(t=>t.hackathonId===id).length;
+    const jCount=db.judges.filter(j=>j.hackathonId===id).length;
+    const msg=`Delete "${h?.name||"this hackathon"}" and PURGE everything?\n\nThis permanently deletes:\n• ${tCount} team${tCount!==1?"s":""} + their logins\n• ${jCount} judge${jCount!==1?"s":""} + their logins\n• All submissions, scores, registrations, and page data\n\nThis cannot be undone.`;
+    if(!confirm(msg))return;
+    try{
+      const res=await DEL(`/api/hackathons/${id}`);
+      await reload();
+      const pg=res.purged;
+      toast(pg?`✓ Purged — ${pg.teams} teams, ${pg.judges} judges, ${pg.teamLogins+pg.judgeLogins} logins removed`:"Deleted");
+    }catch(e){toast(e.message,"error");}};
   const togglePublish=async(h,e)=>{e?.stopPropagation();
     try{await PUT(`/api/hackathons/${h.id}`,{...h,published:!h.published});await reload();toast(h.published?"Unpublished":"Published — now live publicly");}
     catch(e){toast(e.message,"error");}};

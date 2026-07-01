@@ -460,8 +460,50 @@ app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
 });
 
 app.delete(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
-    try { await q("DELETE FROM hackathons WHERE id=$1", [req.params.id]); res.json({ deleted: true }); }
-    catch (e) { res.status(500).json({ error: e.message }); }
+    const hid = req.params.id;
+    const purged = { teams:0, judges:0, teamLogins:0, judgeLogins:0, submissions:0, registrations:0 };
+    try {
+        // 1. Collect the team IDs and judge IDs for this hackathon (needed to purge linked users)
+        const { rows: teamRows }  = await q("SELECT id FROM teams  WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[]}));
+        const { rows: judgeRows } = await q("SELECT id FROM judges WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[]}));
+        const teamIds  = teamRows.map(r=>r.id);
+        const judgeIds = judgeRows.map(r=>r.id);
+
+        // 2. Delete team-role users linked to those teams
+        if (teamIds.length) {
+            const r = await q("DELETE FROM users WHERE role='team' AND team_id = ANY($1::varchar[])", [teamIds]).catch(()=>({rowCount:0}));
+            purged.teamLogins = r.rowCount || 0;
+        }
+
+        // 3. Delete judge-role users linked to those judges
+        if (judgeIds.length) {
+            const r = await q("DELETE FROM users WHERE role='judge' AND judge_id = ANY($1::varchar[])", [judgeIds]).catch(()=>({rowCount:0}));
+            purged.judgeLogins = r.rowCount || 0;
+        }
+
+        // 4. Also remove any judge/team users assigned only to this hackathon via hackathon_judges
+        await q("DELETE FROM hackathon_judges WHERE hackathon_id=$1", [hid]).catch(()=>{});
+
+        // 5. Count what will be cascade-deleted (for the response summary)
+        const { rows:[sc] } = await q("SELECT count(*)::int c FROM submissions WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[{c:0}]}));
+        const { rows:[rc] } = await q("SELECT count(*)::int c FROM registrations WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[{c:0}]}));
+        purged.submissions   = sc.c;
+        purged.registrations = rc.c;
+        purged.teams  = teamIds.length;
+        purged.judges = judgeIds.length;
+
+        // 6. Explicitly delete judges (no cascade FK on some schemas) + teams
+        await q("DELETE FROM judges WHERE hackathon_id=$1", [hid]).catch(()=>{});
+        await q("DELETE FROM teams  WHERE hackathon_id=$1", [hid]).catch(()=>{});
+
+        // 7. Finally delete the hackathon — cascades submissions, registrations, criteria,
+        //    feedbacks, votes, announcements, mentors, checkins, etc. via ON DELETE CASCADE
+        await q("DELETE FROM hackathons WHERE id=$1", [hid]);
+
+        res.json({ deleted:true, purged });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // ─── JUDGES / TEAMS / CRITERIA (standard CRUD) ───────────────────────────────
