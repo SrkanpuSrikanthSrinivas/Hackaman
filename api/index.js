@@ -463,38 +463,54 @@ app.delete(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) =
     const hid = req.params.id;
     const purged = { teams:0, judges:0, teamLogins:0, judgeLogins:0, submissions:0, registrations:0 };
     try {
-        // 1. Collect the team IDs and judge IDs for this hackathon (needed to purge linked users)
-        const { rows: teamRows }  = await q("SELECT id FROM teams  WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[]}));
-        const { rows: judgeRows } = await q("SELECT id FROM judges WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[]}));
-        const teamIds  = teamRows.map(r=>r.id);
-        const judgeIds = judgeRows.map(r=>r.id);
+        // 1. Team IDs for this hackathon
+        const { rows: teamRows } = await q("SELECT id FROM teams WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[]}));
+        const teamIds = teamRows.map(r=>r.id);
 
-        // 2. Delete team-role users linked to those teams
+        // 2. Judge-user IDs assigned to this hackathon (judges are global; link via hackathon_judges)
+        const { rows: judgeUserRows } = await q(
+            "SELECT u.id AS user_id, u.judge_id FROM users u JOIN hackathon_judges hj ON hj.user_id=u.id WHERE hj.hackathon_id=$1 AND u.role='judge'",
+            [hid]
+        ).catch(()=>({rows:[]}));
+        const judgeUserIds = judgeUserRows.map(r=>r.user_id);
+        const judgeIds     = [...new Set(judgeUserRows.map(r=>r.judge_id).filter(Boolean))];
+
+        // 3. Delete team logins linked to those teams
         if (teamIds.length) {
             const r = await q("DELETE FROM users WHERE role='team' AND team_id = ANY($1::varchar[])", [teamIds]).catch(()=>({rowCount:0}));
             purged.teamLogins = r.rowCount || 0;
         }
 
-        // 3. Delete judge-role users linked to those judges
-        if (judgeIds.length) {
-            const r = await q("DELETE FROM users WHERE role='judge' AND judge_id = ANY($1::varchar[])", [judgeIds]).catch(()=>({rowCount:0}));
+        // 4. Delete judge logins assigned to this hackathon
+        if (judgeUserIds.length) {
+            const r = await q("DELETE FROM users WHERE id = ANY($1::varchar[])", [judgeUserIds]).catch(()=>({rowCount:0}));
             purged.judgeLogins = r.rowCount || 0;
         }
 
-        // 4. Also remove any judge/team users assigned only to this hackathon via hackathon_judges
+        // 5. Remove hackathon_judges rows for this hackathon
         await q("DELETE FROM hackathon_judges WHERE hackathon_id=$1", [hid]).catch(()=>{});
 
-        // 5. Count what will be cascade-deleted (for the response summary)
+        // 6. Delete judge records that are now orphaned (no remaining user links)
+        let deletedJudges = 0;
+        for (const jid of judgeIds) {
+            const { rows: stillLinked } = await q("SELECT 1 FROM users WHERE judge_id=$1 LIMIT 1", [jid]).catch(()=>({rows:[]}));
+            if (!stillLinked.length) {
+                await q("DELETE FROM feedbacks WHERE judge_id=$1", [jid]).catch(()=>{});
+                await q("DELETE FROM judges WHERE id=$1", [jid]).catch(()=>{});
+                deletedJudges++;
+            }
+        }
+
+        // 7. Count cascade-deleted items for the summary
         const { rows:[sc] } = await q("SELECT count(*)::int c FROM submissions WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[{c:0}]}));
         const { rows:[rc] } = await q("SELECT count(*)::int c FROM registrations WHERE hackathon_id=$1", [hid]).catch(()=>({rows:[{c:0}]}));
         purged.submissions   = sc.c;
         purged.registrations = rc.c;
         purged.teams  = teamIds.length;
-        purged.judges = judgeIds.length;
+        purged.judges = deletedJudges;
 
-        // 6. Explicitly delete judges (no cascade FK on some schemas) + teams
-        await q("DELETE FROM judges WHERE hackathon_id=$1", [hid]).catch(()=>{});
-        await q("DELETE FROM teams  WHERE hackathon_id=$1", [hid]).catch(()=>{});
+        // 8. Delete teams for this hackathon
+        await q("DELETE FROM teams WHERE hackathon_id=$1", [hid]).catch(()=>{});
 
         // 7. Finally delete the hackathon — cascades submissions, registrations, criteria,
         //    feedbacks, votes, announcements, mentors, checkins, etc. via ON DELETE CASCADE
@@ -508,7 +524,29 @@ app.delete(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) =
 
 // ─── JUDGES / TEAMS / CRITERIA (standard CRUD) ───────────────────────────────
 app.get(["/api/judges", "/judges"], auth, async (_req, res) => {
-    try { const { rows } = await q("SELECT * FROM judges ORDER BY name"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
+    try {
+        const { rows } = await q("SELECT * FROM judges ORDER BY name");
+        // Attach the list of hackathon IDs each judge is assigned to (via linked users)
+        const { rows: links } = await q(`
+      SELECT u.judge_id, hj.hackathon_id, u.email
+      FROM users u JOIN hackathon_judges hj ON hj.user_id = u.id
+      WHERE u.judge_id IS NOT NULL
+    `).catch(()=>({rows:[]}));
+        const byJudge = {};
+        links.forEach(l => {
+            if (!byJudge[l.judge_id]) byJudge[l.judge_id] = { hacks:new Set(), email:l.email };
+            byJudge[l.judge_id].hacks.add(l.hackathon_id);
+        });
+        const enriched = rows.map(j => {
+            const link = byJudge[j.id];
+            return {
+                ...camel(j),
+                email: link?.email || null,
+                hackathonIds: link ? [...link.hacks] : [],
+            };
+        });
+        res.json(enriched);
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post(["/api/judges", "/judges"], admin, async (req, res) => {
     const { name, org, role, avatarUrl } = req.body;
@@ -641,38 +679,48 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
 
             try {
                 if (isJudge) {
-                    // ── Auto-create judge record ──
-                    const { rows: existingJudge } = await q(
-                        "SELECT id FROM judges WHERE hackathon_id=$1 AND LOWER(email)=LOWER($2)",
-                        [reg.hackathonId, reg.email]
+                    // ── Auto-create judge record (schema: id,name,org,role,avatar_url — NO hackathon_id) ──
+                    // Judges are global; they link to a hackathon via users.judge_id + hackathon_judges.
+                    // Find an existing judge by matching a linked user with this email.
+                    let judgeId = null;
+                    const { rows: linkedUser } = await q(
+                        "SELECT judge_id FROM users WHERE LOWER(email)=LOWER($1) AND judge_id IS NOT NULL LIMIT 1",
+                        [reg.email]
                     ).catch(()=>({rows:[]}));
+                    if (linkedUser.length) judgeId = linkedUser[0].judge_id;
 
-                    let judgeId;
-                    if (existingJudge.length) {
-                        judgeId = existingJudge[0].id;
-                    } else {
-                        judgeId = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+                    if (!judgeId) {
+                        judgeId = "j" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
                         await q(
-                            "INSERT INTO judges(id,hackathon_id,name,email,title,organization,bio) VALUES($1,$2,$3,$4,$5,$6,$7)",
-                            [judgeId, reg.hackathonId, reg.name, reg.email, reg.title||null, reg.organization||null, reg.bio||null]
+                            "INSERT INTO judges(id,name,org,role) VALUES($1,$2,$3,$4)",
+                            [judgeId, reg.name, reg.organization || reg.org || null, reg.title || reg.role || "Judge"]
                         );
                         autoResult.judgeCreated = true;
                     }
 
-                    // ── Auto-create judge user login ──
+                    // ── Auto-create judge user login + assign to this hackathon ──
                     const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+                    let judgeUserId;
                     if (!existingUser.length) {
                         const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
-                        const uid2 = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+                        judgeUserId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
                         await q(
                             "INSERT INTO users(id,name,email,password_hash,role,judge_id) VALUES($1,$2,LOWER($3),$4,'judge',$5)",
-                            [uid2, reg.name, reg.email, hash, judgeId]
+                            [judgeUserId, reg.name, reg.email, hash, judgeId]
                         );
-                        // Assign judge to this hackathon
-                        await q("INSERT INTO hackathon_judges(user_id,hackathon_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[uid2,reg.hackathonId]).catch(()=>{});
                         autoResult.loginCreated = true;
                         autoResult.tempPassword = DEFAULT_PASSWORD;
+                    } else {
+                        judgeUserId = existingUser[0].id;
+                        // Ensure the existing user is linked to the judge record
+                        await q("UPDATE users SET judge_id=$1 WHERE id=$2 AND judge_id IS NULL", [judgeId, judgeUserId]).catch(()=>{});
                     }
+
+                    // Assign this judge-user to the hackathon (so they appear + can judge)
+                    await q(
+                        "INSERT INTO hackathon_judges(user_id,hackathon_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
+                        [judgeUserId, reg.hackathonId]
+                    ).catch(()=>{});
                 } else {
                     // ── Auto-create team record ──
                     const teamName = reg.teamName || reg.name;

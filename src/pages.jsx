@@ -308,7 +308,7 @@ export function TeamsPage({ db, reload, toast, activeHackathon }) {
   />;
 }
 
-export function JudgesPage({ db, reload, toast }) {
+export function JudgesPage({ db, reload, toast, activeHackathon }) {
   const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [uploading,setUploading]=useState(false);
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
   const fileRef=useRef(null);
@@ -335,10 +335,15 @@ export function JudgesPage({ db, reload, toast }) {
   };
   const del=async id=>{try{await DEL(`/api/judges/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}};
 
+  // Show judges assigned to the active hackathon (or all if a judge has no assignment yet)
+  const judges = activeHackathon
+    ? db.judges.filter(j => !j.hackathonIds?.length || j.hackathonIds.includes(activeHackathon))
+    : db.judges;
+
   return (
     <div>
-      <SectionHeader title="Judges" count={`${db.judges.length} registered`} action={<Btn onClick={()=>open(null)}>+ Add Judge</Btn>} />
-      {db.judges.length===0?<Empty icon="👨‍⚖️" title="No judges registered" sub="Add judges who will evaluate teams." action={<Btn onClick={()=>open(null)}>Add Judge</Btn>} />
+      <SectionHeader title="Judges" count={`${judges.length} for this hackathon`} action={<Btn onClick={()=>open(null)}>+ Add Judge</Btn>} />
+      {judges.length===0?<Empty icon="👨‍⚖️" title="No judges yet" sub="Approve judge registrations or add judges manually." action={<Btn onClick={()=>open(null)}>Add Judge</Btn>} />
         :<DataTable cols={[
           {key:"name",label:"Name",render:(v,r)=>(
             <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -355,7 +360,7 @@ export function JudgesPage({ db, reload, toast }) {
             <Btn size="sm" variant="secondary" onClick={()=>open(r)}>Edit</Btn>
             <Btn size="sm" variant="danger" onClick={()=>del(r.id)}>Remove</Btn>
           </div>},
-        ]} rows={db.judges} empty="No judges." />
+        ]} rows={judges} empty="No judges." />
       }
       {modal&&(
         <Modal title={modal==="new"?"Add Judge":"Edit Judge"} onClose={close} width={560}>
