@@ -407,15 +407,21 @@ function AppShell() {
   }, [db.hackathons, currentUser]);
 
   const logout = () => {
-    // Log the logout event before clearing session
-    const token = localStorage.getItem("hf_token");
+    const role   = currentUser?.role;
+    const hackId = activeHackathon;
+    const token  = localStorage.getItem("hf_token");
     if (token) {
       fetch("/api/auth/logout", { method:"POST",
         headers:{ Authorization:`Bearer ${token}` } }).catch(()=>{});
     }
     localStorage.removeItem("hf_token");
     setCurrentUser(null);
-    window.location.href = "/";
+    // Judge and team return to their hackathon page; admin goes to root
+    if ((role === "judge" || role === "team") && hackId) {
+      window.location.href = `/register/${hackId}`;
+    } else {
+      window.location.href = "/";
+    }
   };
 
   // Handle OAuth redirect — reads ?token= or ?error= from URL after Google/GitHub/GitLab login
