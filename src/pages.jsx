@@ -2461,7 +2461,7 @@ export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
                 <div>
                   <div style={{ ...FONT, fontSize:13, fontWeight:600, color:C.text, marginBottom:4 }}>Judge Credentials</div>
                   <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.6 }}>
-                    Judge login emails are sent automatically when you click <strong>+ Add to Judges</strong> in the Registrations page and their account is created.
+                    Judge login emails are sent automatically when you approve a judge registration. Their record, login, and hackathon assignment are all created instantly.
                   </p>
                 </div>
               </div>
@@ -4249,52 +4249,7 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
     catch(e){toast(e.message,"error");}
   };
 
-  // Convert approved registration → actual Team or Judge record
-  const convertReg=async(reg)=>{
-    setConverting(p=>({...p,[reg.id]:true}));
-    try{
-      if(reg.type==="team"){
-        const teamName=reg.teamName||reg.name;
-        const exists=db.teams.some(t=>t.hackathonId===selH&&t.name.toLowerCase()===teamName.toLowerCase());
-        if(exists){toast(`Team "${teamName}" already exists in this hackathon`,"error");return;}
-        await POST("/api/teams",{
-          hackathonId:selH,
-          name:teamName,
-          project:"",
-          category:"",
-          members:reg.name+(reg.teamSize>1?` + ${reg.teamSize-1} more`:""),
-        });
-        await reload();
-        toast(`✓ Team "${teamName}" added — go to Teams to fill in project details`);
-      } else {
-        const exists=db.judges.some(j=>j.name.toLowerCase()===reg.name.toLowerCase());
-        if(exists){toast(`Judge "${reg.name}" already exists`,"error");return;}
-        // Create judge profile
-        const judgeRes = await POST("/api/judges",{name:reg.name,org:reg.org||"",role:""});
-        // Auto-create user login linked to judge profile
-        const tempPassword = Math.random().toString(36).slice(2,10);
-        try {
-          await POST("/api/users",{
-            name: reg.name,
-            email: reg.email,
-            password: tempPassword,
-            role: "judge",
-            judgeId: judgeRes.id,
-          });
-          await POST("/api/assignments",{hackathonId:selH, userId: judgeRes.id}).catch(()=>{});
-          await reload();
-          toast(`✓ Judge "${reg.name}" added with login: ${reg.email} / ${tempPassword} — share this password!`);
-          navigator.clipboard?.writeText(`Email: ${reg.email}
-Password: ${tempPassword}`).catch(()=>{});
-        } catch(userErr) {
-          // User account may already exist (OAuth signup etc.) — judge profile still created
-          await reload();
-          toast(`✓ Judge profile created. Login already exists for ${reg.email} — link in User Management.`);
-        }
-      }
-    }catch(e){toast(e.message,"error");}
-    setConverting(p=>({...p,[reg.id]:false}));
-  };
+  // Team/Judge auto-created on approval — no manual convert needed
 
   const pending  =regs.filter(r=>r.status==="pending");
   const approved =regs.filter(r=>r.status==="approved");
@@ -4302,7 +4257,6 @@ Password: ${tempPassword}`).catch(()=>{});
   const filtered =tab==="pending"?pending:tab==="approved"?approved:tab==="rejected"?rejected:regs;
 
   const RegCard=({r})=>{
-    const busy=!!converting[r.id];
     const alreadyAdded=r.type==="team"
       ?db.teams.some(t=>t.hackathonId===selH&&t.name.toLowerCase()===(r.teamName||r.name).toLowerCase())
       :db.judges.some(j=>j.name.toLowerCase()===r.name.toLowerCase());
@@ -4340,14 +4294,30 @@ Password: ${tempPassword}`).catch(()=>{});
               {r.status!=="rejected"&&<Btn size="sm" variant="danger"  onClick={()=>updateReg(r.id,"rejected")}>Reject</Btn>}
               <Btn size="sm" variant="ghost" onClick={()=>delReg(r.id)}>✕</Btn>
             </div>
-            {/* Create team login */}
-              {r.status==="approved"&&<CreateLoginBtn regId={r.id} email={r.email} onCreated={()=>{loadRegs();toast("Login created & emailed!");}}/> }
-              {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
-              onApply={async(status)=>{ await PUT(`/api/registrations/${r.id}`,{status}); await loadRegs(); toast("Status updated"); }}
+
+            {/* AI screen for pending registrations */}
+            {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
+              onApply={async(status)=>{ await updateReg(r.id,status); }}
             />}
-            {/* Team/Judge auto-created on approval */}
-            {r.status==="approved"&&alreadyAdded&&(
-              <div style={{...FONT,fontSize:11,color:C.green}}>✓ Added to {r.type==="judge"?"Judges":"Teams"}</div>
+
+            {/* Approved: everything is auto-created — just show confirmation + optional resend */}
+            {r.status==="approved"&&(
+              <div style={{textAlign:"right"}}>
+                <div style={{...FONT,fontSize:11,color:C.green,fontWeight:600,marginBottom:2}}>
+                  ✓ {r.type==="judge"?"Judge":"Team"} added · Login created
+                </div>
+                <div style={{...FONT,fontSize:10,color:C.text3,marginBottom:4}}>
+                  Emailed to {r.email}
+                </div>
+                <button onClick={async()=>{
+                    try{await POST(`/api/registrations/${r.id}/create-login`,{sendEmail:true});toast("Login email resent!");}
+                    catch(e){toast(e.message,"error");}
+                  }}
+                  style={{...FONT,fontSize:11,color:C.blue,background:"none",border:"none",
+                    cursor:"pointer",textDecoration:"underline",padding:0}}>
+                  Resend login email
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -4410,12 +4380,11 @@ Password: ${tempPassword}`).catch(()=>{});
             </div>
 
             {approved.length>0&&(
-              <div style={{...FONT,fontSize:12,background:C.bgBlue,border:`1px solid ${C.bdBlue}`,
-                borderRadius:R.sm,padding:"10px 14px",marginBottom:14,color:C.blue,lineHeight:1.6}}>
-                💡 <strong>How to onboard:</strong> Approve a registration, then click
-                <strong> "＋ Add to Teams"</strong> or <strong>"＋ Add to Judges"</strong>.
-                That creates the record — then go to Teams/Judges to fill in details,
-                and User Management to create a login for judges.
+              <div style={{...FONT,fontSize:12,background:C.bgGreen,border:`1px solid ${C.bdGreen}`,
+                borderRadius:R.sm,padding:"10px 14px",marginBottom:14,color:C.green,lineHeight:1.6}}>
+                ✓ <strong>Fully automated:</strong> Approving a registration automatically
+                creates the team/judge record, generates a login (default password <code style={{background:C.bg3,padding:"1px 5px",borderRadius:3}}>hackfest123</code>),
+                and emails credentials. No extra steps needed.
               </div>
             )}
 
