@@ -588,12 +588,111 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
         const { rows } = await q("UPDATE registrations SET status=$1 WHERE id=$2 RETURNING *", [req.body.status, req.params.id]);
         if (!rows.length) return res.status(404).json({ error: "Not found" });
         const reg = camel(rows[0]);
-        // Auto-send approval email
+
+        // On approval: auto-create team/judge record + user login + send email
+        let autoResult = { teamCreated:false, judgeCreated:false, loginCreated:false, tempPassword:null };
+
         if (req.body.status === "approved" && reg.email) {
             const { rows: [h] } = await q("SELECT * FROM hackathons WHERE id=$1", [reg.hackathonId]);
-            sendEmail(reg.email, `You're in! Application approved — ${reg.name}`, emailRegApproved(reg, h || {})).catch(()=>{});
+            const DEFAULT_PASSWORD = "hackfest123";  // default password, user changes later
+            const isJudge = reg.type === "judge";
+
+            try {
+                if (isJudge) {
+                    // ── Auto-create judge record ──
+                    const { rows: existingJudge } = await q(
+                        "SELECT id FROM judges WHERE hackathon_id=$1 AND LOWER(email)=LOWER($2)",
+                        [reg.hackathonId, reg.email]
+                    ).catch(()=>({rows:[]}));
+
+                    let judgeId;
+                    if (existingJudge.length) {
+                        judgeId = existingJudge[0].id;
+                    } else {
+                        judgeId = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+                        await q(
+                            "INSERT INTO judges(id,hackathon_id,name,email,title,organization,bio) VALUES($1,$2,$3,$4,$5,$6,$7)",
+                            [judgeId, reg.hackathonId, reg.name, reg.email, reg.title||null, reg.organization||null, reg.bio||null]
+                        );
+                        autoResult.judgeCreated = true;
+                    }
+
+                    // ── Auto-create judge user login ──
+                    const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+                    if (!existingUser.length) {
+                        const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+                        const uid2 = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+                        await q(
+                            "INSERT INTO users(id,name,email,password_hash,role,judge_id) VALUES($1,$2,LOWER($3),$4,'judge',$5)",
+                            [uid2, reg.name, reg.email, hash, judgeId]
+                        );
+                        // Assign judge to this hackathon
+                        await q("INSERT INTO hackathon_judges(user_id,hackathon_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[uid2,reg.hackathonId]).catch(()=>{});
+                        autoResult.loginCreated = true;
+                        autoResult.tempPassword = DEFAULT_PASSWORD;
+                    }
+                } else {
+                    // ── Auto-create team record ──
+                    const teamName = reg.teamName || reg.name;
+                    const { rows: existingTeam } = await q(
+                        "SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",
+                        [reg.hackathonId, teamName]
+                    );
+
+                    let teamId;
+                    if (existingTeam.length) {
+                        teamId = existingTeam[0].id;
+                    } else {
+                        teamId = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+                        await q(
+                            "INSERT INTO teams(id,hackathon_id,name,project,category,members) VALUES($1,$2,$3,$4,$5,$6)",
+                            [teamId, reg.hackathonId, teamName, reg.project||null, reg.category||reg.track||null, reg.members||reg.name||null]
+                        );
+                        autoResult.teamCreated = true;
+                    }
+
+                    // ── Auto-create team user login ──
+                    const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+                    if (!existingUser.length) {
+                        const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+                        const uid2 = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+                        await q(
+                            "INSERT INTO users(id,name,email,password_hash,role,team_id) VALUES($1,$2,LOWER($3),$4,'team',$5)",
+                            [uid2, reg.name, reg.email, hash, teamId]
+                        );
+                        autoResult.loginCreated = true;
+                        autoResult.tempPassword = DEFAULT_PASSWORD;
+                    }
+                }
+            } catch(autoErr) {
+                console.error("Auto-provision on approve:", autoErr.message);
+            }
+
+            // ── Send approval email with login credentials ──
+            const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+            const loginUrl = `${SITE}/register/${reg.hackathonId}`;
+            const credHtml = autoResult.loginCreated ? `
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:18px 22px;margin:16px 0;">
+          <div style="font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;margin-bottom:8px;">Your Login Credentials</div>
+          <div style="font-size:13px;color:#111827;margin-bottom:4px;"><strong>Sign in at:</strong> ${loginUrl}</div>
+          <div style="font-size:13px;color:#111827;margin-bottom:4px;"><strong>Email:</strong> ${reg.email}</div>
+          <div style="font-size:13px;color:#111827;"><strong>Password:</strong> <code style="background:#eef2ff;padding:2px 6px;border-radius:4px;">hackfest123</code></div>
+          <div style="font-size:12px;color:#ef4444;margin-top:8px;">⚠ Please change your password after first login.</div>
+        </div>` : "";
+
+            try {
+                const baseHtml = emailRegApproved(reg, h || {});
+                // Inject credentials into the approval email
+                const finalHtml = baseHtml.includes("</body>")
+                ? baseHtml.replace("</body>", credHtml + "</body>")
+                : baseHtml + credHtml;
+                sendEmail(reg.email, `You're in! ${reg.name} — sign in to ${h?.name||"the hackathon"}`, finalHtml).catch(()=>{});
+            } catch(_) {
+                sendEmail(reg.email, `You're in! Application approved`, emailRegApproved(reg, h || {})).catch(()=>{});
+            }
         }
-        res.json(reg);
+
+        res.json({ ...reg, ...autoResult });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res) => {

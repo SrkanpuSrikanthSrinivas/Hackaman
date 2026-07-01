@@ -252,7 +252,7 @@ function CrudPage({ title, icon, items, hackId, emptyMsg, renderRow, saveItem, d
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
   const open=item=>{setForm(item?{...item}:initForm||{});setModal(item||"new");};
   const close=()=>setModal(null);
-  const save=async()=>{setSaving(true);try{await saveItem(modal==="new"?null:modal.id,form);close();}catch{}setSaving(false);};
+  const save=async()=>{setSaving(true);try{const payload=hackId?{hackathonId:hackId,...form}:form;await saveItem(modal==="new"?null:modal.id,payload);close();}catch{}setSaving(false);};
   return (
     <div>
       <SectionHeader title={title} count={`${items.length} total`} action={<Btn onClick={()=>open(null)}>+ Add</Btn>} />
@@ -276,7 +276,7 @@ export function TeamsPage({ db, reload, toast, activeHackathon }) {
   if (!activeHackathon) return <Empty icon="👥" title="Select a hackathon" />;
   return <CrudPage title="Teams" icon="👥" items={teams} hackId={activeHackathon} emptyMsg="No teams yet"
     initForm={{hackathonId:activeHackathon}}
-    saveItem={async(id,form)=>{try{id?await PUT(`/api/teams/${id}`,form):await POST("/api/teams",form);await reload();toast(id?"Updated":"Added");}catch(e){toast(e.message,"error");throw e;}}}
+    saveItem={async(id,form)=>{try{const body={...form,hackathonId:form.hackathonId||activeHackathon};id?await PUT(`/api/teams/${id}`,body):await POST("/api/teams",body);await reload();toast(id?"Updated":"Team added");}catch(e){toast(e.message,"error");throw e;}}}
     delItem={async id=>{try{await DEL(`/api/teams/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}}}
     renderRow={(_,open,del)=>[
       {key:"name",label:"Team / Project",render:(v,r)=><div><div style={{fontWeight:500}}>{v}</div><div style={{fontSize:12,color:C.text3}}>{r.project}</div></div>},
@@ -785,7 +785,7 @@ export function FeedbackPage({ db, currentUser, toast, activeHackathon, isAdmin 
                       </strong>
                     </div>
                     <Btn onClick={saveFeedback} disabled={saving}>
-                      {saving?<><Spinner/> Saving…</>:"💾 Save Feedback"}
+                      {saving?<><Spinner/> Submitting…</>:"✓ Submit Feedback"}
                     </Btn>
                   </div>
                 </>
@@ -3045,7 +3045,7 @@ function CreateLoginBtn({ regId, email, onCreated }) {
   return (
     <Btn size="sm" variant="secondary" onClick={create} disabled={loading}
       style={{marginTop:6,background:C.bgBlue,color:C.blue,border:`1px solid ${C.bdBlue}`}}>
-      {loading?<Spinner/>:"🔑"} {loading?"Creating…":"Create Team Login"}
+      {loading?<Spinner/>:"🔑"} {loading?"Creating…":"Resend Login Email"}
     </Btn>
   );
 }
@@ -4228,8 +4228,21 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
     catch(e){toast(e.message,"error");}
   };
   const updateReg=async(id,status)=>{
-    try{await PUT(`/api/registrations/${id}`,{status});setRegs(r=>r.map(x=>x.id===id?{...x,status}:x));toast(`Registration ${status}`);}
-    catch(e){toast(e.message,"error");}
+    try{
+      const res=await PUT(`/api/registrations/${id}`,{status});
+      setRegs(r=>r.map(x=>x.id===id?{...x,status}:x));
+      if(status==="approved"){
+        // Reload teams/judges so they appear immediately
+        await reload();
+        const parts=[];
+        if(res.teamCreated)  parts.push("team added");
+        if(res.judgeCreated) parts.push("judge added");
+        if(res.loginCreated) parts.push("login created & emailed");
+        toast(parts.length?`✓ Approved — ${parts.join(", ")}`:"✓ Approved");
+      } else {
+        toast(`Registration ${status}`);
+      }
+    }catch(e){toast(e.message,"error");}
   };
   const delReg=async id=>{
     try{await DEL(`/api/registrations/${id}`);setRegs(r=>r.filter(x=>x.id!==id));}
@@ -4332,17 +4345,7 @@ Password: ${tempPassword}`).catch(()=>{});
               {r.status==="pending"&&<AIScreenReg registrationId={r.id} hackathonId={selH}
               onApply={async(status)=>{ await PUT(`/api/registrations/${r.id}`,{status}); await loadRegs(); toast("Status updated"); }}
             />}
-            {r.status==="approved"&&!alreadyAdded&&(
-              <button onClick={()=>convertReg(r)} disabled={busy}
-                style={{...FONT,fontSize:12,fontWeight:600,padding:"6px 13px",borderRadius:R.sm,
-                  cursor:busy?"wait":"pointer",border:"none",display:"flex",alignItems:"center",gap:5,
-                  background:r.type==="judge"?C.bgBlue:C.bgGreen,
-                  color:r.type==="judge"?C.blue:C.green,
-                  opacity:busy?0.6:1}}>
-                {busy?<><Spinner size={11}/> Adding…</>
-                  :r.type==="judge"?"＋ Add to Judges":"＋ Add to Teams"}
-              </button>
-            )}
+            {/* Team/Judge auto-created on approval */}
             {r.status==="approved"&&alreadyAdded&&(
               <div style={{...FONT,fontSize:11,color:C.green}}>✓ Added to {r.type==="judge"?"Judges":"Teams"}</div>
             )}
