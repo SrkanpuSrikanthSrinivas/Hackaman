@@ -94,6 +94,10 @@ export default function MarketingPage() {
   // Set marketing page meta tags
   useEffect(()=>{
     document.title = "HackFest Hub — The Complete Hackathon Management Platform";
+    // Canonical for homepage
+    let canon = document.querySelector('link[rel="canonical"]');
+    if (!canon) { canon = document.createElement("link"); canon.rel = "canonical"; document.head.appendChild(canon); }
+    canon.href = window.location.origin + "/";
     const setMeta = (name, content, prop=false) => {
       const sel = prop ? `meta[property="${name}"]` : `meta[name="${name}"]`;
       let el = document.querySelector(sel);
@@ -365,7 +369,11 @@ export default function MarketingPage() {
           <div style={{ textAlign:"center", marginBottom:48 }}>
             <div style={{ ...FF, fontSize:11, fontWeight:700, color:"#4f46e5", letterSpacing:"0.15em",
               textTransform:"uppercase", marginBottom:10 }}>Simple pricing</div>
-         </div>
+            <h2 style={{ ...FF, fontSize:32, fontWeight:800, color:"#111827", letterSpacing:"-0.03em", marginBottom:12 }}>
+              Free to use
+            </h2>
+            <p style={{ ...FF, fontSize:15, color:"#6b7280" }}>Every feature, completely free. No credit card needed.</p>
+          </div>
 
         </div>
       </section>

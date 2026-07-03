@@ -224,6 +224,11 @@ function injectSEO(data, hackathonId) {
   const desc = data.tagline || data.description || `Join ${data.name} — an exciting hackathon`;
   const img  = data.eventLogoUrl || `${SITE}/og-default.png`;
   document.title = `${data.name} | HackFest Hub`;
+
+  // Set unique canonical URL for this hackathon page (fixes "Alternate page with canonical" in GSC)
+  let canonical = document.querySelector('link[rel="canonical"]');
+  if (!canonical) { canonical = document.createElement("link"); canonical.rel = "canonical"; document.head.appendChild(canonical); }
+  canonical.href = `${SITE}/register/${hackathonId}`;
   const sm = (name, val, prop) => {
     const attr = prop ? "property" : "name";
     let el = document.querySelector(`meta[${attr}="${name}"]`);
