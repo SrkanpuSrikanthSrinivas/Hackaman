@@ -2299,6 +2299,7 @@ app.get(["/sitemap.xml"], async (_req, res) => {
             // Static pages
             { loc: SITE, priority: "1.0", changefreq: "daily" },
             { loc: `${SITE}/hackathons`, priority: "0.9", changefreq: "daily" },
+            { loc: `${SITE}/demo`, priority: "0.8", changefreq: "monthly" },
         ];
 
         // Dynamic hackathon pages
@@ -2968,6 +2969,130 @@ hackathon:hack?camel(hack):null,
 announcements:anns.map(camel),
 });
 }catch(e){res.status(500).json({error:e.message});}
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEMO REQUESTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Public: submit a demo request
+app.post(["/api/demo-request", "/demo-request"], async (req, res) => {
+const { name, email, organization, role, phone, eventType, participants, timeline, message } = req.body;
+if (!name?.trim() || !email?.trim())
+return res.status(400).json({ error: "Name and email are required" });
+
+try {
+// Self-heal: create table if migration hasn't been run
+await q(`CREATE TABLE IF NOT EXISTS demo_requests (
+      id VARCHAR(20) PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL,
+      organization VARCHAR(255), role VARCHAR(255), phone VARCHAR(50),
+      event_type VARCHAR(100), participants VARCHAR(50), timeline VARCHAR(100),
+      message TEXT, status VARCHAR(20) DEFAULT 'new', notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`).catch(()=>{});
+
+const id = "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+const { rows: [d] } = await q(
+`INSERT INTO demo_requests(id,name,email,organization,role,phone,event_type,participants,timeline,message)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+[id, name.trim(), email.trim().toLowerCase(), organization||null, role||null, phone||null,
+eventType||null, participants||null, timeline||null, message||null]
+);
+
+const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const NOTIFY = process.env.DEMO_NOTIFY_EMAIL || "contact@hackfesthub.com";
+
+// 1. Notify the team
+const teamHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body{font-family:'Segoe UI',sans-serif;background:#f4f6f8;margin:0;padding:24px;}
+      .wrap{max-width:560px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.07);}
+      .hdr{background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:24px 30px;}
+      .hdr h1{color:#fff;font-size:18px;margin:0;font-weight:700;}
+      .body{padding:26px 30px;}
+      .row{display:flex;padding:9px 0;border-bottom:1px solid #f1f5f9;}
+      .k{width:130px;font-size:12px;color:#64748b;font-weight:600;flex-shrink:0;}
+      .v{font-size:14px;color:#0f172a;}
+      .msg{background:#f8fafc;border-left:3px solid #4f46e5;padding:14px 16px;margin-top:16px;border-radius:0 8px 8px 0;font-size:14px;color:#334155;line-height:1.7;}
+      </style></head><body><div class="wrap">
+      <div class="hdr"><h1>🎯 New Demo Request</h1></div>
+      <div class="body">
+        <div class="row"><div class="k">Name</div><div class="v"><strong>${name}</strong></div></div>
+        <div class="row"><div class="k">Email</div><div class="v"><a href="mailto:${email}">${email}</a></div></div>
+        ${organization ? `<div class="row"><div class="k">Organization</div><div class="v">${organization}</div></div>` : ""}
+        ${role         ? `<div class="row"><div class="k">Role</div><div class="v">${role}</div></div>` : ""}
+        ${phone        ? `<div class="row"><div class="k">Phone</div><div class="v">${phone}</div></div>` : ""}
+        ${eventType    ? `<div class="row"><div class="k">Event type</div><div class="v">${eventType}</div></div>` : ""}
+        ${participants ? `<div class="row"><div class="k">Participants</div><div class="v">${participants}</div></div>` : ""}
+        ${timeline     ? `<div class="row"><div class="k">Timeline</div><div class="v">${timeline}</div></div>` : ""}
+        ${message ? `<div class="msg">${String(message).replace(/</g,"&lt;")}</div>` : ""}
+        <p style="margin-top:22px;font-size:12px;color:#94a3b8;">Reply directly to this email to reach ${name}.</p>
+      </div></div></body></html>`;
+
+sendEmail(NOTIFY, `🎯 Demo request — ${name}${organization ? ` (${organization})` : ""}`, teamHtml).catch(()=>{});
+
+// 2. Confirmation to the requester
+const userHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body{font-family:'Segoe UI',sans-serif;background:#f4f6f8;margin:0;padding:24px;}
+      .wrap{max-width:520px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
+      .hdr{background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:34px 36px;text-align:center;}
+      .hdr h1{color:#fff;font-size:22px;margin:0 0 6px;font-weight:800;}
+      .hdr p{color:rgba(255,255,255,0.6);font-size:14px;margin:0;}
+      .body{padding:32px 36px;}
+      .btn{display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;
+        padding:13px 28px;border-radius:10px;font-size:15px;font-weight:700;margin:22px 0;}
+      .footer{padding:20px 36px;background:#f8fafc;border-top:1px solid #e5e7eb;text-align:center;font-size:12px;color:#94a3b8;}
+      </style></head><body><div class="wrap">
+      <div class="hdr"><h1>⚡ Thanks, ${name.split(" ")[0]}!</h1><p>Your demo request is in</p></div>
+      <div class="body">
+        <p style="font-size:15px;color:#334155;line-height:1.75;">
+          We received your request for a HackFest Hub demo. Someone from our team will
+          reach out within <strong>1 business day</strong> to schedule a walkthrough.
+        </p>
+        <p style="font-size:14px;color:#64748b;line-height:1.75;">
+          In the meantime, feel free to browse live hackathons on the platform.
+        </p>
+        <a href="${SITE}" class="btn">Explore HackFest Hub →</a>
+      </div>
+      <div class="footer">Questions? Just reply to this email.</div>
+      </div></body></html>`;
+
+sendEmail(email, "We got your demo request — HackFest Hub", userHtml).catch(()=>{});
+
+res.status(201).json({ ok: true, id: d.id });
+} catch (e) {
+res.status(500).json({ error: e.message });
+}
+});
+
+// Admin: list demo requests
+app.get(["/api/demo-requests", "/demo-requests"], admin, async (_req, res) => {
+try {
+const { rows } = await q("SELECT * FROM demo_requests ORDER BY created_at DESC").catch(()=>({rows:[]}));
+res.json(rows.map(camel));
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin: update a demo request (status / notes)
+app.put(["/api/demo-requests/:id", "/demo-requests/:id"], admin, async (req, res) => {
+const { status, notes } = req.body;
+try {
+const { rows: [d] } = await q(
+"UPDATE demo_requests SET status=COALESCE($1,status), notes=COALESCE($2,notes), updated_at=NOW() WHERE id=$3 RETURNING *",
+[status||null, notes||null, req.params.id]
+);
+if (!d) return res.status(404).json({ error: "Not found" });
+res.json(camel(d));
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin: delete a demo request
+app.delete(["/api/demo-requests/:id", "/demo-requests/:id"], admin, async (req, res) => {
+try {
+await q("DELETE FROM demo_requests WHERE id=$1", [req.params.id]);
+res.json({ deleted: true });
+} catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Debug catch-all — logs what path Express actually received

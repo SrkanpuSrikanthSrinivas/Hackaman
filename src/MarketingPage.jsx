@@ -170,9 +170,9 @@ export default function MarketingPage() {
             <a href="#features" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Features</a>
             <a href="#how-it-works" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>How it works</a>
             <a href="#free" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Pricing</a>
-            <a href="#demo" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Demo</a>
+            <a href="/demo" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Demo</a>
             <a href="/admin" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Sign in</a>
-            <a href="mailto:contact@hackfesthub.com?subject=Request a Demo"
+            <a href="/demo"
               style={{ ...FF, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
                 background:"#4f46e5", color:"#fff", textDecoration:"none" }}>
               Request a demo →
@@ -215,7 +215,7 @@ export default function MarketingPage() {
           </p>
 
           <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap", marginBottom:60 }}>
-            <a href="mailto:contact@hackfesthub.com?subject=Request a Demo&body=Hi HackFest Hub team,%0D%0A%0D%0AI'd like to see a demo of the platform.%0D%0A%0D%0AOrganization:%0D%0AEvent type:%0D%0AExpected participants:%0D%0APreferred time:%0D%0A%0D%0AThanks!"
+            <a href="/demo"
               className="hero-btn"
               style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
                 padding:"14px 28px", borderRadius:12, background:"#4f46e5", color:"#fff",
@@ -406,7 +406,7 @@ export default function MarketingPage() {
                 textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:3 }}>
                 Reach out to
               </div>
-              <a href="mailto:contact@hackfesthub.com?subject=Request a Demo"
+              <a href="/demo"
                 style={{ ...MM, fontSize:16, fontWeight:700, color:"#fff",
                   textDecoration:"none" }}>
                 contact@hackfesthub.com
@@ -415,7 +415,7 @@ export default function MarketingPage() {
           </div>
 
           <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
-            <a href="mailto:contact@hackfesthub.com?subject=Request a Demo&body=Hi HackFest Hub team,%0D%0A%0D%0AI'd like to see a demo of the platform.%0D%0A%0D%0AOrganization:%0D%0AEvent type:%0D%0AExpected participants:%0D%0APreferred time:%0D%0A%0D%0AThanks!"
+            <a href="/demo"
               style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
                 padding:"14px 28px", borderRadius:12, background:"#4f46e5", color:"#fff",
                 fontSize:16, fontWeight:700, textDecoration:"none",

@@ -3320,6 +3320,193 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
 }
 
 
+
+/* ─── DEMO REQUESTS (ADMIN) ─────────────────────────────────────────────── */
+export function DemoRequestsPage({ toast }) {
+  const [reqs,    setReqs]    = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter,  setFilter]  = useState("all");
+  const [sel,     setSel]     = useState(null);
+  const [notes,   setNotes]   = useState("");
+
+  const load = () => {
+    setLoading(true);
+    GET("/api/demo-requests")
+      .then(d => setReqs(Array.isArray(d) ? d : []))
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const setStatus = async (id, status) => {
+    try { await PUT(`/api/demo-requests/${id}`, { status }); load(); toast(`Marked ${status}`); }
+    catch(e) { toast(e.message, "error"); }
+  };
+  const saveNotes = async id => {
+    try { await PUT(`/api/demo-requests/${id}`, { notes }); load(); toast("Notes saved"); }
+    catch(e) { toast(e.message, "error"); }
+  };
+  const del = async id => {
+    if (!confirm("Delete this demo request?")) return;
+    try { await DEL(`/api/demo-requests/${id}`); setSel(null); load(); toast("Deleted"); }
+    catch(e) { toast(e.message, "error"); }
+  };
+
+  const STATUS = {
+    new:       { l:"New",       c:C.blue,  bg:C.bgBlue  },
+    contacted: { l:"Contacted", c:C.amber, bg:C.bgAmber },
+    scheduled: { l:"Scheduled", c:C.green, bg:C.bgGreen },
+    closed:    { l:"Closed",    c:C.text3, bg:C.bg3     },
+  };
+
+  const filtered = filter === "all" ? reqs : reqs.filter(r => r.status === filter);
+  const counts = {
+    all: reqs.length,
+    new: reqs.filter(r => r.status === "new").length,
+    contacted: reqs.filter(r => r.status === "contacted").length,
+    scheduled: reqs.filter(r => r.status === "scheduled").length,
+    closed: reqs.filter(r => r.status === "closed").length,
+  };
+  const selected = reqs.find(r => r.id === sel);
+
+  return (
+    <div>
+      <SectionHeader title="Demo Requests"
+        count={`${counts.new} new · ${reqs.length} total`}
+        action={<Btn variant="secondary" onClick={load}>{loading ? <Spinner/> : "↻"} Refresh</Btn>}
+      />
+
+      <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
+        {[["all","All"],["new","🔵 New"],["contacted","🟡 Contacted"],["scheduled","🟢 Scheduled"],["closed","Closed"]].map(([v,l]) => (
+          <button key={v} onClick={() => setFilter(v)}
+            style={{ ...FONT, fontSize:12, fontWeight:500, padding:"7px 14px",
+              borderRadius:R.sm, cursor:"pointer", transition:"all 0.13s",
+              border:`1px solid ${filter===v ? C.blue : C.border}`,
+              background:filter===v ? C.bgBlue : "transparent",
+              color:filter===v ? C.blue : C.text3 }}>
+            {l} ({counts[v]})
+          </button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign:"center", padding:40 }}><Spinner/></div>}
+      {!loading && filtered.length === 0 && (
+        <Empty icon="📬" title="No demo requests"
+          sub={filter==="all" ? "Requests from the /demo page will appear here." : `No ${filter} requests.`} />
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns: selected ? "1fr 380px" : "1fr", gap:16, alignItems:"start" }}>
+        <div>
+          {filtered.map(r => {
+            const st = STATUS[r.status] || STATUS.new;
+            const isSel = sel === r.id;
+            return (
+              <Card key={r.id}
+                onClick={() => { setSel(isSel ? null : r.id); setNotes(r.notes || ""); }}
+                style={{ marginBottom:8, cursor:"pointer",
+                  border:`1px solid ${isSel ? C.bdBlue : C.border}`,
+                  background:isSel ? C.bgBlue : undefined }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                      <span style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text }}>{r.name}</span>
+                      <span style={{ ...FONT, fontSize:11, fontWeight:600, padding:"2px 9px",
+                        borderRadius:9999, background:st.bg, color:st.c }}>{st.l}</span>
+                    </div>
+                    <div style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:5 }}>
+                      {r.email}{r.organization ? ` · ${r.organization}` : ""}{r.role ? ` · ${r.role}` : ""}
+                    </div>
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                      {r.eventType    && <Chip label={r.eventType}    color="neutral" />}
+                      {r.participants && <Chip label={r.participants} color="neutral" />}
+                      {r.timeline     && <Chip label={r.timeline}     color="neutral" />}
+                    </div>
+                  </div>
+                  <div style={{ ...FONT, fontSize:11, color:C.text3, flexShrink:0, textAlign:"right" }}>
+                    {new Date(r.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+
+        {selected && (
+          <Card style={{ position:"sticky", top:16 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+              <div style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text }}>{selected.name}</div>
+              <Btn size="sm" variant="ghost" onClick={() => setSel(null)}>✕</Btn>
+            </div>
+
+            {[
+              ["Email",        selected.email],
+              ["Organization", selected.organization],
+              ["Role",         selected.role],
+              ["Phone",        selected.phone],
+              ["Event type",   selected.eventType],
+              ["Participants", selected.participants],
+              ["Timeline",     selected.timeline],
+              ["Received",     new Date(selected.createdAt).toLocaleString()],
+            ].filter(([,v]) => v).map(([k,v]) => (
+              <div key={k} style={{ display:"flex", justifyContent:"space-between",
+                padding:"7px 0", borderBottom:`1px solid ${C.border}`, gap:10 }}>
+                <span style={{ ...FONT, fontSize:12, color:C.text3, flexShrink:0 }}>{k}</span>
+                <span style={{ ...FONT, fontSize:12, color:C.text, textAlign:"right", wordBreak:"break-word" }}>{v}</span>
+              </div>
+            ))}
+
+            {selected.message && (
+              <div style={{ marginTop:12, padding:"12px 14px", background:C.bg3,
+                borderLeft:`3px solid ${C.blue}`, borderRadius:"0 8px 8px 0" }}>
+                <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3,
+                  textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>Message</div>
+                <div style={{ ...FONT, fontSize:13, color:C.text2, lineHeight:1.7 }}>{selected.message}</div>
+              </div>
+            )}
+
+            <div style={{ marginTop:16 }}>
+              <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3,
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>Status</div>
+              <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                {Object.entries(STATUS).map(([v, s]) => (
+                  <button key={v} onClick={() => setStatus(selected.id, v)}
+                    style={{ ...FONT, fontSize:11, fontWeight:600, padding:"6px 12px",
+                      borderRadius:R.sm, cursor:"pointer", transition:"all 0.13s",
+                      border:`1px solid ${selected.status===v ? s.c : C.border}`,
+                      background:selected.status===v ? s.bg : "transparent",
+                      color:selected.status===v ? s.c : C.text3 }}>
+                    {s.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop:16 }}>
+              <div style={{ ...FONT, fontSize:11, fontWeight:600, color:C.text3,
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>Internal notes</div>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)}
+                placeholder="Add notes about this lead…"
+                style={{ ...TA, minHeight:70, fontSize:13, marginBottom:8 }} />
+              <Btn size="sm" onClick={() => saveNotes(selected.id)}>Save notes</Btn>
+            </div>
+
+            <div style={{ display:"flex", gap:6, marginTop:16, paddingTop:14,
+              borderTop:`1px solid ${C.border}` }}>
+              <a href={`mailto:${selected.email}?subject=Your HackFest Hub demo`}
+                style={{ ...FONT, flex:1, textAlign:"center", padding:"9px",
+                  borderRadius:R.sm, background:C.blue, color:"#fff",
+                  fontSize:13, fontWeight:600, textDecoration:"none" }}>
+                ✉ Reply
+              </a>
+              <Btn size="sm" variant="danger" onClick={() => del(selected.id)}>Delete</Btn>
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── AI PANEL — shared wrapper for all AI features ─────────────────────── */
 function AIPanel({ title, icon, onRun, running, result, error, children }) {
   const [open, setOpen] = useState(false);

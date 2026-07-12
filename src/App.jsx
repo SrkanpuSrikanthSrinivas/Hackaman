@@ -7,12 +7,13 @@ import {
   useData, STATUS_CHIP,
 } from "./shared.jsx";
 import MarketingPage from "./MarketingPage.jsx";
+import DemoRequestPage from "./DemoRequestPage.jsx";
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -628,6 +629,7 @@ function AppShell() {
         {page==="email-center" && isAdmin &&   <EmailCenterPage   {...props} db={db} currentUser={currentUser} />}
         {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
         {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
+        {page==="demo-requests"&& isAdmin &&   <DemoRequestsPage  toast={toast} />}
         {isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
@@ -785,6 +787,7 @@ class ErrorBoundary extends Component {
 /* ── Root App ────────────────────────────────────────────────────────────── */
 export default function App() {
   const path = window.location.pathname;
+  if (path === "/demo" || path === "/demo/") return <ErrorBoundary><DemoRequestPage /></ErrorBoundary>;
   // Public event page
   const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;
