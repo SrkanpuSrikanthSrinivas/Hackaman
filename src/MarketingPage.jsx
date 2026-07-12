@@ -170,11 +170,12 @@ export default function MarketingPage() {
             <a href="#features" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Features</a>
             <a href="#how-it-works" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>How it works</a>
             <a href="#free" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Pricing</a>
+            <a href="#demo" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Demo</a>
             <a href="/admin" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Sign in</a>
-            <a href="mailto:srikanth@hackfesthub.com?subject=Host a Hackathon"
+            <a href="mailto:contact@hackfesthub.com?subject=Request a Demo"
               style={{ ...FF, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
                 background:"#4f46e5", color:"#fff", textDecoration:"none" }}>
-              Host an event →
+              Request a demo →
             </a>
           </div>
         </div>
@@ -214,13 +215,13 @@ export default function MarketingPage() {
           </p>
 
           <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap", marginBottom:60 }}>
-            <a href="mailto:srikanth@hackfesthub.com?subject=Host a Hackathon"
+            <a href="mailto:contact@hackfesthub.com?subject=Request a Demo&body=Hi HackFest Hub team,%0D%0A%0D%0AI'd like to see a demo of the platform.%0D%0A%0D%0AOrganization:%0D%0AEvent type:%0D%0AExpected participants:%0D%0APreferred time:%0D%0A%0D%0AThanks!"
               className="hero-btn"
               style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
                 padding:"14px 28px", borderRadius:12, background:"#4f46e5", color:"#fff",
                 fontSize:16, fontWeight:700, textDecoration:"none",
                 boxShadow:"0 4px 14px rgba(79,70,229,0.4)" }}>
-              🚀 Host a hackathon
+              📅 Request a demo
             </a>
             <a href="#hackathons" className="outline-btn"
               style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
@@ -378,24 +379,48 @@ export default function MarketingPage() {
         </div>
       </section>
 
-      {/* ── CTA ── */}
-      <section style={{ padding:"80px 24px", background:"linear-gradient(135deg,#1e1b4b,#312e81)",
-        textAlign:"center" }}>
-        <div style={{ maxWidth:600, margin:"0 auto" }}>
+      {/* ── REQUEST A DEMO ── */}
+      <section id="demo" style={{ padding:"88px 24px",
+        background:"linear-gradient(135deg,#1e1b4b,#312e81)", textAlign:"center" }}>
+        <div style={{ maxWidth:660, margin:"0 auto" }}>
+          <div style={{ ...FF, fontSize:11, fontWeight:700, color:"#a5b4fc",
+            letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:14 }}>
+            See it in action
+          </div>
           <h2 style={{ ...FF, fontSize:36, fontWeight:900, color:"#fff",
             letterSpacing:"-0.04em", marginBottom:14 }}>
-            Ready to run your hackathon?
+            Want a demo?
           </h2>
-          <p style={{ ...FF, fontSize:16, color:"rgba(255,255,255,0.55)", marginBottom:32 }}>
-            Join event organizers who run world-class hackathons on HackFest Hub.
+          <p style={{ ...FF, fontSize:16, color:"rgba(255,255,255,0.55)",
+            lineHeight:1.7, marginBottom:28 }}>
+            We'll walk you through the full platform — event setup, judging,
+            AI insights, certificates, and everything in between.
           </p>
+
+          <div style={{ display:"inline-flex", alignItems:"center", gap:14,
+            background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.14)",
+            borderRadius:14, padding:"16px 24px", marginBottom:28 }}>
+            <span style={{ fontSize:22 }}>📧</span>
+            <div style={{ textAlign:"left" }}>
+              <div style={{ ...FF, fontSize:11, color:"rgba(255,255,255,0.4)",
+                textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:3 }}>
+                Reach out to
+              </div>
+              <a href="mailto:contact@hackfesthub.com?subject=Request a Demo"
+                style={{ ...MM, fontSize:16, fontWeight:700, color:"#fff",
+                  textDecoration:"none" }}>
+                contact@hackfesthub.com
+              </a>
+            </div>
+          </div>
+
           <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
-            <a href="mailto:srikanth@hackfesthub.com?subject=Host a Hackathon"
+            <a href="mailto:contact@hackfesthub.com?subject=Request a Demo&body=Hi HackFest Hub team,%0D%0A%0D%0AI'd like to see a demo of the platform.%0D%0A%0D%0AOrganization:%0D%0AEvent type:%0D%0AExpected participants:%0D%0APreferred time:%0D%0A%0D%0AThanks!"
               style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
                 padding:"14px 28px", borderRadius:12, background:"#4f46e5", color:"#fff",
                 fontSize:16, fontWeight:700, textDecoration:"none",
                 boxShadow:"0 4px 14px rgba(79,70,229,0.4)" }}>
-              🚀 Get started free
+              📅 Request a demo
             </a>
             <a href="/admin"
               style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
@@ -422,9 +447,9 @@ export default function MarketingPage() {
               </p>
             </div>
             {[
-              { title:"Platform", links:[{l:"Browse events",h:"#hackathons"},{l:"Host a hackathon",h:"mailto:srikanth@hackfesthub.com"},{l:"Pricing",h:"#free"},{l:"Admin login",h:"/admin"}] },
+              { title:"Platform", links:[{l:"Browse events",h:"#hackathons"},{l:"Request a demo",h:"#demo"},{l:"Pricing",h:"#free"},{l:"Admin login",h:"/admin"}] },
               { title:"Use cases", links:[{l:"Corporate hackathons",h:"#"},{l:"University events",h:"#"},{l:"IEEE chapters",h:"#"},{l:"Online hackathons",h:"#"}] },
-              { title:"Company", links:[{l:"About",h:"#"},{l:"Contact",h:"mailto:srikanth@hackfesthub.com"},{l:"LinkedIn",h:"https://linkedin.com"},{l:"Twitter",h:"#"}] },
+              { title:"Company", links:[{l:"About",h:"#"},{l:"Contact",h:"mailto:contact@hackfesthub.com"},{l:"LinkedIn",h:"https://linkedin.com"},{l:"Twitter",h:"#"}] },
             ].map((col,i) => (
               <div key={i}>
                 <div style={{ ...FF, fontSize:12, fontWeight:700, color:"rgba(255,255,255,0.5)",
