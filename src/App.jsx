@@ -161,19 +161,28 @@ function LoginPage({ onLogin }) {
   ];
 
   return (
-    <div style={{ minHeight:"100vh",
+    <div className="hf-login" style={{ minHeight:"100vh",
       background:"#f0f2f5",
       display:"flex", alignItems:"center", justifyContent:"center",
       padding:24, ...FF2 }}>
-      <style>{"@keyframes spin{to{transform:rotate(360deg)}} @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');"}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hf-login *, .hf-login *::before, .hf-login *::after { box-sizing: border-box; }
+        .hf-login input:focus { outline: none; }
+        @media (max-width: 820px) {
+          .hf-login-grid { grid-template-columns: 1fr !important; }
+          .hf-login-brand { display: none !important; }
+        }
+      `}</style>
 
-      <div style={{ width:"100%", maxWidth:920,
-        display:"grid", gridTemplateColumns:"1fr 1fr",
-        borderRadius:20, overflow:"hidden",
+      <div className="hf-login-grid" style={{ width:"100%", maxWidth:920,
+        display:"grid", gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",
+        borderRadius:20, overflow:"hidden", background:"#fff",
         boxShadow:"0 20px 60px rgba(0,0,0,0.12), 0 4px 20px rgba(0,0,0,0.06)" }}>
 
         {/* ── Left brand panel ── */}
-        <div style={{
+        <div className="hf-login-brand" style={{
           background:"linear-gradient(145deg,#1e1b4b 0%,#312e81 40%,#4c1d95 100%)",
           padding:"52px 44px", display:"flex", flexDirection:"column",
           justifyContent:"space-between", position:"relative", overflow:"hidden" }}>
@@ -217,8 +226,9 @@ function LoginPage({ onLogin }) {
         </div>
 
         {/* ── Right form panel ── */}
-        <div style={{ background:"#fff", padding:"52px 44px",
-          display:"flex", flexDirection:"column", justifyContent:"center" }}>
+        <div style={{ background:"#fff", padding:"48px 40px",
+          display:"flex", flexDirection:"column", justifyContent:"center",
+          minWidth:0 }}>
 
           <div style={{marginBottom:32}}>
             <h2 style={{fontSize:24,fontWeight:800,color:"#111827",
@@ -235,7 +245,7 @@ function LoginPage({ onLogin }) {
             </div>
           )}
 
-          <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:18}}>
+          <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:18,minWidth:0}}>
             <div>
               <label style={{display:"block",fontSize:13,fontWeight:600,
                 color:"#374151",marginBottom:7,...FF2}}>Email address</label>
