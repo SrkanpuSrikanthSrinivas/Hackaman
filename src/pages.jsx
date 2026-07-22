@@ -479,10 +479,11 @@ export function FeedbackPage({ db, currentUser, toast, activeHackathon, isAdmin 
       GET(`/api/feedbacks?hackathonId=${activeHackathon}`)
         .then(d=>setMyFeedback(Array.isArray(d)?d:[]))
         .catch(()=>setMyFeedback([])),
-      // Submissions
-      GET(`/api/public/projects/${activeHackathon}`)
-        .then(d=>setSubs(d.projects||[]))
-        .catch(()=>setSubs([])),
+      // Submissions (authenticated — returns every field)
+      GET(`/api/judge/submissions?hackathonId=${activeHackathon}`)
+        .then(d=>setSubs(Array.isArray(d)?d:[]))
+        .catch(()=>GET(`/api/public/projects/${activeHackathon}`)
+          .then(d=>setSubs(d.projects||[])).catch(()=>setSubs([]))),
       // Judge team assignments
       GET(`/api/judge/assigned-teams?hackathonId=${activeHackathon}`)
         .then(d=>setAssignments(d.isFiltered ? d.teams.map(t=>t.id) : []))
@@ -660,57 +661,94 @@ export function FeedbackPage({ db, currentUser, toast, activeHackathon, isAdmin 
             {subTab==="submission"&&(
               sub?(
                 <div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
-                    {sub.githubUrl&&<a href={sub.githubUrl} target="_blank" rel="noopener"
-                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
-                        background:"#24292e",color:"#fff",textDecoration:"none"}}>GitHub →</a>}
-                    {sub.demoUrl&&<a href={sub.demoUrl} target="_blank" rel="noopener"
-                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
-                        background:C.green,color:"#fff",textDecoration:"none"}}>Live Demo →</a>}
-                    {sub.videoUrl&&<a href={sub.videoUrl} target="_blank" rel="noopener"
-                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
-                        background:C.blue,color:"#fff",textDecoration:"none"}}>Video →</a>}
-                    {sub.deckUrl&&<a href={sub.deckUrl} target="_blank" rel="noopener"
-                      style={{...FONT,fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:8,
-                        background:C.amber,color:"#fff",textDecoration:"none"}}>Deck →</a>}
-                  </div>
+                  {/* ── Links ── */}
+                  {(sub.githubUrl||sub.demoUrl||sub.videoUrl||sub.deckUrl)?(
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+                      {sub.githubUrl&&<a href={sub.githubUrl} target="_blank" rel="noopener"
+                        style={{...FONT,fontSize:13,fontWeight:600,padding:"9px 16px",borderRadius:8,
+                          background:"#24292e",color:"#fff",textDecoration:"none"}}>⌨ GitHub →</a>}
+                      {sub.demoUrl&&<a href={sub.demoUrl} target="_blank" rel="noopener"
+                        style={{...FONT,fontSize:13,fontWeight:600,padding:"9px 16px",borderRadius:8,
+                          background:C.green,color:"#fff",textDecoration:"none"}}>🌐 Live Demo →</a>}
+                      {sub.videoUrl&&<a href={sub.videoUrl} target="_blank" rel="noopener"
+                        style={{...FONT,fontSize:13,fontWeight:600,padding:"9px 16px",borderRadius:8,
+                          background:C.blue,color:"#fff",textDecoration:"none"}}>▶ Video →</a>}
+                      {sub.deckUrl&&<a href={sub.deckUrl} target="_blank" rel="noopener"
+                        style={{...FONT,fontSize:13,fontWeight:600,padding:"9px 16px",borderRadius:8,
+                          background:C.amber,color:"#fff",textDecoration:"none"}}>📊 Pitch Deck →</a>}
+                    </div>
+                  ):(
+                    <div style={{...FONT,fontSize:12,color:C.text3,fontStyle:"italic",
+                      padding:"9px 13px",background:C.bg3,borderRadius:R.sm,marginBottom:16}}>
+                      No links provided (GitHub, demo, video, or deck)
+                    </div>
+                  )}
 
+                  {/* ── Title + tagline + track ── */}
+                  <Card style={{marginBottom:10}}>
+                    <div style={{...FONT,fontSize:18,fontWeight:700,color:C.text,marginBottom:4}}>
+                      {sub.title||"Untitled project"}
+                    </div>
+                    {sub.tagline&&<div style={{...FONT,fontSize:14,color:C.text3,
+                      fontStyle:"italic",marginBottom:8}}>{sub.tagline}</div>}
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {sub.track&&<Chip label={`🎯 ${sub.track}`} color="blue" />}
+                      {sub.status&&<Chip label={sub.status} color={sub.status==="winner"?"amber":"green"} />}
+                      {sub.submittedAt&&<span style={{...FONT,fontSize:11,color:C.text3,
+                        alignSelf:"center"}}>Submitted {new Date(sub.submittedAt).toLocaleString()}</span>}
+                    </div>
+                  </Card>
+
+                  {/* ── Text sections ── */}
                   {[
-                    {label:"Project",         val:sub.title},
-                    {label:"Tagline",         val:sub.tagline},
-                    {label:"Problem",         val:sub.problemStatement},
-                    {label:"Solution",        val:sub.solution},
-                    {label:"Description",     val:sub.description},
-                  ].filter(r=>r.val).map(r=>(
+                    {label:"Problem Statement", val:sub.problemStatement},
+                    {label:"Solution",          val:sub.solution},
+                    {label:"Full Description",  val:sub.description},
+                  ].map(r=>(
                     <Card key={r.label} style={{marginBottom:10}}>
                       <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
                         textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>{r.label}</div>
-                      <div style={{...FONT,fontSize:14,color:C.text2,lineHeight:1.75}}>{r.val}</div>
+                      <div style={{...FONT,fontSize:14,lineHeight:1.75,whiteSpace:"pre-wrap",
+                        color:r.val?C.text2:C.text3,fontStyle:r.val?"normal":"italic"}}>
+                        {r.val||"Not provided"}
+                      </div>
                     </Card>
                   ))}
 
-                  {sub.techStack&&(
-                    <Card style={{marginBottom:10}}>
-                      <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
-                        textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Tech Stack</div>
+                  {/* ── Tech stack ── */}
+                  <Card style={{marginBottom:10}}>
+                    <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                      textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Tech Stack</div>
+                    {sub.techStack?(
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                         {sub.techStack.split(",").map(t=>t.trim()).filter(Boolean).map(t=>(
-                          <span key={t} style={{...FONT,fontSize:12,padding:"3px 10px",
+                          <span key={t} style={{...FONT,fontSize:12,padding:"4px 11px",
                             borderRadius:9999,background:C.bgBlue,color:C.blue}}>{t}</span>
                         ))}
                       </div>
-                    </Card>
-                  )}
+                    ):(
+                      <div style={{...FONT,fontSize:13,color:C.text3,fontStyle:"italic"}}>Not provided</div>
+                    )}
+                  </Card>
 
-                  {selTeam.members&&(
-                    <Card>
-                      <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
-                        textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Members</div>
-                      <div style={{...FONT,fontSize:14,color:C.text2}}>{selTeam.members}</div>
-                    </Card>
-                  )}
+                  {/* ── Team members ── */}
+                  <Card>
+                    <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,
+                      textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Team Members</div>
+                    {(sub.teamMembers||selTeam.members)?(
+                      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                        {String(sub.teamMembers||selTeam.members).split(",").map(mm=>mm.trim()).filter(Boolean).map(mm=>(
+                          <span key={mm} style={{...FONT,fontSize:13,padding:"4px 12px",
+                            borderRadius:9999,background:C.bg3,color:C.text,
+                            border:`1px solid ${C.border}`}}>👤 {mm}</span>
+                        ))}
+                      </div>
+                    ):(
+                      <div style={{...FONT,fontSize:13,color:C.text3,fontStyle:"italic"}}>Not listed</div>
+                    )}
+                  </Card>
 
-                  <div style={{marginTop:14}}>
+                  <div style={{marginTop:16}}>
                     <Btn onClick={()=>setSubTab("scoring")}>⭐ Score this team →</Btn>
                   </div>
                 </div>
@@ -3320,6 +3358,91 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
 }
 
 
+
+
+/* ─── CHANGE PASSWORD MODAL ─────────────────────────────────────────────── */
+export function ChangePasswordModal({ onClose, toast }) {
+  const [cur,  setCur]  = useState("");
+  const [nw,   setNw]   = useState("");
+  const [conf, setConf] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState("");
+  const [show, setShow] = useState(false);
+
+  const submit = async e => {
+    e?.preventDefault();
+    if (nw !== conf)     { setErr("New passwords don't match"); return; }
+    if (nw.length < 8)   { setErr("Password must be at least 8 characters"); return; }
+    if (nw === cur)      { setErr("New password must be different from your current one"); return; }
+    setBusy(true); setErr("");
+    try {
+      await POST("/api/auth/change-password", { currentPassword: cur, newPassword: nw });
+      toast("✓ Password changed successfully");
+      onClose();
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const IS = { ...IN, background:C.bg, fontSize:14 };
+  const strength = nw.length === 0 ? null
+    : nw.length < 8 ? { l:"Too short", c:C.red }
+    : nw.length < 12 ? { l:"Okay", c:C.amber }
+    : /[A-Z]/.test(nw) && /[0-9]/.test(nw) ? { l:"Strong", c:C.green }
+    : { l:"Good", c:C.blue };
+
+  return (
+    <Modal title="🔑 Change Password" onClose={onClose} width={420}>
+      <form onSubmit={submit}>
+        {err && (
+          <div style={{ ...FONT, fontSize:13, color:C.red, background:"rgba(239,68,68,0.08)",
+            border:`1px solid ${C.bdRed}`, borderRadius:R.sm, padding:"10px 13px", marginBottom:14 }}>
+            ⚠ {err}
+          </div>
+        )}
+
+        <Field label="Current password" required>
+          <input type={show ? "text" : "password"} value={cur} onChange={e=>setCur(e.target.value)}
+            style={IS} autoFocus placeholder="Your current password" />
+        </Field>
+
+        <Field label="New password" required
+          hint={strength ? null : "At least 8 characters"}>
+          <input type={show ? "text" : "password"} value={nw} onChange={e=>setNw(e.target.value)}
+            style={IS} placeholder="Choose a new password" />
+        </Field>
+
+        {strength && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:-8, marginBottom:12 }}>
+            <div style={{ flex:1, height:4, background:C.bg3, borderRadius:9999, overflow:"hidden" }}>
+              <div style={{ height:"100%", borderRadius:9999, background:strength.c,
+                width: strength.l==="Too short" ? "25%" : strength.l==="Okay" ? "55%" : strength.l==="Good" ? "80%" : "100%",
+                transition:"all 0.25s" }}/>
+            </div>
+            <span style={{ ...FONT, fontSize:11, fontWeight:600, color:strength.c }}>{strength.l}</span>
+          </div>
+        )}
+
+        <Field label="Confirm new password" required>
+          <input type={show ? "text" : "password"} value={conf} onChange={e=>setConf(e.target.value)}
+            style={{ ...IS, borderColor: conf && nw !== conf ? C.red : undefined }}
+            placeholder="Type it again" />
+        </Field>
+
+        <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", marginBottom:18 }}>
+          <input type="checkbox" checked={show} onChange={e=>setShow(e.target.checked)} />
+          <span style={{ ...FONT, fontSize:12, color:C.text3 }}>Show passwords</span>
+        </label>
+
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <Btn variant="secondary" onClick={onClose} type="button">Cancel</Btn>
+          <Btn onClick={submit} disabled={busy || !cur || !nw || !conf}>
+            {busy ? <><Spinner/> Changing…</> : "Change password"}
+          </Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 /* ─── DEMO REQUESTS (ADMIN) ─────────────────────────────────────────────── */
 export function DemoRequestsPage({ toast }) {

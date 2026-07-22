@@ -655,7 +655,18 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
              RETURNING *`,
             [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message]
         );
-        res.status(201).json(camel(rows[0]));
+        const reg = camel(rows[0]);
+
+        // Send "we got your registration" email immediately
+        try {
+            const { rows: [h] } = await q("SELECT * FROM hackathons WHERE id=$1", [hackathonId]);
+            sendEmail(reg.email,
+                `Registration received — ${h?.name || "HackFest Hub"}`,
+                emailRegReceived(reg, h || {})
+            ).catch(()=>{});
+        } catch(_) {}
+
+        res.status(201).json(reg);
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -759,26 +770,15 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
             }
 
             // ── Send approval email with login credentials ──
-            const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
-            const loginUrl = `${SITE}/register/${reg.hackathonId}`;
-            const credHtml = autoResult.loginCreated ? `
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:18px 22px;margin:16px 0;">
-          <div style="font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;margin-bottom:8px;">Your Login Credentials</div>
-          <div style="font-size:13px;color:#111827;margin-bottom:4px;"><strong>Sign in at:</strong> ${loginUrl}</div>
-          <div style="font-size:13px;color:#111827;margin-bottom:4px;"><strong>Email:</strong> ${reg.email}</div>
-          <div style="font-size:13px;color:#111827;"><strong>Password:</strong> <code style="background:#eef2ff;padding:2px 6px;border-radius:4px;">hackfest123</code></div>
-          <div style="font-size:12px;color:#ef4444;margin-top:8px;">⚠ Please change your password after first login.</div>
-        </div>` : "";
-
+            const creds = { email: reg.email, password: DEFAULT_PASSWORD };
             try {
-                const baseHtml = emailRegApproved(reg, h || {});
-                // Inject credentials into the approval email
-                const finalHtml = baseHtml.includes("</body>")
-                ? baseHtml.replace("</body>", credHtml + "</body>")
-                : baseHtml + credHtml;
-                sendEmail(reg.email, `You're in! ${reg.name} — sign in to ${h?.name||"the hackathon"}`, finalHtml).catch(()=>{});
+                sendEmail(
+                    reg.email,
+                    `You're in! Sign in to ${h?.name || "the hackathon"}`,
+                    emailRegApproved(reg, h || {}, creds)
+                ).catch(()=>{});
             } catch(_) {
-                sendEmail(reg.email, `You're in! Application approved`, emailRegApproved(reg, h || {})).catch(()=>{});
+                sendEmail(reg.email, "Application approved", emailRegApproved(reg, h || {})).catch(()=>{});
             }
         }
 
@@ -1768,20 +1768,70 @@ function emailRegReceived(reg, hack) {
   `, hack.name);
 }
 
-// 2. Registration approved
-function emailRegApproved(reg, hack) {
+// 2. Registration approved (with login credentials)
+function emailRegApproved(reg, hack, creds) {
+    const isJudge = reg.type === "judge";
+    const loginUrl = `${SITE_URL}/register/${hack.id}`;
+    const credBlock = creds ? `
+    <div style="background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:12px;padding:20px 24px;margin:22px 0;">
+      <div style="font-size:12px;font-weight:700;color:#4338ca;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;">
+        🔑 Your login credentials
+      </div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:6px 0;font-size:13px;color:#6366f1;width:90px;">Sign in at</td>
+          <td style="padding:6px 0;font-size:13px;color:#1e1b4b;font-weight:600;">
+            <a href="${loginUrl}" style="color:#4f46e5;text-decoration:none;">${loginUrl}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;font-size:13px;color:#6366f1;">Email</td>
+          <td style="padding:6px 0;font-size:14px;color:#1e1b4b;font-weight:700;font-family:monospace;">${creds.email}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;font-size:13px;color:#6366f1;">Password</td>
+          <td style="padding:6px 0;">
+            <code style="background:#fff;border:1px solid #c7d2fe;padding:4px 10px;border-radius:6px;font-size:14px;font-weight:700;color:#4338ca;letter-spacing:0.03em;">${creds.password}</code>
+          </td>
+        </tr>
+      </table>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid #c7d2fe;font-size:12px;color:#4338ca;line-height:1.6;">
+        ⚠ <strong>Change your password</strong> after your first sign-in — click your name in the top-right, then <strong>Change password</strong>.
+      </div>
+    </div>` : "";
+
+    const nextSteps = isJudge ? `
+    <div style="margin:20px 0;">
+      <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;">What you can do now</div>
+      <div style="font-size:14px;color:#4b5563;line-height:1.9;">
+        • Sign in and review the teams assigned to you<br>
+        • View each team's project submission in detail<br>
+        • Score teams against the judging criteria<br>
+        • Leave written feedback for each team
+      </div>
+    </div>` : `
+    <div style="margin:20px 0;">
+      <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;">What you can do now</div>
+      <div style="font-size:14px;color:#4b5563;line-height:1.9;">
+        • Sign in to see your team dashboard<br>
+        • Submit your project — title, description, tech stack, and links<br>
+        • Update your submission anytime before the deadline
+      </div>
+    </div>`;
+
     return emailBase(`
     <div class="badge" style="background:#10b981">✅ Approved!</div>
     <div class="greeting">Great news, ${reg.name}! 🎉</div>
-    <p class="text">Your ${reg.type === "judge" ? "judge application" : "team registration"} for <strong>${hack.name}</strong> has been <strong>approved</strong>. We're thrilled to have you onboard!</p>
+    <p class="text">Your ${isJudge ? "judge application" : "team registration"} for <strong>${hack.name}</strong> has been <strong>approved</strong>. We're thrilled to have you onboard!</p>
+    ${credBlock}
     <div class="card">
       <div class="card-row"><span class="card-label">Event</span><span class="card-value">${hack.name}</span></div>
       ${hack.startDate ? `<div class="card-row"><span class="card-label">Date</span><span class="card-value">${new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>` : ""}
       ${hack.location ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value">${hack.location}</span></div>` : ""}
       ${hack.prizePool ? `<div class="card-row"><span class="card-label">Prize Pool</span><span class="card-value">${hack.prizePool}</span></div>` : ""}
     </div>
-    <p class="text">Save the date and get ready! We'll send you more details as the event approaches.</p>
-    <a href="${SITE_URL}/register/${hack.id}" class="btn">View Event Details →</a>
+    ${nextSteps}
+    <a href="${loginUrl}" class="btn">Sign in now →</a>
   `, hack.name);
 }
 
@@ -3092,6 +3142,122 @@ app.delete(["/api/demo-requests/:id", "/demo-requests/:id"], admin, async (req, 
 try {
 await q("DELETE FROM demo_requests WHERE id=$1", [req.params.id]);
 res.json({ deleted: true });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PASSWORD MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Change own password (any logged-in user)
+app.post(["/api/auth/change-password", "/auth/change-password"], auth, async (req, res) => {
+const { currentPassword, newPassword } = req.body;
+if (!newPassword || newPassword.length < 8)
+return res.status(400).json({ error: "New password must be at least 8 characters" });
+
+try {
+const { rows: [u] } = await q("SELECT id,password_hash FROM users WHERE id=$1", [req.user.id]);
+if (!u) return res.status(404).json({ error: "User not found" });
+
+const ok = await bcrypt.compare(currentPassword || "", u.password_hash || "");
+if (!ok) return res.status(401).json({ error: "Current password is incorrect" });
+
+const hash = await bcrypt.hash(newPassword, 10);
+await q("UPDATE users SET password_hash=$1 WHERE id=$2", [hash, req.user.id]);
+res.json({ ok: true, message: "Password changed successfully" });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Request a password reset link (public)
+app.post(["/api/auth/forgot-password", "/auth/forgot-password"], async (req, res) => {
+const { email, hackathonId } = req.body;
+if (!email?.trim()) return res.status(400).json({ error: "Email required" });
+
+try {
+await q(`CREATE TABLE IF NOT EXISTS password_resets (
+      token VARCHAR(64) PRIMARY KEY, user_id VARCHAR(20) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL, used BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`).catch(()=>{});
+
+const { rows: [u] } = await q("SELECT id,name,email FROM users WHERE LOWER(email)=LOWER($1)", [email.trim()]);
+// Always return success so we don't leak which emails exist
+if (!u) return res.json({ ok: true, message: "If that email exists, a reset link has been sent." });
+
+const crypto = require("crypto");
+const token = crypto.randomBytes(32).toString("hex");
+const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+await q("INSERT INTO password_resets(token,user_id,expires_at) VALUES($1,$2,$3)", [token, u.id, expires]);
+
+const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const resetUrl = `${SITE}/reset-password?token=${token}`;
+
+const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body{font-family:'Segoe UI',sans-serif;background:#f4f6f8;margin:0;padding:24px;}
+      .wrap{max-width:500px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
+      .hdr{background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:30px 34px;text-align:center;}
+      .hdr h1{color:#fff;font-size:20px;margin:0;font-weight:800;}
+      .body{padding:30px 34px;}
+      .btn{display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;
+        padding:13px 28px;border-radius:10px;font-size:15px;font-weight:700;margin:22px 0;}
+      .footer{padding:18px 34px;background:#f8fafc;border-top:1px solid #e5e7eb;text-align:center;font-size:12px;color:#94a3b8;}
+      </style></head><body><div class="wrap">
+      <div class="hdr"><h1>🔑 Reset your password</h1></div>
+      <div class="body">
+        <p style="font-size:15px;color:#334155;line-height:1.75;">Hi ${u.name},</p>
+        <p style="font-size:14px;color:#4b5563;line-height:1.75;">
+          We received a request to reset your HackFest Hub password.
+          Click the button below to choose a new one. This link expires in <strong>1 hour</strong>.
+        </p>
+        <a href="${resetUrl}" class="btn">Reset my password →</a>
+        <p style="font-size:12px;color:#94a3b8;line-height:1.7;">
+          If you didn't request this, you can safely ignore this email — your password won't change.
+        </p>
+      </div>
+      <div class="footer">HackFest Hub · Password reset</div>
+      </div></body></html>`;
+
+sendEmail(u.email, "Reset your HackFest Hub password", html).catch(()=>{});
+res.json({ ok: true, message: "If that email exists, a reset link has been sent." });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Complete a password reset with a token (public)
+app.post(["/api/auth/reset-password", "/auth/reset-password"], async (req, res) => {
+const { token, newPassword } = req.body;
+if (!token || !newPassword) return res.status(400).json({ error: "Token and new password required" });
+if (newPassword.length < 8)  return res.status(400).json({ error: "Password must be at least 8 characters" });
+
+try {
+const { rows: [r] } = await q(
+"SELECT * FROM password_resets WHERE token=$1 AND used=false AND expires_at > NOW()",
+[token]
+).catch(()=>({rows:[]}));
+if (!r) return res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
+
+const hash = await bcrypt.hash(newPassword, 10);
+await q("UPDATE users SET password_hash=$1 WHERE id=$2", [hash, r.user_id]);
+await q("UPDATE password_resets SET used=true WHERE token=$1", [token]);
+
+res.json({ ok: true, message: "Password reset successfully. You can now sign in." });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// Judge/admin: full submissions for a hackathon (no published requirement)
+app.get(["/api/judge/submissions", "/judge/submissions"], auth, async (req, res) => {
+const { hackathonId } = req.query;
+if (!hackathonId) return res.status(400).json({ error: "hackathonId required" });
+try {
+const { rows } = await q(
+`SELECT s.*, t.name AS team_name, t.category AS team_category, t.members AS team_members
+       FROM submissions s JOIN teams t ON t.id = s.team_id
+       WHERE s.hackathon_id = $1`,
+[hackathonId]
+).catch(() => ({ rows: [] }));
+res.json(rows.map(camel));
 } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
