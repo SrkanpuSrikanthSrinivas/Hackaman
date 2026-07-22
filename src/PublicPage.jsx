@@ -1361,9 +1361,12 @@ function ParticipantLogin({ hackathonId, accent }) {
             onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"}/>
         </div>
         <div style={{marginBottom:18}}>
-          <label style={{...FF, display:"block", fontSize:11, fontWeight:600,
-            color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
-            letterSpacing:"0.07em", marginBottom:5}}>Password</label>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+            <label style={{...FF, fontSize:11, fontWeight:600,
+              color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
+              letterSpacing:"0.07em"}}>Password</label>
+            <a href="/forgot-password" style={{...FF,fontSize:11,color:accent,textDecoration:"none"}}>Forgot?</a>
+          </div>
           <div style={{position:"relative"}}>
             <input type={show?"text":"password"} required value={pass} onChange={e=>setPass(e.target.value)}
               placeholder="••••••••" style={{...IS, paddingRight:40}}

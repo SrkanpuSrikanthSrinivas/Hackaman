@@ -8,12 +8,13 @@ import {
 } from "./shared.jsx";
 import MarketingPage from "./MarketingPage.jsx";
 import DemoRequestPage from "./DemoRequestPage.jsx";
+import ResetPasswordPage from "./ResetPasswordPage.jsx";
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage, ChangePasswordModal,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -265,8 +266,10 @@ function LoginPage({ onLogin }) {
             </div>
 
             <div>
-              <label style={{display:"block",fontSize:13,fontWeight:600,
-                color:"#374151",marginBottom:7,...FF2}}>Password</label>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                <label style={{fontSize:13,fontWeight:600,color:"#374151",...FF2}}>Password</label>
+                <a href="/forgot-password" style={{...FF2,fontSize:12,color:"#4f46e5",textDecoration:"none"}}>Forgot?</a>
+              </div>
               <div style={{position:"relative"}}>
                 <span style={{position:"absolute",left:13,top:"50%",
                   transform:"translateY(-50%)",fontSize:16,color:"#9ca3af",pointerEvents:"none"}}>🔒</span>
@@ -392,6 +395,7 @@ function AppShell() {
     } catch { return null; }
   });
   const [page, setPage] = useState(currentUser?.role==="team"?"team-home":"dashboard");
+  const [showPwModal, setShowPwModal] = useState(false);
   const [activeHackathon, setActive] = useState("");
   const [toasts, setToasts] = useState([]);
 
@@ -603,6 +607,8 @@ function AppShell() {
               <div style={{ ...FONT, fontSize:12, fontWeight:500, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{currentUser.name}</div>
               <div style={{ ...FONT, fontSize:10, color:C.text3, textTransform:"capitalize" }}>{currentUser.role}</div>
             </div>
+            <button onClick={()=>setShowPwModal(true)} title="Change password"
+              style={{ ...FONT, fontSize:12, color:C.text3, background:"none", border:"none", cursor:"pointer", padding:"2px 4px", borderRadius:4, marginRight:2 }}>🔑</button>
             <button onClick={logout} title="Sign out"
               style={{ ...FONT, fontSize:12, color:C.text3, background:"none", border:"none", cursor:"pointer", padding:"2px 4px", borderRadius:4 }}>↩</button>
           </div>
@@ -640,6 +646,7 @@ function AppShell() {
         {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
         {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
         {page==="demo-requests"&& isAdmin &&   <DemoRequestsPage  toast={toast} />}
+        {showPwModal && <ChangePasswordModal onClose={()=>setShowPwModal(false)} toast={toast} />}
         {isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
@@ -798,6 +805,7 @@ class ErrorBoundary extends Component {
 export default function App() {
   const path = window.location.pathname;
   if (path === "/demo" || path === "/demo/") return <ErrorBoundary><DemoRequestPage /></ErrorBoundary>;
+  if (path === "/reset-password" || path === "/forgot-password") return <ErrorBoundary><ResetPasswordPage /></ErrorBoundary>;
   // Public event page
   const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;

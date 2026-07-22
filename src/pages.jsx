@@ -3321,6 +3321,91 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
 
 
 
+
+/* ─── CHANGE PASSWORD MODAL ─────────────────────────────────────────────── */
+export function ChangePasswordModal({ onClose, toast }) {
+  const [cur,  setCur]  = useState("");
+  const [nw,   setNw]   = useState("");
+  const [conf, setConf] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState("");
+  const [show, setShow] = useState(false);
+
+  const submit = async e => {
+    e?.preventDefault();
+    if (nw !== conf)     { setErr("New passwords don't match"); return; }
+    if (nw.length < 8)   { setErr("Password must be at least 8 characters"); return; }
+    if (nw === cur)      { setErr("New password must be different from your current one"); return; }
+    setBusy(true); setErr("");
+    try {
+      await POST("/api/auth/change-password", { currentPassword: cur, newPassword: nw });
+      toast("✓ Password changed successfully");
+      onClose();
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const IS = { ...IN, background:C.bg, fontSize:14 };
+  const strength = nw.length === 0 ? null
+    : nw.length < 8 ? { l:"Too short", c:C.red }
+    : nw.length < 12 ? { l:"Okay", c:C.amber }
+    : /[A-Z]/.test(nw) && /[0-9]/.test(nw) ? { l:"Strong", c:C.green }
+    : { l:"Good", c:C.blue };
+
+  return (
+    <Modal title="🔑 Change Password" onClose={onClose} width={420}>
+      <form onSubmit={submit}>
+        {err && (
+          <div style={{ ...FONT, fontSize:13, color:C.red, background:"rgba(239,68,68,0.08)",
+            border:`1px solid ${C.bdRed}`, borderRadius:R.sm, padding:"10px 13px", marginBottom:14 }}>
+            ⚠ {err}
+          </div>
+        )}
+
+        <Field label="Current password" required>
+          <input type={show ? "text" : "password"} value={cur} onChange={e=>setCur(e.target.value)}
+            style={IS} autoFocus placeholder="Your current password" />
+        </Field>
+
+        <Field label="New password" required
+          hint={strength ? null : "At least 8 characters"}>
+          <input type={show ? "text" : "password"} value={nw} onChange={e=>setNw(e.target.value)}
+            style={IS} placeholder="Choose a new password" />
+        </Field>
+
+        {strength && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:-8, marginBottom:12 }}>
+            <div style={{ flex:1, height:4, background:C.bg3, borderRadius:9999, overflow:"hidden" }}>
+              <div style={{ height:"100%", borderRadius:9999, background:strength.c,
+                width: strength.l==="Too short" ? "25%" : strength.l==="Okay" ? "55%" : strength.l==="Good" ? "80%" : "100%",
+                transition:"all 0.25s" }}/>
+            </div>
+            <span style={{ ...FONT, fontSize:11, fontWeight:600, color:strength.c }}>{strength.l}</span>
+          </div>
+        )}
+
+        <Field label="Confirm new password" required>
+          <input type={show ? "text" : "password"} value={conf} onChange={e=>setConf(e.target.value)}
+            style={{ ...IS, borderColor: conf && nw !== conf ? C.red : undefined }}
+            placeholder="Type it again" />
+        </Field>
+
+        <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", marginBottom:18 }}>
+          <input type="checkbox" checked={show} onChange={e=>setShow(e.target.checked)} />
+          <span style={{ ...FONT, fontSize:12, color:C.text3 }}>Show passwords</span>
+        </label>
+
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <Btn variant="secondary" onClick={onClose} type="button">Cancel</Btn>
+          <Btn onClick={submit} disabled={busy || !cur || !nw || !conf}>
+            {busy ? <><Spinner/> Changing…</> : "Change password"}
+          </Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 /* ─── DEMO REQUESTS (ADMIN) ─────────────────────────────────────────────── */
 export function DemoRequestsPage({ toast }) {
   const [reqs,    setReqs]    = useState([]);
