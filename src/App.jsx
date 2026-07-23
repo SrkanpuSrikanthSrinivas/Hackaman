@@ -8,12 +8,14 @@ import {
 } from "./shared.jsx";
 import MarketingPage from "./MarketingPage.jsx";
 import DemoRequestPage from "./DemoRequestPage.jsx";
+import ResetPasswordPage from "./ResetPasswordPage.jsx";
+import JoinTeamPage from "./JoinTeamPage.jsx";
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage, ChangePasswordModal,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -265,8 +267,10 @@ function LoginPage({ onLogin }) {
             </div>
 
             <div>
-              <label style={{display:"block",fontSize:13,fontWeight:600,
-                color:"#374151",marginBottom:7,...FF2}}>Password</label>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                <label style={{fontSize:13,fontWeight:600,color:"#374151",...FF2}}>Password</label>
+                <a href="/forgot-password" style={{...FF2,fontSize:12,color:"#4f46e5",textDecoration:"none"}}>Forgot?</a>
+              </div>
               <div style={{position:"relative"}}>
                 <span style={{position:"absolute",left:13,top:"50%",
                   transform:"translateY(-50%)",fontSize:16,color:"#9ca3af",pointerEvents:"none"}}>🔒</span>
@@ -347,11 +351,12 @@ const ADMIN_NAV = [
 ];
 
 const SECTIONS = [
-  {id:"overview",       label:"Overview"},
-  {id:"judging",        label:"Judging"},
-  {id:"administration", label:"Administration"},
-  {id:"operations",     label:"Event Ops"},
-  {id:"post-event",     label:"Post-Event"},
+  {id:"overview",       label:"Overview",       icon:"◇"},
+  {id:"judging",        label:"Judging",        icon:"◆"},
+  {id:"operations",     label:"Event Ops",      icon:"◈"},
+  {id:"post-event",     label:"Post-Event",     icon:"◉"},
+  {id:"administration", label:"Administration", icon:"⚙"},
+  {id:"admin",          label:"Business",       icon:"◐"},
 ];
 
 const JUDGE_EXTRA = [
@@ -392,6 +397,17 @@ function AppShell() {
     } catch { return null; }
   });
   const [page, setPage] = useState(currentUser?.role==="team"?"team-home":"dashboard");
+  const [showPwModal, setShowPwModal] = useState(false);
+  // Collapsible sidebar sections — persisted per user
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("hf_nav_collapsed") || "{}"); }
+    catch { return {}; }
+  });
+  const toggleSection = id => setCollapsed(c => {
+    const next = { ...c, [id]: !c[id] };
+    try { localStorage.setItem("hf_nav_collapsed", JSON.stringify(next)); } catch {}
+    return next;
+  });
   const [activeHackathon, setActive] = useState("");
   const [toasts, setToasts] = useState([]);
 
@@ -515,7 +531,7 @@ function AppShell() {
 
   const isTeam = currentUser?.role === "team";
   const navItems = isAdmin ? ADMIN_NAV : isTeam ? getTeamNav() : getJudgeNav(currentUser);
-  const activeSections = isAdmin ? SECTIONS : isTeam ? TEAM_SECTIONS : [{id:"judging",label:"Judging"},{id:"operations",label:"Operations"}];
+  const activeSections = isAdmin ? SECTIONS : isTeam ? TEAM_SECTIONS : [{id:"judging",label:"Judging",icon:"◆"},{id:"operations",label:"Operations",icon:"◈"}];
   const sections = [...new Set(navItems.map(n => n.section))];
   const sectionLabels = { overview:"Overview", judging:"Judging", admin:"Administration" };
   const visibleH = isAdmin ? db.hackathons : db.hackathons.filter(h => (currentUser.assignedHackathons || []).includes(h.id));
@@ -570,27 +586,65 @@ function AppShell() {
           )}
         </div>
 
-        {/* Nav */}
-        <nav style={{ flex:1, overflowY:"auto", padding:"6px 8px" }}>
-          {sections.map(sec => (
-            <div key={sec}>
-              {isAdmin && <div style={{ ...FONT, fontSize:10, fontWeight:500, color:C.text3, letterSpacing:"0.08em", textTransform:"uppercase", padding:"10px 8px 4px", marginTop:4 }}>{sectionLabels[sec]||sec}</div>}
-              {navItems.filter(n => n.section === sec).map(item => {
-                const active = page === item.id;
-                return (
-                  <button key={item.id} onClick={() => setPage(item.id)}
-                    style={{ width:"100%", textAlign:"left", background:active?C.bg3:"transparent",
-                      border:`1px solid ${active?C.border:"transparent"}`, borderRadius:R.sm,
-                      padding:"6px 10px", fontSize:13, color:active?C.text:C.text3, cursor:"pointer",
-                      display:"block", marginBottom:1, transition:"all 0.1s", ...FONT }}
-                    onMouseEnter={e => { if (!active) e.target.style.background = C.bg2; }}
-                    onMouseLeave={e => { if (!active) e.target.style.background = "transparent"; }}>
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+        {/* Nav — collapsible sections */}
+        <nav style={{ flex:1, overflowY:"auto", padding:"8px 8px 12px" }}>
+          {activeSections.map(sec => {
+            const items = navItems.filter(n => n.section === sec.id);
+            if (!items.length) return null;
+            const isOpen   = !collapsed[sec.id];
+            const hasActive = items.some(i => i.id === page);
+
+            return (
+              <div key={sec.id} style={{ marginBottom:2 }}>
+                {/* Section header — clickable */}
+                <button onClick={() => toggleSection(sec.id)}
+                  style={{ ...FONT, width:"100%", display:"flex", alignItems:"center", gap:7,
+                    background: hasActive && !isOpen ? C.bg3 : "transparent",
+                    border:"none", borderRadius:R.sm, cursor:"pointer",
+                    padding:"7px 8px", marginTop:3, marginBottom:1,
+                    transition:"background 0.12s" }}
+                  onMouseEnter={e => { if(!(hasActive&&!isOpen)) e.currentTarget.style.background = C.bg2; }}
+                  onMouseLeave={e => { if(!(hasActive&&!isOpen)) e.currentTarget.style.background = "transparent"; }}>
+                  <span style={{ fontSize:10, color:C.text3, width:9, flexShrink:0,
+                    transform: isOpen ? "rotate(90deg)" : "rotate(0deg)",
+                    transition:"transform 0.18s ease", display:"inline-block" }}>▶</span>
+                  <span style={{ fontSize:11, color: hasActive ? C.blue : C.text3, flexShrink:0 }}>{sec.icon}</span>
+                  <span style={{ fontSize:10, fontWeight:600, letterSpacing:"0.09em",
+                    textTransform:"uppercase", color: hasActive ? C.text : C.text3, flex:1, textAlign:"left" }}>
+                    {sec.label}
+                  </span>
+                  {!isOpen && hasActive && (
+                    <span style={{ width:5, height:5, borderRadius:"50%", background:C.blue, flexShrink:0 }}/>
+                  )}
+                  <span style={{ ...MONO, fontSize:9, color:C.text3, opacity:0.5, flexShrink:0 }}>{items.length}</span>
+                </button>
+
+                {/* Section items */}
+                <div style={{ overflow:"hidden", maxHeight: isOpen ? `${items.length * 34 + 8}px` : "0px",
+                  opacity: isOpen ? 1 : 0, transition:"max-height 0.22s ease, opacity 0.16s ease" }}>
+                  {items.map(item => {
+                    const active = page === item.id;
+                    return (
+                      <button key={item.id} onClick={() => setPage(item.id)}
+                        style={{ ...FONT, width:"100%", textAlign:"left",
+                          background: active ? C.bgBlue : "transparent",
+                          border:"none", borderLeft:`2px solid ${active ? C.blue : "transparent"}`,
+                          borderRadius:`0 ${R.sm}px ${R.sm}px 0`,
+                          padding:"7px 10px 7px 24px", fontSize:13,
+                          color: active ? C.blue : C.text3,
+                          fontWeight: active ? 600 : 400,
+                          cursor:"pointer", display:"block", marginBottom:1,
+                          transition:"all 0.1s" }}
+                        onMouseEnter={e => { if (!active) { e.currentTarget.style.background = C.bg2; e.currentTarget.style.color = C.text; } }}
+                        onMouseLeave={e => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.text3; } }}>
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </nav>
 
         {/* User footer */}
@@ -603,6 +657,8 @@ function AppShell() {
               <div style={{ ...FONT, fontSize:12, fontWeight:500, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{currentUser.name}</div>
               <div style={{ ...FONT, fontSize:10, color:C.text3, textTransform:"capitalize" }}>{currentUser.role}</div>
             </div>
+            <button onClick={()=>setShowPwModal(true)} title="Change password"
+              style={{ ...FONT, fontSize:12, color:C.text3, background:"none", border:"none", cursor:"pointer", padding:"2px 4px", borderRadius:4, marginRight:2 }}>🔑</button>
             <button onClick={logout} title="Sign out"
               style={{ ...FONT, fontSize:12, color:C.text3, background:"none", border:"none", cursor:"pointer", padding:"2px 4px", borderRadius:4 }}>↩</button>
           </div>
@@ -640,6 +696,7 @@ function AppShell() {
         {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
         {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
         {page==="demo-requests"&& isAdmin &&   <DemoRequestsPage  toast={toast} />}
+        {showPwModal && <ChangePasswordModal onClose={()=>setShowPwModal(false)} toast={toast} />}
         {isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}
         {page==="public-cms"   && isAdmin && <PublicPageCMS    {...props} />}
@@ -798,6 +855,8 @@ class ErrorBoundary extends Component {
 export default function App() {
   const path = window.location.pathname;
   if (path === "/demo" || path === "/demo/") return <ErrorBoundary><DemoRequestPage /></ErrorBoundary>;
+  if (path === "/reset-password" || path === "/forgot-password") return <ErrorBoundary><ResetPasswordPage /></ErrorBoundary>;
+  if (path.startsWith("/join/")) return <ErrorBoundary><JoinTeamPage /></ErrorBoundary>;
   // Public event page
   const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;

@@ -3108,6 +3108,139 @@ function CreateLoginBtn({ regId, email, onCreated }) {
    TEAM DASHBOARD — shown when currentUser.role === "team"
    Lives inside the same AppShell as admin/judge
 ══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── INVITE TEAMMATES CARD ─────────────────────────────────────────────── */
+function InviteTeammates({ hackathonId, teamName, toast }) {
+  const [link,   setLink]   = useState(null);
+  const [busy,   setBusy]   = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [email,  setEmail]  = useState("");
+  const [note,   setNote]   = useState("");
+  const [sending,setSending]= useState(false);
+  const [showEmail, setShowEmail] = useState(false);
+
+  useEffect(() => {
+    if (!hackathonId) return;
+    setBusy(true);
+    GET(`/api/team/invite-link?hackathonId=${hackathonId}`)
+      .then(setLink).catch(()=>{}).finally(()=>setBusy(false));
+  }, [hackathonId]);
+
+  const copy = () => {
+    if (!link?.url) return;
+    navigator.clipboard.writeText(link.url).then(() => {
+      setCopied(true); setTimeout(()=>setCopied(false), 2000);
+      toast("Invite link copied!");
+    }).catch(()=>toast("Could not copy — select the link manually","error"));
+  };
+
+  const sendEmail = async e => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setSending(true);
+    try {
+      await POST("/api/team/invite-email", { hackathonId, email: email.trim(), message: note });
+      toast(`✓ Invite sent to ${email}`);
+      setEmail(""); setNote(""); setShowEmail(false);
+    } catch(e) { toast(e.message, "error"); }
+    setSending(false);
+  };
+
+  if (!link && !busy) return null;
+
+  const shareText = `Join my team "${teamName || link?.teamName}" for ${link?.hackathonName || "the hackathon"}! 🚀`;
+  const url = link?.url || "";
+
+  const socials = [
+    { l:"WhatsApp", icon:"💬", bg:"#25d366",
+      href:`https://wa.me/?text=${encodeURIComponent(shareText + " " + url)}` },
+    { l:"X",        icon:"𝕏",  bg:"#000000",
+      href:`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(url)}` },
+    { l:"LinkedIn", icon:"in", bg:"#0a66c2",
+      href:`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}` },
+    { l:"Email",    icon:"✉",  bg:"#6b7280",
+      href:`mailto:?subject=${encodeURIComponent(`Join ${teamName || link?.teamName} at ${link?.hackathonName}`)}&body=${encodeURIComponent(shareText + "\n\n" + url)}` },
+  ];
+
+  return (
+    <Card style={{ marginBottom:16, border:`1px solid ${C.bdBlue}`, background:C.bgBlue }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+        <div>
+          <div style={{ ...FONT, fontSize:13, fontWeight:700, color:C.text, marginBottom:2 }}>
+            👥 Invite teammates
+          </div>
+          <div style={{ ...FONT, fontSize:12, color:C.text3 }}>
+            {link?.maxTeamSize
+              ? `${link.memberCount} of ${link.maxTeamSize} spots filled`
+              : `${link?.memberCount || 0} member${link?.memberCount === 1 ? "" : "s"} so far`}
+          </div>
+        </div>
+        {busy && <Spinner/>}
+      </div>
+
+      {/* Shareable link */}
+      <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+        <input readOnly value={url}
+          onClick={e => e.target.select()}
+          style={{ ...IN, flex:1, background:C.bg, fontSize:12, ...MONO,
+            cursor:"pointer", color:C.text2 }} />
+        <Btn size="sm" onClick={copy}
+          style={{ flexShrink:0, background: copied ? C.green : undefined }}>
+          {copied ? "✓ Copied" : "📋 Copy"}
+        </Btn>
+      </div>
+
+      {/* Social share buttons */}
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+        {socials.map(s => (
+          <a key={s.l} href={s.href} target="_blank" rel="noopener"
+            style={{ ...FONT, display:"inline-flex", alignItems:"center", gap:6,
+              fontSize:12, fontWeight:600, padding:"7px 14px", borderRadius:8,
+              background:s.bg, color:"#fff", textDecoration:"none",
+              transition:"transform 0.12s" }}
+            onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
+            onMouseLeave={e => e.currentTarget.style.transform = "none"}>
+            <span>{s.icon}</span> {s.l}
+          </a>
+        ))}
+      </div>
+
+      {/* Email invite toggle */}
+      {!showEmail ? (
+        <button onClick={() => setShowEmail(true)}
+          style={{ ...FONT, fontSize:12, color:C.blue, background:"none",
+            border:"none", cursor:"pointer", padding:0, textDecoration:"underline" }}>
+          ✉ Or send a personal email invite
+        </button>
+      ) : (
+        <form onSubmit={sendEmail} style={{ marginTop:4, paddingTop:12,
+          borderTop:`1px solid ${C.bdBlue}` }}>
+          <div style={{ display:"flex", gap:6, marginBottom:8 }}>
+            <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+              placeholder="teammate@example.com"
+              style={{ ...IN, flex:1, background:C.bg, fontSize:13 }} />
+            <Btn size="sm" onClick={sendEmail} disabled={sending || !email.trim()}
+              style={{ flexShrink:0 }}>
+              {sending ? <Spinner/> : "Send"}
+            </Btn>
+          </div>
+          <input value={note} onChange={e=>setNote(e.target.value)}
+            placeholder="Add a personal note (optional)"
+            style={{ ...IN, width:"100%", background:C.bg, fontSize:12, marginBottom:6 }} />
+          <button type="button" onClick={() => setShowEmail(false)}
+            style={{ ...FONT, fontSize:11, color:C.text3, background:"none",
+              border:"none", cursor:"pointer", padding:0 }}>Cancel</button>
+        </form>
+      )}
+
+      <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:12,
+        paddingTop:10, borderTop:`1px solid ${C.bdBlue}`, lineHeight:1.6 }}>
+        Anyone with this link can join your team. They'll get a login automatically.
+      </div>
+    </Card>
+  );
+}
+
 export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
   const [data,   setData]   = useState(null);
   const [loading,setLoading]= useState(false);
@@ -3204,6 +3337,9 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
           </div>
         )}
       </Card>
+
+      {/* Invite teammates */}
+      {team && <InviteTeammates hackathonId={activeHackathon} teamName={team.name} toast={toast} />}
 
       {/* Submission */}
       {!editing ? (

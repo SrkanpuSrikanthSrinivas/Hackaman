@@ -3261,6 +3261,294 @@ res.json(rows.map(camel));
 } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TEAM INVITES
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function ensureInviteTable() {
+await q(`CREATE TABLE IF NOT EXISTS team_invites (
+    id VARCHAR(20) PRIMARY KEY, code VARCHAR(12) NOT NULL UNIQUE,
+    team_id VARCHAR(20) NOT NULL, hackathon_id VARCHAR(20) NOT NULL,
+    invited_by VARCHAR(255), email VARCHAR(255),
+    status VARCHAR(20) DEFAULT 'pending', accepted_by VARCHAR(255),
+    accepted_name VARCHAR(255), expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), accepted_at TIMESTAMPTZ
+  )`).catch(()=>{});
+}
+
+// Team member creates / fetches their invite link
+app.get(["/api/team/invite-link", "/team/invite-link"], auth, async (req, res) => {
+if (req.user.role !== "team" && req.user.role !== "admin")
+return res.status(403).json({ error: "Team access only" });
+const { hackathonId } = req.query;
+try {
+await ensureInviteTable();
+const { rows: [u] } = await q("SELECT email, team_id FROM users WHERE id=$1", [req.user.id]);
+
+// Resolve the team
+let teamId = u?.team_id;
+if (!teamId && u?.email) {
+const { rows: [reg] } = await q(
+"SELECT team_name FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",
+[u.email, hackathonId]
+).catch(()=>({rows:[]}));
+if (reg?.team_name) {
+const { rows: [t] } = await q(
+"SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",
+[hackathonId, reg.team_name]
+);
+teamId = t?.id;
+}
+}
+if (!teamId) return res.status(404).json({ error: "No team linked to your account" });
+
+// Reuse an existing open invite if present
+const { rows: existing } = await q(
+"SELECT * FROM team_invites WHERE team_id=$1 AND status='pending' AND email IS NULL ORDER BY created_at DESC LIMIT 1",
+[teamId]
+);
+
+let invite = existing[0];
+if (!invite) {
+const crypto = require("crypto");
+const code = crypto.randomBytes(4).toString("hex").toUpperCase(); // 8 chars
+const id   = "i" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+const { rows: [ni] } = await q(
+`INSERT INTO team_invites(id,code,team_id,hackathon_id,invited_by,expires_at)
+         VALUES($1,$2,$3,$4,$5,NOW() + INTERVAL '30 days') RETURNING *`,
+[id, code, teamId, hackathonId, u?.email || null]
+);
+invite = ni;
+}
+
+const { rows: [team] } = await q("SELECT name, members FROM teams WHERE id=$1", [teamId]);
+const { rows: [hack] } = await q("SELECT name, max_team_size FROM hackathons WHERE id=$1", [hackathonId]);
+const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+
+const memberCount = team?.members ? team.members.split(",").filter(m=>m.trim()).length : 0;
+
+res.json({
+code: invite.code,
+url: `${SITE}/join/${invite.code}`,
+teamName: team?.name,
+hackathonName: hack?.name,
+memberCount,
+maxTeamSize: hack?.max_team_size || null,
+expiresAt: invite.expires_at,
+});
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Send an invite by email
+app.post(["/api/team/invite-email", "/team/invite-email"], auth, async (req, res) => {
+const { hackathonId, email: inviteeEmail, message } = req.body;
+if (!inviteeEmail?.trim()) return res.status(400).json({ error: "Email required" });
+try {
+await ensureInviteTable();
+const { rows: [u] } = await q("SELECT name, email, team_id FROM users WHERE id=$1", [req.user.id]);
+let teamId = u?.team_id;
+if (!teamId) {
+const { rows: [reg] } = await q(
+"SELECT team_name FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",
+[u?.email, hackathonId]
+).catch(()=>({rows:[]}));
+if (reg?.team_name) {
+const { rows: [t] } = await q("SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",[hackathonId, reg.team_name]);
+teamId = t?.id;
+}
+}
+if (!teamId) return res.status(404).json({ error: "No team linked to your account" });
+
+const crypto = require("crypto");
+const code = crypto.randomBytes(4).toString("hex").toUpperCase();
+const id   = "i" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+await q(
+`INSERT INTO team_invites(id,code,team_id,hackathon_id,invited_by,email,expires_at)
+       VALUES($1,$2,$3,$4,$5,$6,NOW() + INTERVAL '30 days')`,
+[id, code, teamId, hackathonId, u?.email || null, inviteeEmail.trim().toLowerCase()]
+);
+
+const { rows: [team] } = await q("SELECT name FROM teams WHERE id=$1", [teamId]);
+const { rows: [hack] } = await q("SELECT name, start_date, location, prize_pool FROM hackathons WHERE id=$1", [hackathonId]);
+const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const joinUrl = `${SITE}/join/${code}`;
+
+const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      body{font-family:'Segoe UI',sans-serif;background:#f4f6f8;margin:0;padding:24px;}
+      .wrap{max-width:520px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
+      .hdr{background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:34px 36px;text-align:center;}
+      .hdr h1{color:#fff;font-size:22px;margin:0 0 6px;font-weight:800;}
+      .hdr p{color:rgba(255,255,255,0.6);font-size:14px;margin:0;}
+      .body{padding:32px 36px;}
+      .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;margin:18px 0;}
+      .row{display:flex;padding:6px 0;}
+      .k{width:100px;font-size:12px;color:#64748b;font-weight:600;}
+      .v{font-size:14px;color:#0f172a;font-weight:600;}
+      .btn{display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;
+        padding:14px 28px;border-radius:10px;font-size:16px;font-weight:700;margin:22px 0;}
+      .code{text-align:center;font-family:monospace;font-size:22px;font-weight:800;color:#4338ca;
+        letter-spacing:0.12em;background:#eef2ff;border:1.5px dashed #c7d2fe;border-radius:10px;padding:14px;margin:16px 0;}
+      .footer{padding:20px 36px;background:#f8fafc;border-top:1px solid #e5e7eb;text-align:center;font-size:12px;color:#94a3b8;}
+      </style></head><body><div class="wrap">
+      <div class="hdr"><h1>🚀 You're invited!</h1><p>Join ${team?.name} at ${hack?.name}</p></div>
+      <div class="body">
+        <p style="font-size:15px;color:#334155;line-height:1.75;">
+          <strong>${u?.name || "A teammate"}</strong> invited you to join
+          <strong>${team?.name}</strong> for <strong>${hack?.name}</strong>.
+        </p>
+        ${message ? `<div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 8px 8px 0;font-size:14px;color:#78350f;line-height:1.7;font-style:italic;">"${String(message).replace(/</g,"&lt;")}"</div>` : ""}
+        <div class="card">
+          <div class="row"><div class="k">Team</div><div class="v">${team?.name}</div></div>
+          <div class="row"><div class="k">Event</div><div class="v">${hack?.name}</div></div>
+          ${hack?.start_date ? `<div class="row"><div class="k">Starts</div><div class="v">${new Date(hack.start_date).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</div></div>` : ""}
+          ${hack?.location ? `<div class="row"><div class="k">Location</div><div class="v">${hack.location}</div></div>` : ""}
+          ${hack?.prize_pool ? `<div class="row"><div class="k">Prizes</div><div class="v">${hack.prize_pool}</div></div>` : ""}
+        </div>
+        <a href="${joinUrl}" class="btn">Accept invitation →</a>
+        <p style="font-size:12px;color:#94a3b8;text-align:center;">Or enter this code when joining:</p>
+        <div class="code">${code}</div>
+      </div>
+      <div class="footer">This invitation expires in 30 days.</div>
+      </div></body></html>`;
+
+sendEmail(inviteeEmail, `${u?.name || "A teammate"} invited you to join ${team?.name}`, html).catch(()=>{});
+res.status(201).json({ ok: true, code, url: joinUrl });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public: look up an invite by code
+app.get(["/api/invite/:code", "/invite/:code"], async (req, res) => {
+try {
+await ensureInviteTable();
+const { rows: [inv] } = await q(
+"SELECT * FROM team_invites WHERE UPPER(code)=UPPER($1)", [req.params.code]
+);
+if (!inv) return res.status(404).json({ error: "This invitation code is not valid." });
+if (inv.status === "accepted") return res.status(410).json({ error: "This invitation has already been used." });
+if (inv.expires_at && new Date(inv.expires_at) < new Date())
+return res.status(410).json({ error: "This invitation has expired." });
+
+const { rows: [team] } = await q("SELECT name, category, members FROM teams WHERE id=$1", [inv.team_id]);
+const { rows: [hack] } = await q(
+"SELECT id,name,tagline,start_date,end_date,location,prize_pool,banner_color,max_team_size FROM hackathons WHERE id=$1",
+[inv.hackathon_id]
+);
+const memberCount = team?.members ? team.members.split(",").filter(m=>m.trim()).length : 0;
+const isFull = hack?.max_team_size && memberCount >= hack.max_team_size;
+
+res.json({
+code: inv.code, invitedBy: inv.invited_by,
+team: { name: team?.name, category: team?.category, memberCount, members: team?.members },
+hackathon: camel(hack || {}),
+isFull,
+});
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Public: accept an invite
+app.post(["/api/invite/:code/accept", "/invite/:code/accept"], async (req, res) => {
+const { name, email } = req.body;
+if (!name?.trim() || !email?.trim()) return res.status(400).json({ error: "Name and email are required" });
+try {
+await ensureInviteTable();
+const { rows: [inv] } = await q("SELECT * FROM team_invites WHERE UPPER(code)=UPPER($1)", [req.params.code]);
+if (!inv) return res.status(404).json({ error: "Invalid invitation code." });
+if (inv.status === "accepted") return res.status(410).json({ error: "This invitation has already been used." });
+if (inv.expires_at && new Date(inv.expires_at) < new Date())
+return res.status(410).json({ error: "This invitation has expired." });
+
+const { rows: [team] } = await q("SELECT * FROM teams WHERE id=$1", [inv.team_id]);
+if (!team) return res.status(404).json({ error: "Team no longer exists." });
+
+const { rows: [hack] } = await q("SELECT name, max_team_size FROM hackathons WHERE id=$1", [inv.hackathon_id]);
+const current = team.members ? team.members.split(",").map(m=>m.trim()).filter(Boolean) : [];
+
+if (hack?.max_team_size && current.length >= hack.max_team_size)
+return res.status(403).json({ error: `This team is full (max ${hack.max_team_size} members).` });
+
+// Add to team members
+if (!current.some(m => m.toLowerCase() === name.trim().toLowerCase())) {
+current.push(name.trim());
+await q("UPDATE teams SET members=$1, updated_at=NOW() WHERE id=$2", [current.join(", "), team.id]);
+}
+
+// Create a registration record so they show in the admin list
+await q(
+`INSERT INTO registrations (id,hackathon_id,name,email,type,team_name,status)
+       VALUES ($1,$2,$3,$4,'team',$5,'approved')
+       ON CONFLICT (hackathon_id,email) DO UPDATE SET team_name=$5, status='approved'`,
+[uid(), inv.hackathon_id, name.trim(), email.trim().toLowerCase(), team.name]
+).catch(()=>{});
+
+// Create their login with the default password
+const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [email.trim()]);
+let created = false;
+if (!existingUser.length) {
+const hash = await bcrypt.hash("hackfest123", 10);
+await q(
+"INSERT INTO users(id,name,email,password_hash,role,team_id) VALUES($1,$2,LOWER($3),$4,'team',$5)",
+["u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5), name.trim(), email.trim(), hash, team.id]
+);
+created = true;
+}
+
+// Mark invite used only if it was a personal (email) invite; keep open links reusable
+if (inv.email) {
+await q("UPDATE team_invites SET status='accepted', accepted_by=$1, accepted_name=$2, accepted_at=NOW() WHERE id=$3",
+[email.trim().toLowerCase(), name.trim(), inv.id]).catch(()=>{});
+}
+
+// Welcome email
+const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+if (created) {
+const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+        <body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
+        <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+          <div style="background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:32px;text-align:center;">
+            <h1 style="color:#fff;font-size:21px;margin:0 0 5px;">🎉 Welcome to ${team.name}!</h1>
+            <p style="color:rgba(255,255,255,0.6);font-size:14px;margin:0;">${hack?.name || ""}</p>
+          </div>
+          <div style="padding:30px 34px;">
+            <p style="font-size:15px;color:#334155;line-height:1.75;">Hi ${name}, you've joined <strong>${team.name}</strong>.</p>
+            <div style="background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:12px;padding:18px 22px;margin:20px 0;">
+              <div style="font-size:12px;font-weight:700;color:#4338ca;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">🔑 Your login</div>
+              <div style="font-size:13px;color:#1e1b4b;margin-bottom:5px;"><strong>Sign in:</strong> <a href="${SITE}/register/${inv.hackathon_id}" style="color:#4f46e5;">${SITE}/register/${inv.hackathon_id}</a></div>
+              <div style="font-size:13px;color:#1e1b4b;margin-bottom:5px;"><strong>Email:</strong> ${email}</div>
+              <div style="font-size:13px;color:#1e1b4b;"><strong>Password:</strong> <code style="background:#fff;border:1px solid #c7d2fe;padding:3px 9px;border-radius:5px;font-weight:700;">hackfest123</code></div>
+              <div style="margin-top:12px;padding-top:10px;border-top:1px solid #c7d2fe;font-size:12px;color:#4338ca;">⚠ Change your password after signing in.</div>
+            </div>
+            <a href="${SITE}/register/${inv.hackathon_id}" style="display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;padding:13px;border-radius:10px;font-size:15px;font-weight:700;">Sign in now →</a>
+          </div>
+        </div></body></html>`;
+sendEmail(email, `Welcome to ${team.name} — ${hack?.name || "HackFest Hub"}`, html).catch(()=>{});
+}
+
+res.json({
+ok: true, created,
+teamName: team.name,
+hackathonId: inv.hackathon_id,
+loginUrl: `${SITE}/register/${inv.hackathon_id}`,
+defaultPassword: created ? "hackfest123" : null,
+});
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Team: list sent invites
+app.get(["/api/team/invites", "/team/invites"], auth, async (req, res) => {
+const { hackathonId } = req.query;
+try {
+await ensureInviteTable();
+const { rows: [u] } = await q("SELECT team_id FROM users WHERE id=$1", [req.user.id]);
+if (!u?.team_id) return res.json([]);
+const { rows } = await q(
+"SELECT * FROM team_invites WHERE team_id=$1 AND email IS NOT NULL ORDER BY created_at DESC",
+[u.team_id]
+);
+res.json(rows.map(camel));
+} catch (e) { res.json([]); }
+});
+
 // Debug catch-all — logs what path Express actually received
 app.use((req, res) => {
 res.status(404).json({
