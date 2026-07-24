@@ -21,6 +21,15 @@ const TIMELINES = [
   "Just exploring",
 ];
 
+function Label({ children, required }) {
+  return (
+    <label style={{ display:"block", ...FF, fontSize:12, fontWeight:600,
+      color:"#374151", marginBottom:6 }}>
+      {children}{required && <span style={{ color:"#ef4444" }}> *</span>}
+    </label>
+  );
+}
+
 export default function DemoRequestPage() {
   const [form, setForm] = useState({
     name:"", email:"", organization:"", role:"", phone:"",
@@ -63,13 +72,6 @@ export default function DemoRequestPage() {
     fontSize:14, color:"#111827", background:"#f9fafb",
     border:"1.5px solid #e5e7eb", outline:"none", transition:"all 0.15s",
   };
-
-  const Label = ({ children, required }) => (
-    <label style={{ display:"block", ...FF, fontSize:12, fontWeight:600,
-      color:"#374151", marginBottom:6 }}>
-      {children}{required && <span style={{ color:"#ef4444" }}> *</span>}
-    </label>
-  );
 
   const focus = e => { e.target.style.borderColor = "#4f46e5"; e.target.style.background = "#fff"; };
   const blur  = e => { e.target.style.borderColor = "#e5e7eb"; e.target.style.background = "#f9fafb"; };

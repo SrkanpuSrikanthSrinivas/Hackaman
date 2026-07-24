@@ -4,6 +4,22 @@ const BASE = typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL
 const FF = { fontFamily:"'Inter',system-ui,sans-serif" };
 const MM = { fontFamily:"'JetBrains Mono','Fira Code',monospace" };
 
+// Module-scope so React keeps the same component identity between renders.
+// (Defining this inside JoinTeamPage remounts the tree on every keystroke and steals focus.)
+function Shell({ children }) {
+  return (
+    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#0a0e1f 0%,#1e1b4b 100%)",
+      display:"flex", alignItems:"center", justifyContent:"center", padding:24, ...FF }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+        * { box-sizing:border-box; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+      `}</style>
+      <div style={{ width:"100%", maxWidth:440 }}>{children}</div>
+    </div>
+  );
+}
+
 export default function JoinTeamPage() {
   const code = window.location.pathname.split("/join/")[1]?.split("?")[0]?.toUpperCase() || "";
 
@@ -46,18 +62,6 @@ export default function JoinTeamPage() {
     color:"#fff", background:"rgba(255,255,255,0.07)",
     border:"1.5px solid rgba(255,255,255,0.15)", outline:"none", boxSizing:"border-box",
   };
-
-  const Shell = ({ children }) => (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#0a0e1f 0%,#1e1b4b 100%)",
-      display:"flex", alignItems:"center", justifyContent:"center", padding:24, ...FF }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-        * { box-sizing:border-box; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
-      `}</style>
-      <div style={{ width:"100%", maxWidth:440 }}>{children}</div>
-    </div>
-  );
 
   if (loading) return (
     <Shell><div style={{ textAlign:"center", fontSize:44, animation:"pulse 1.4s infinite" }}>⚡</div></Shell>
@@ -183,7 +187,7 @@ export default function JoinTeamPage() {
               <label style={{ ...FF, display:"block", fontSize:11, fontWeight:600,
                 color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
                 letterSpacing:"0.07em", marginBottom:5 }}>Your name</label>
-              <input required autoFocus value={form.name}
+              <input key="join-name" required autoFocus value={form.name}
                 onChange={e=>setForm(p=>({...p,name:e.target.value}))}
                 placeholder="Jane Smith" style={IS}
                 onFocus={e=>e.target.style.borderColor=`${accent}aa`}
@@ -193,7 +197,7 @@ export default function JoinTeamPage() {
               <label style={{ ...FF, display:"block", fontSize:11, fontWeight:600,
                 color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
                 letterSpacing:"0.07em", marginBottom:5 }}>Your email</label>
-              <input required type="email" value={form.email}
+              <input key="join-email" required type="email" value={form.email}
                 onChange={e=>setForm(p=>({...p,email:e.target.value}))}
                 placeholder="jane@example.com" style={IS}
                 onFocus={e=>e.target.style.borderColor=`${accent}aa`}

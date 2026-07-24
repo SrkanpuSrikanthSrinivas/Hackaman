@@ -3,6 +3,14 @@ import { useState, useEffect } from "react";
 const BASE = typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL || "";
 const FF = { fontFamily:"'Inter',system-ui,sans-serif" };
 
+function Label({ children }) {
+  return (
+    <label style={{ display:"block", ...FF, fontSize:11, fontWeight:600,
+      color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
+      letterSpacing:"0.07em", marginBottom:6 }}>{children}</label>
+  );
+}
+
 export default function ResetPasswordPage() {
   const params = new URLSearchParams(window.location.search);
   const token  = params.get("token") || "";
@@ -60,12 +68,6 @@ export default function ResetPasswordPage() {
   };
   const focus = e => e.target.style.borderColor = "rgba(99,102,241,0.7)";
   const blur  = e => e.target.style.borderColor = "rgba(255,255,255,0.15)";
-
-  const Label = ({ children }) => (
-    <label style={{ display:"block", ...FF, fontSize:11, fontWeight:600,
-      color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
-      letterSpacing:"0.07em", marginBottom:6 }}>{children}</label>
-  );
 
   return (
     <div style={{ minHeight:"100vh",

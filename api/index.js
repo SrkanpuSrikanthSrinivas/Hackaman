@@ -6,8 +6,21 @@ const jwt      = require("jsonwebtoken");
 const fetch    = require("node-fetch");
 const { Pool } = require("pg");
 
+// ── Canonical public URL ──────────────────────────────────────────────────
+// Prefers CANONICAL_URL, then FRONTEND_URL, but never a *.vercel.app preview
+// domain — those change per deploy and shouldn't end up in emails or invites.
+const CANONICAL_SITE = (() => {
+    const fallback = "https://hackfesthub.com";
+    const raw = (process.env.CANONICAL_URL || process.env.FRONTEND_URL || "").trim();
+    if (!raw) return fallback;
+    if (/vercel\.app$/i.test(raw.replace(/\/+$/, ""))) return fallback;
+    return raw.replace(/\/+$/, "");
+})();
+function siteUrl() { return CANONICAL_SITE; }
+
+
 const JWT_SECRET   = process.env.JWT_SECRET || "hackfest-dev-secret";
-const FRONTEND_URL = process.env.FRONTEND_URL || "";
+const FRONTEND_URL = siteUrl();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 5 });
 async function q(sql, p = []) {
@@ -37,6 +50,7 @@ async function logEvent(action, user, req, method = "email") {
 }
 
 const toCamel = s => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+
 function camel(row) {
     if (!row) return null;
     const o = {};
@@ -1684,7 +1698,8 @@ app.get(["/api/leaderboard/:hackathonId","/leaderboard/:hackathonId"], async (re
 // ═══════════════════════════════════════════════════════════════════════════
 
 const FROM_EMAIL = process.env.EMAIL_FROM || "HackFest Hub <noreply@hackfesthub.com>";
-const SITE_URL   = process.env.FRONTEND_URL || "https://hackaman.vercel.app";
+const SITE_URL   = siteUrl();
+
 
 async function sendEmail(to, subject, html) {
     if (!process.env.RESEND_API_KEY) {
@@ -2324,7 +2339,7 @@ app.post(["/api/questions/:id/upvote","/questions/:id/upvote"], async (req,res)=
 
 // ── robots.txt ────────────────────────────────────────────────────────────────
 app.get(["/robots.txt"], async (_req, res) => {
-    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    const SITE = siteUrl();
     res.type("text/plain").send(
         `User-agent: *
         Allow: /
@@ -2339,7 +2354,7 @@ app.get(["/robots.txt"], async (_req, res) => {
 
 // ── XML Sitemap ───────────────────────────────────────────────────────────────
 app.get(["/sitemap.xml"], async (_req, res) => {
-    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    const SITE = siteUrl();
     try {
         const { rows: hacks } = await q(
             "SELECT id, name, updated_at FROM hackathons WHERE published=true ORDER BY updated_at DESC"
@@ -2385,7 +2400,7 @@ ${urls.map(u => `  <url>
 // ── Event Schema JSON-LD (per hackathon) ──────────────────────────────────────
 // Used by PublicPage to inject into <head> for Google rich results
 app.get(["/api/public/schema/:hackathonId", "/public/schema/:hackathonId"], async (req, res) => {
-    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    const SITE = siteUrl();
     try {
         const { rows: [h] } = await q(
             "SELECT * FROM hackathons WHERE id=$1 AND published=true",
@@ -2449,7 +2464,7 @@ app.get(["/api/public/schema/:hackathonId", "/public/schema/:hackathonId"], asyn
 
 // ── OG Image meta (returns meta tags HTML snippet) ───────────────────────────
 app.get(["/api/public/meta/:hackathonId", "/public/meta/:hackathonId"], async (req, res) => {
-    const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+    const SITE = siteUrl();
     try {
         const { rows: [h] } = await q(
             "SELECT name, tagline, description, banner_color, event_logo_url, location, start_date, prize_pool FROM hackathons WHERE id=$1 AND published=true",
@@ -2917,7 +2932,7 @@ await logEvent("login",{id,name:reg.name,email:reg.email,role:"team"},req,"admin
 
 // Send credentials email
 if(doEmail&&process.env.RESEND_API_KEY&&reg.email){
-const SITE=process.env.FRONTEND_URL||"https://hackfesthub.com";
+const SITE=siteUrl();
 const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
         <style>body{font-family:'Segoe UI',sans-serif;background:#f4f6f8;margin:0;padding:0;}
         .wrap{max-width:520px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
@@ -2957,7 +2972,7 @@ const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
 await sendEmail(reg.email,`Your login for ${reg.hack_name} — sign in to submit your project`,html);
 }
 
-res.json({created:true,email:reg.email,tempPassword:tempPass,loginUrl:process.env.FRONTEND_URL||"https://hackfesthub.com"});
+res.json({created:true,email:reg.email,tempPassword:tempPass,loginUrl:siteUrl()});
 }catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -3051,7 +3066,7 @@ const { rows: [d] } = await q(
 eventType||null, participants||null, timeline||null, message||null]
 );
 
-const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const SITE = siteUrl();
 const NOTIFY = process.env.DEMO_NOTIFY_EMAIL || "contact@hackfesthub.com";
 
 // 1. Notify the team
@@ -3191,7 +3206,7 @@ const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
 await q("INSERT INTO password_resets(token,user_id,expires_at) VALUES($1,$2,$3)", [token, u.id, expires]);
 
-const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const SITE = siteUrl();
 const resetUrl = `${SITE}/reset-password?token=${token}`;
 
 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
@@ -3324,7 +3339,7 @@ invite = ni;
 
 const { rows: [team] } = await q("SELECT name, members FROM teams WHERE id=$1", [teamId]);
 const { rows: [hack] } = await q("SELECT name, max_team_size FROM hackathons WHERE id=$1", [hackathonId]);
-const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const SITE = siteUrl();
 
 const memberCount = team?.members ? team.members.split(",").filter(m=>m.trim()).length : 0;
 
@@ -3371,7 +3386,7 @@ await q(
 
 const { rows: [team] } = await q("SELECT name FROM teams WHERE id=$1", [teamId]);
 const { rows: [hack] } = await q("SELECT name, start_date, location, prize_pool FROM hackathons WHERE id=$1", [hackathonId]);
-const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const SITE = siteUrl();
 const joinUrl = `${SITE}/join/${code}`;
 
 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
@@ -3500,7 +3515,7 @@ await q("UPDATE team_invites SET status='accepted', accepted_by=$1, accepted_nam
 }
 
 // Welcome email
-const SITE = process.env.FRONTEND_URL || "https://hackfesthub.com";
+const SITE = siteUrl();
 if (created) {
 const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
         <body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
