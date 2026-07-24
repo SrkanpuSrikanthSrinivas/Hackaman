@@ -447,7 +447,7 @@ export default function MarketingPage() {
               </p>
             </div>
             {[
-              { title:"Platform", links:[{l:"Browse events",h:"#hackathons"},{l:"Request a demo",h:"#demo"},{l:"Pricing",h:"#free"},{l:"Admin login",h:"/admin"}] },
+              { title:"Platform", links:[{l:"Browse events",h:"#hackathons"},{l:"Hall of Fame",h:"/winners"},{l:"Request a demo",h:"#demo"},{l:"Pricing",h:"#free"},{l:"Admin login",h:"/admin"}] },
               { title:"Use cases", links:[{l:"Corporate hackathons",h:"#"},{l:"University events",h:"#"},{l:"IEEE chapters",h:"#"},{l:"Online hackathons",h:"#"}] },
               { title:"Company", links:[{l:"About",h:"#"},{l:"Contact",h:"mailto:contact@hackfesthub.com"},{l:"LinkedIn",h:"https://linkedin.com"},{l:"Twitter",h:"#"}] },
             ].map((col,i) => (

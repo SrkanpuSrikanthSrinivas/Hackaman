@@ -44,6 +44,18 @@
       "destination": "/index.html"
     },
     {
+      "source": "/projects/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/u/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/winners",
+      "destination": "/index.html"
+    },
+    {
       "source": "/hackathons",
       "destination": "/index.html"
     }

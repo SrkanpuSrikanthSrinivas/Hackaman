@@ -847,6 +847,9 @@ export default function PublicPage({hackathonId}){
         </section>
       )}
 
+      {/* ── TEAM FORMATION ── */}
+      {!isCompleted && <TeamFormationBoard hackathonId={hackathonId} accent={accent}/>}
+
       {/* ── Q&A ── */}
       <QASection hackathonId={hackathonId} accent={accent}/>
 
@@ -1055,6 +1058,326 @@ function Gallery({images,accent}){
 }
 
 
+
+
+// ── Team Formation Board ──────────────────────────────────────────────────
+function TeamFormationBoard({ hackathonId, accent }) {
+  const [posts,   setPosts]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab,     setTab]     = useState("all");     // all | seeking_team | seeking_members
+  const [showForm,setShowForm]= useState(false);
+  const [form,    setForm]    = useState({
+    type:"seeking_team", name:"", email:"", contact:"",
+    teamName:"", skillsOffered:"", skillsNeeded:"", message:"",
+  });
+  const [busy,    setBusy]    = useState(false);
+  const [err,     setErr]     = useState("");
+  const [contactFor, setContactFor] = useState(null);
+  const [cForm,   setCForm]   = useState({ fromName:"", fromEmail:"", message:"" });
+
+  const sf  = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  const scf = k => e => setCForm(p => ({ ...p, [k]: e.target.value }));
+
+  const load = () => {
+    fetch(`${BASE}/api/public/team-formation/${hackathonId}`)
+      .then(r => r.json())
+      .then(d => setPosts(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [hackathonId]);
+
+  const post = async e => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.email.trim()) { setErr("Name and email are required"); return; }
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`${BASE}/api/team-formation`, {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ hackathonId, ...form }),
+      }).then(r => r.json());
+      if (r.error) { setErr(r.error); setBusy(false); return; }
+      setShowForm(false);
+      setForm({ type:"seeking_team", name:"", email:"", contact:"",
+        teamName:"", skillsOffered:"", skillsNeeded:"", message:"" });
+      load();
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const sendContact = async e => {
+    e.preventDefault();
+    if (!cForm.fromName.trim() || !cForm.fromEmail.trim()) return;
+    setBusy(true);
+    try {
+      await fetch(`${BASE}/api/team-formation/${contactFor}/contact`, {
+        method:"POST", headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(cForm),
+      });
+      setContactFor("sent");
+      setCForm({ fromName:"", fromEmail:"", message:"" });
+    } catch(_) {}
+    setBusy(false);
+  };
+
+  const IS = { ...FF, width:"100%", padding:"10px 13px", borderRadius:9, fontSize:14,
+    color:"#fff", background:"rgba(255,255,255,0.07)",
+    border:"1.5px solid rgba(255,255,255,0.14)", outline:"none", boxSizing:"border-box" };
+
+  const shown = tab === "all" ? posts : posts.filter(p => p.type === tab);
+  const counts = {
+    all: posts.length,
+    seeking_team:    posts.filter(p => p.type === "seeking_team").length,
+    seeking_members: posts.filter(p => p.type === "seeking_members").length,
+  };
+
+  return (
+    <section id="teamup" style={{ padding:"80px 24px", background:"#080d1c",
+      borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+      <div style={{ maxWidth:1000, margin:"0 auto" }}>
+        <SecHead eyebrow="Find your people" title="Team Formation Board" accent={accent}
+          sub="Looking for teammates, or want to join a team? Post here and connect." />
+
+        {/* Filters + post button */}
+        <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap",
+          alignItems:"center" }}>
+          {[["all","Everyone"],["seeking_team","🙋 Looking for a team"],
+            ["seeking_members","👥 Looking for members"]].map(([v,l]) => (
+            <button key={v} onClick={() => setTab(v)}
+              style={{ ...FF, fontSize:12, fontWeight:600, padding:"7px 14px",
+                borderRadius:9999, cursor:"pointer", transition:"all 0.13s",
+                border:`1px solid ${tab===v ? accent : "rgba(255,255,255,0.14)"}`,
+                background: tab===v ? `${accent}22` : "transparent",
+                color: tab===v ? accent : "rgba(255,255,255,0.5)" }}>
+              {l} ({counts[v]})
+            </button>
+          ))}
+          <button onClick={() => { setShowForm(!showForm); setErr(""); }}
+            style={{ ...FF, marginLeft:"auto", fontSize:13, fontWeight:700,
+              padding:"9px 18px", borderRadius:10, background:accent, color:"#fff",
+              border:"none", cursor:"pointer" }}>
+            {showForm ? "Cancel" : "+ Post a listing"}
+          </button>
+        </div>
+
+        {/* Post form */}
+        {showForm && (
+          <div style={{ background:"rgba(255,255,255,0.04)",
+            border:"1px solid rgba(255,255,255,0.09)", borderRadius:16,
+            padding:24, marginBottom:22 }}>
+            {err && <div style={{ ...FF, background:"rgba(239,68,68,0.15)",
+              border:"1px solid rgba(239,68,68,0.3)", borderRadius:8, padding:"9px 13px",
+              fontSize:13, color:"#f87171", marginBottom:14 }}>⚠ {err}</div>}
+
+            <form onSubmit={post}>
+              <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                {[["seeking_team","🙋 I need a team"],["seeking_members","👥 My team needs people"]]
+                  .map(([v,l]) => (
+                  <button key={v} type="button" onClick={() => setForm(p=>({...p,type:v}))}
+                    style={{ ...FF, flex:1, fontSize:13, fontWeight:600, padding:"10px",
+                      borderRadius:10, cursor:"pointer", transition:"all 0.13s",
+                      border:`1.5px solid ${form.type===v ? accent : "rgba(255,255,255,0.14)"}`,
+                      background: form.type===v ? `${accent}22` : "transparent",
+                      color: form.type===v ? accent : "rgba(255,255,255,0.5)" }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+                <input placeholder="Your name *" required value={form.name}
+                  onChange={sf("name")} style={IS} />
+                <input type="email" placeholder="Your email * (kept private)" required
+                  value={form.email} onChange={sf("email")} style={IS} />
+              </div>
+
+              {form.type === "seeking_members" && (
+                <input placeholder="Your team name" value={form.teamName}
+                  onChange={sf("teamName")} style={{ ...IS, marginBottom:12 }} />
+              )}
+
+              <input
+                placeholder={form.type === "seeking_team"
+                  ? "Your skills — e.g. React, Figma, ML"
+                  : "Skills your team already has"}
+                value={form.skillsOffered} onChange={sf("skillsOffered")}
+                style={{ ...IS, marginBottom:12 }} />
+
+              {form.type === "seeking_members" && (
+                <input placeholder="Skills you're looking for — e.g. backend, design"
+                  value={form.skillsNeeded} onChange={sf("skillsNeeded")}
+                  style={{ ...IS, marginBottom:12 }} />
+              )}
+
+              <textarea placeholder="Tell people a bit about yourself or your project idea…"
+                value={form.message} onChange={sf("message")}
+                style={{ ...IS, minHeight:74, resize:"vertical", marginBottom:12 }} />
+
+              <input placeholder="Optional: Discord / LinkedIn / phone"
+                value={form.contact} onChange={sf("contact")}
+                style={{ ...IS, marginBottom:16 }} />
+
+              <button type="submit" disabled={busy}
+                style={{ ...FF, padding:"11px 26px", borderRadius:10, background:accent,
+                  color:"#fff", border:"none", cursor:busy?"not-allowed":"pointer",
+                  fontSize:14, fontWeight:700 }}>
+                {busy ? "Posting…" : "Post listing →"}
+              </button>
+              <div style={{ ...FF, fontSize:11, color:"rgba(255,255,255,0.3)", marginTop:10 }}>
+                Your email stays private — people contact you through the site.
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Listings */}
+        {loading ? (
+          <div style={{ textAlign:"center", padding:40, fontSize:30, opacity:0.4 }}>⚡</div>
+        ) : shown.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"50px 20px" }}>
+            <div style={{ fontSize:42, marginBottom:12 }}>🤝</div>
+            <div style={{ ...FF, fontSize:15, fontWeight:600, color:"#fff", marginBottom:6 }}>
+              No listings yet
+            </div>
+            <div style={{ ...FF, fontSize:13, color:"rgba(255,255,255,0.35)" }}>
+              Be the first to post — it only takes a minute.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display:"grid",
+            gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:13 }}>
+            {shown.map(p => (
+              <div key={p.id} style={{ background:"rgba(255,255,255,0.04)",
+                border:"1px solid rgba(255,255,255,0.09)", borderRadius:14, padding:20 }}>
+                <div style={{ display:"flex", justifyContent:"space-between",
+                  alignItems:"flex-start", gap:8, marginBottom:9 }}>
+                  <div>
+                    <div style={{ ...FF, fontSize:15, fontWeight:700, color:"#fff" }}>
+                      {p.name}
+                    </div>
+                    {p.teamName && <div style={{ ...FF, fontSize:12,
+                      color:"rgba(255,255,255,0.4)", marginTop:2 }}>🚀 {p.teamName}</div>}
+                  </div>
+                  <span style={{ ...FF, fontSize:10, fontWeight:600, padding:"3px 9px",
+                    borderRadius:9999, whiteSpace:"nowrap", flexShrink:0,
+                    background: p.type==="seeking_team"
+                      ? "rgba(16,185,129,0.15)" : "rgba(99,102,241,0.15)",
+                    color: p.type==="seeking_team" ? "#10b981" : "#818cf8" }}>
+                    {p.type === "seeking_team" ? "Needs team" : "Needs members"}
+                  </span>
+                </div>
+
+                {p.message && <p style={{ ...FF, fontSize:13,
+                  color:"rgba(255,255,255,0.5)", lineHeight:1.65, marginBottom:11 }}>
+                  {p.message}
+                </p>}
+
+                {p.skillsOffered && (
+                  <div style={{ marginBottom:8 }}>
+                    <div style={{ ...FF, fontSize:10, color:"rgba(255,255,255,0.3)",
+                      textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>
+                      Brings
+                    </div>
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                      {p.skillsOffered.split(",").map(s=>s.trim()).filter(Boolean).map(s => (
+                        <span key={s} style={{ ...FF, fontSize:11, padding:"2px 9px",
+                          borderRadius:9999, background:"rgba(16,185,129,0.13)",
+                          color:"#10b981" }}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {p.skillsNeeded && (
+                  <div style={{ marginBottom:8 }}>
+                    <div style={{ ...FF, fontSize:10, color:"rgba(255,255,255,0.3)",
+                      textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:5 }}>
+                      Looking for
+                    </div>
+                    <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                      {p.skillsNeeded.split(",").map(s=>s.trim()).filter(Boolean).map(s => (
+                        <span key={s} style={{ ...FF, fontSize:11, padding:"2px 9px",
+                          borderRadius:9999, background:`${accent}22`, color:accent }}>{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {p.contact && <div style={{ ...FF, fontSize:11,
+                  color:"rgba(255,255,255,0.35)", marginBottom:10 }}>💬 {p.contact}</div>}
+
+                <button onClick={() => { setContactFor(p.id); setCForm({ fromName:"", fromEmail:"", message:"" }); }}
+                  style={{ ...FF, width:"100%", marginTop:4, padding:"8px", borderRadius:9,
+                    background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.12)",
+                    color:"rgba(255,255,255,0.75)", fontSize:13, fontWeight:600,
+                    cursor:"pointer" }}>
+                  ✉ Get in touch
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Contact modal */}
+        {contactFor && (
+          <div onClick={() => setContactFor(null)}
+            style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:100,
+              display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background:"#0d1424", border:"1px solid rgba(255,255,255,0.12)",
+                borderRadius:16, padding:26, width:"100%", maxWidth:400 }}>
+              {contactFor === "sent" ? (
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:42, marginBottom:12 }}>✅</div>
+                  <div style={{ ...FF, fontSize:16, fontWeight:700, color:"#fff",
+                    marginBottom:8 }}>Message sent!</div>
+                  <div style={{ ...FF, fontSize:13, color:"rgba(255,255,255,0.45)",
+                    lineHeight:1.6, marginBottom:18 }}>
+                    They'll receive your email and can reply directly to you.
+                  </div>
+                  <button onClick={() => setContactFor(null)}
+                    style={{ ...FF, padding:"10px 24px", borderRadius:9, background:accent,
+                      color:"#fff", border:"none", cursor:"pointer", fontSize:14,
+                      fontWeight:700 }}>Close</button>
+                </div>
+              ) : (
+                <form onSubmit={sendContact}>
+                  <div style={{ ...FF, fontSize:16, fontWeight:700, color:"#fff",
+                    marginBottom:5 }}>Get in touch</div>
+                  <div style={{ ...FF, fontSize:12, color:"rgba(255,255,255,0.4)",
+                    marginBottom:16, lineHeight:1.6 }}>
+                    We'll email them your message and address so they can reply.
+                  </div>
+                  <input placeholder="Your name *" required value={cForm.fromName}
+                    onChange={scf("fromName")} style={{ ...IS, marginBottom:10 }} />
+                  <input type="email" placeholder="Your email *" required value={cForm.fromEmail}
+                    onChange={scf("fromEmail")} style={{ ...IS, marginBottom:10 }} />
+                  <textarea placeholder="Hi! I'd love to team up because…"
+                    value={cForm.message} onChange={scf("message")}
+                    style={{ ...IS, minHeight:80, resize:"vertical", marginBottom:16 }} />
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button type="button" onClick={() => setContactFor(null)}
+                      style={{ ...FF, flex:1, padding:"10px", borderRadius:9,
+                        background:"rgba(255,255,255,0.07)", border:"none",
+                        color:"rgba(255,255,255,0.6)", cursor:"pointer", fontSize:14 }}>
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={busy}
+                      style={{ ...FF, flex:2, padding:"10px", borderRadius:9, background:accent,
+                        color:"#fff", border:"none", cursor:"pointer", fontSize:14,
+                        fontWeight:700 }}>
+                      {busy ? "Sending…" : "Send message"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 // ── Q&A Section ──────────────────────────────────────────────────────────────
 function QASection({hackathonId, accent}) {
@@ -1361,9 +1684,12 @@ function ParticipantLogin({ hackathonId, accent }) {
             onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.15)"}/>
         </div>
         <div style={{marginBottom:18}}>
-          <label style={{...FF, display:"block", fontSize:11, fontWeight:600,
-            color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
-            letterSpacing:"0.07em", marginBottom:5}}>Password</label>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+            <label style={{...FF, fontSize:11, fontWeight:600,
+              color:"rgba(255,255,255,0.45)", textTransform:"uppercase",
+              letterSpacing:"0.07em"}}>Password</label>
+            <a href="/forgot-password" style={{...FF,fontSize:11,color:accent,textDecoration:"none"}}>Forgot?</a>
+          </div>
           <div style={{position:"relative"}}>
             <input type={show?"text":"password"} required value={pass} onChange={e=>setPass(e.target.value)}
               placeholder="••••••••" style={{...IS, paddingRight:40}}

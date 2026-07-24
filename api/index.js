@@ -2279,20 +2279,100 @@ app.get(["/api/public/participant/:id","/public/participant/:id"], async (req,re
 // ── TEAM FORMATION BOARD ──────────────────────────────────────────────────────
 app.get(["/api/public/team-formation/:hackathonId","/public/team-formation/:hackathonId"], async (req,res)=>{
     try{
-        const{rows}=await q(`SELECT tf.*,p.name as participant_name,p.skills as participant_skills,p.avatar_url
-      FROM team_formation tf JOIN participants p ON p.id=tf.participant_id
-      WHERE tf.hackathon_id=$1 ORDER BY tf.created_at DESC`,[req.params.hackathonId]).catch(()=>({rows:[]}));
+        await ensureFormationTable();
+        const{rows}=await q(
+            `SELECT id,hackathon_id,type,name,team_name,contact,skills_offered,skills_needed,message,status,created_at
+             FROM team_formation
+             WHERE hackathon_id=$1 AND COALESCE(status,'open')='open'
+             ORDER BY created_at DESC LIMIT 100`,
+            [req.params.hackathonId]
+        ).catch(()=>({rows:[]}));
+        // Email is intentionally omitted from the public payload
         res.json(rows.map(camel));
+    }catch(e){res.json([]);}
+});
+
+// Express interest in a listing — relays a message by email, never exposes addresses
+app.post(["/api/team-formation/:id/contact","/team-formation/:id/contact"], async (req,res)=>{
+    const{fromName,fromEmail,message}=req.body;
+    if(!fromName?.trim()||!fromEmail?.trim())
+    return res.status(400).json({error:"Your name and email are required"});
+    try{
+        const{rows:[l]}=await q("SELECT * FROM team_formation WHERE id=$1",[req.params.id]);
+        if(!l) return res.status(404).json({error:"Listing not found"});
+        const{rows:[h]}=await q("SELECT name FROM hackathons WHERE id=$1",[l.hackathon_id]);
+
+        const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+      <body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
+      <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <div style="background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:30px 34px;">
+          <h1 style="color:#fff;font-size:20px;margin:0 0 4px;">🤝 Someone wants to team up</h1>
+          <p style="color:rgba(255,255,255,0.6);font-size:13px;margin:0;">${h?.name||"HackFest Hub"}</p>
+        </div>
+        <div style="padding:28px 34px;">
+          <p style="font-size:15px;color:#334155;line-height:1.7;">Hi ${l.name},</p>
+          <p style="font-size:14px;color:#4b5563;line-height:1.7;">
+            <strong>${fromName}</strong> saw your post on the team formation board and wants to connect.
+          </p>
+          ${message?`<div style="background:#f8fafc;border-left:3px solid #4f46e5;padding:14px 16px;margin:16px 0;border-radius:0 8px 8px 0;font-size:14px;color:#334155;line-height:1.7;">${String(message).replace(/</g,"&lt;")}</div>`:""}
+          <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:14px 18px;margin:18px 0;">
+            <div style="font-size:12px;color:#4338ca;font-weight:600;margin-bottom:4px;">Reply to them at</div>
+            <a href="mailto:${fromEmail}" style="font-size:15px;color:#4f46e5;font-weight:700;text-decoration:none;">${fromEmail}</a>
+          </div>
+        </div>
+      </div></body></html>`;
+
+        sendEmail(l.email, `${fromName} wants to team up — ${h?.name||"hackathon"}`, html).catch(()=>{});
+        res.json({ok:true});
     }catch(e){res.status(500).json({error:e.message});}
 });
 
+async function ensureFormationTable() {
+    await q(`CREATE TABLE IF NOT EXISTS team_formation (
+    id VARCHAR(20) PRIMARY KEY, hackathon_id VARCHAR(20) NOT NULL,
+    participant_id VARCHAR(20), type VARCHAR(20) NOT NULL,
+    skills_offered TEXT, skills_needed TEXT, message TEXT,
+    name VARCHAR(255), email VARCHAR(255), contact VARCHAR(500),
+    team_name VARCHAR(255), status VARCHAR(20) DEFAULT 'open',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`).catch(()=>{});
+    for (const col of ["name VARCHAR(255)","email VARCHAR(255)","contact VARCHAR(500)","team_name VARCHAR(255)","status VARCHAR(20) DEFAULT 'open'"]) {
+        await q(`ALTER TABLE team_formation ADD COLUMN IF NOT EXISTS ${col}`).catch(()=>{});
+    }
+    await q("ALTER TABLE team_formation ALTER COLUMN participant_id DROP NOT NULL").catch(()=>{});
+}
+
+// Post a "looking for team" / "looking for members" listing — no account needed
 app.post(["/api/team-formation","/team-formation"], async (req,res)=>{
-    const{hackathonId,participantId,type,skillsOffered,skillsNeeded,message}=req.body;
-    const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    const{hackathonId,type,name,email,contact,teamName,skillsOffered,skillsNeeded,message}=req.body;
+    if(!hackathonId||!type)     return res.status(400).json({error:"hackathonId and type are required"});
+    if(!name?.trim())           return res.status(400).json({error:"Your name is required"});
+    if(!email?.trim())          return res.status(400).json({error:"Your email is required"});
+    if(!["seeking_team","seeking_members"].includes(type))
+    return res.status(400).json({error:"type must be seeking_team or seeking_members"});
     try{
-        const{rows:[r]}=await q("INSERT INTO team_formation(id,hackathon_id,participant_id,type,skills_offered,skills_needed,message) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
-            [id,hackathonId,participantId,type,skillsOffered,skillsNeeded,message]);
+        await ensureFormationTable();
+        const id="tf"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+        const{rows:[r]}=await q(
+            `INSERT INTO team_formation(id,hackathon_id,type,name,email,contact,team_name,skills_offered,skills_needed,message,status)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open') RETURNING *`,
+            [id,hackathonId,type,name.trim(),email.trim().toLowerCase(),contact||null,
+                teamName||null,skillsOffered||null,skillsNeeded||null,message||null]
+        );
         res.status(201).json(camel(r));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// Close / remove a listing (creator confirms via email)
+app.post(["/api/team-formation/:id/close","/team-formation/:id/close"], async (req,res)=>{
+    const{email}=req.body;
+    try{
+        const{rows:[r]}=await q("SELECT email FROM team_formation WHERE id=$1",[req.params.id]);
+        if(!r) return res.status(404).json({error:"Listing not found"});
+        if((r.email||"").toLowerCase()!==(email||"").toLowerCase())
+        return res.status(403).json({error:"Enter the email you used when posting to close this listing"});
+        await q("UPDATE team_formation SET status='closed' WHERE id=$1",[req.params.id]);
+        res.json({ok:true});
     }catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -2365,6 +2445,7 @@ app.get(["/sitemap.xml"], async (_req, res) => {
             { loc: SITE, priority: "1.0", changefreq: "daily" },
             { loc: `${SITE}/hackathons`, priority: "0.9", changefreq: "daily" },
             { loc: `${SITE}/demo`, priority: "0.8", changefreq: "monthly" },
+            { loc: `${SITE}/winners`, priority: "0.8", changefreq: "weekly" },
         ];
 
         // Dynamic hackathon pages
@@ -2372,6 +2453,12 @@ app.get(["/sitemap.xml"], async (_req, res) => {
             const lastmod = h.updated_at
             ? new Date(h.updated_at).toISOString().split("T")[0]
             : new Date().toISOString().split("T")[0];
+            urls.push({
+                loc: `${SITE}/projects/${h.id}`,
+                lastmod,
+                priority: "0.7",
+                changefreq: "weekly",
+            });
             urls.push({
                 loc: `${SITE}/register/${h.id}`,
                 lastmod,
@@ -3562,6 +3649,82 @@ const { rows } = await q(
 );
 res.json(rows.map(camel));
 } catch (e) { res.json([]); }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WINNERS / HALL OF FAME
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function ensureAwardCols() {
+await q("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS award_title VARCHAR(255)").catch(()=>{});
+await q("ALTER TABLE submissions ADD COLUMN IF NOT EXISTS placement INTEGER").catch(()=>{});
+}
+
+// Public: winners across every published hackathon (hall of fame)
+app.get(["/api/public/winners", "/public/winners"], async (req, res) => {
+const { hackathonId, limit = 60 } = req.query;
+try {
+await ensureAwardCols();
+const params = [];
+let where = "h.published = true AND (s.placement IS NOT NULL OR s.status = 'winner')";
+if (hackathonId) { params.push(hackathonId); where += ` AND h.id = $${params.length}`; }
+
+const { rows } = await q(
+`SELECT s.id, s.title, s.tagline, s.description, s.tech_stack, s.track,
+              s.github_url, s.demo_url, s.video_url, s.award_title, s.placement,
+              t.name AS team_name, t.members,
+              h.id AS hackathon_id, h.name AS hackathon_name,
+              h.start_date, h.banner_color, h.prize_pool,
+              (SELECT count(*)::int FROM project_likes WHERE submission_id = s.id) AS likes
+       FROM submissions s
+       JOIN teams t      ON t.id = s.team_id
+       JOIN hackathons h ON h.id = s.hackathon_id
+       WHERE ${where}
+       ORDER BY h.start_date DESC, COALESCE(s.placement, 99) ASC
+       LIMIT ${parseInt(limit) || 60}`,
+params
+).catch(() => ({ rows: [] }));
+
+// Group by hackathon so the UI can render one section per event
+const byEvent = {};
+rows.forEach(r => {
+const row = camel(r);
+if (!byEvent[row.hackathonId]) {
+byEvent[row.hackathonId] = {
+hackathonId:   row.hackathonId,
+hackathonName: row.hackathonName,
+startDate:     row.startDate,
+bannerColor:   row.bannerColor,
+prizePool:     row.prizePool,
+winners: [],
+};
+}
+byEvent[row.hackathonId].winners.push(row);
+});
+
+res.json({ events: Object.values(byEvent), total: rows.length });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin: mark or clear a winner
+app.put(["/api/submissions/:id/award", "/submissions/:id/award"], admin, async (req, res) => {
+const { placement, awardTitle } = req.body;
+try {
+await ensureAwardCols();
+const clearing = placement === null || placement === "" || placement === undefined;
+const { rows: [s] } = await q(
+`UPDATE submissions
+       SET placement = $1, award_title = $2, status = $3, updated_at = NOW()
+       WHERE id = $4 RETURNING *`,
+[clearing ? null : parseInt(placement),
+clearing ? null : (awardTitle || null),
+clearing ? "submitted" : "winner",
+req.params.id]
+);
+if (!s) return res.status(404).json({ error: "Submission not found" });
+res.json(camel(s));
+} catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Debug catch-all — logs what path Express actually received

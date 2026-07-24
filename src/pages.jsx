@@ -1322,6 +1322,14 @@ export function SubmissionsPage({ db, toast, activeHackathon, isAdmin }) {
     } catch(e) { toast(e.message, "error"); }
   };
 
+  const setAward = async (id, placement, awardTitle) => {
+    try {
+      await PUT(`/api/submissions/${id}/award`, { placement, awardTitle });
+      load();
+      toast(placement ? `🏆 Marked as winner #${placement}` : "Award cleared");
+    } catch(e) { toast(e.message, "error"); }
+  };
+
   const updateStatus = async (id, status) => {
     try { await PUT(`/api/submissions/${id}`, { status }); load(); toast(`Marked as ${status}`); }
     catch(e) { toast(e.message, "error"); }
@@ -1377,6 +1385,29 @@ export function SubmissionsPage({ db, toast, activeHackathon, isAdmin }) {
                   </Btn>
                 ))}
                 {s.status!=="submitted"&&<Btn size="sm" variant="secondary" onClick={()=>updateStatus(s.id,"submitted")}>Reset</Btn>}
+
+            {/* Award / placement — shows on the public Hall of Fame */}
+            <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:8,
+              paddingLeft:10,borderLeft:`1px solid ${C.border}`}}>
+              <span style={{...FONT,fontSize:11,color:C.text3,whiteSpace:"nowrap"}}>Award:</span>
+              {[1,2,3].map(n=>(
+                <button key={n} onClick={()=>setAward(s.id, s.placement===n?null:n,
+                    s.placement===n?null:(prompt("Award title (optional) — e.g. Best AI Hack","")||null))}
+                  title={`Mark as #${n}`}
+                  style={{...FONT,fontSize:13,width:28,height:26,borderRadius:6,cursor:"pointer",
+                    border:`1px solid ${s.placement===n?C.amber:C.border}`,
+                    background:s.placement===n?C.bgAmber:"transparent",
+                    color:s.placement===n?C.amber:C.text3}}>
+                  {n===1?"🥇":n===2?"🥈":"🥉"}
+                </button>
+              ))}
+              {s.placement&&(
+                <button onClick={()=>setAward(s.id,null,null)} title="Clear award"
+                  style={{...FONT,fontSize:11,padding:"3px 7px",borderRadius:6,cursor:"pointer",
+                    border:`1px solid ${C.border}`,background:"transparent",color:C.text3}}>✕</button>
+              )}
+              {s.awardTitle&&<Chip label={s.awardTitle} color="amber" />}
+            </div>
               </div>
             )}
           </Card>
