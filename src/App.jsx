@@ -16,7 +16,7 @@ import {
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage, ChangePasswordModal,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage, ChangePasswordModal, AIStudioPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -452,6 +452,24 @@ function AppShell() {
     }
   };
 
+  // Handle demo entry — ?demo=1 provisions the sandbox and logs in read-only
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("demo") === "1" && !currentUser) {
+      fetch("/api/demo/enter", { method:"POST" })
+        .then(r => r.json())
+        .then(d => {
+          if (d.token) {
+            localStorage.setItem("hf_token", d.token);
+            const payload = JSON.parse(atob(d.token.split(".")[1]));
+            setCurrentUser({ ...payload, isDemo: true });
+            setPage("dashboard");
+            window.history.replaceState({}, "", "/admin");
+          }
+        }).catch(()=>{});
+    }
+  }, []);
+
   // Handle OAuth redirect — reads ?token= or ?error= from URL after Google/GitHub/GitLab login
   useEffect(() => {
     const params  = new URLSearchParams(window.location.search);
@@ -668,6 +686,24 @@ function AppShell() {
 
       {/* ── Main ── */}
       <main style={{ flex:1, overflowY:"auto", padding:"24px 28px", position:"relative" }}>
+        {isDemo && (
+          <div style={{ ...FONT, display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
+            background:"linear-gradient(135deg,#4f46e5,#7c3aed)", color:"#fff",
+            borderRadius:12, padding:"12px 18px", marginBottom:20 }}>
+            <span style={{ fontSize:18 }}>👋</span>
+            <div style={{ flex:1, minWidth:200 }}>
+              <div style={{ fontSize:13, fontWeight:700 }}>You're exploring a live demo</div>
+              <div style={{ fontSize:12, opacity:0.85 }}>
+                Browse everything freely — changes are disabled. This is real sample data.
+              </div>
+            </div>
+            <a href="/demo" style={{ ...FONT, fontSize:13, fontWeight:700, padding:"8px 18px",
+              borderRadius:8, background:"#fff", color:"#4f46e5", textDecoration:"none",
+              flexShrink:0 }}>
+              Get your own →
+            </a>
+          </div>
+        )}
         {busy && <div style={{ position:"sticky", top:-24, left:0, right:0, height:2, background:C.border, overflow:"hidden", marginBottom:-2, zIndex:10 }}>
           <div style={{ height:"100%", width:"40%", background:C.blue, animation:"slideBar 1s ease infinite", borderRadius:2 }} />
         </div>}
@@ -696,6 +732,7 @@ function AppShell() {
         {page==="email-center" && isAdmin &&   <EmailCenterPage   {...props} db={db} currentUser={currentUser} />}
         {page==="qa-admin"     && isAdmin &&   <QAAdminPage       {...props} db={db} />}
         {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
+        {page==="ai-studio"    && isAdmin &&   <AIStudioPage      {...props} db={db} />}
         {page==="demo-requests"&& isAdmin &&   <DemoRequestsPage  toast={toast} />}
         {showPwModal && <ChangePasswordModal onClose={()=>setShowPwModal(false)} toast={toast} />}
         {isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}

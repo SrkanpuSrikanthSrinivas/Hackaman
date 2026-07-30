@@ -9,7 +9,7 @@ function HackCard({ hack }) {
   const STATUS = { active:{label:"Open Now",color:"#10b981",bg:"rgba(16,185,129,0.12)"},
     upcoming:{label:"Coming Soon",color:"#f59e0b",bg:"rgba(245,158,11,0.12)"},
     completed:{label:"Completed",color:"#6b7280",bg:"rgba(107,114,128,0.12)"} };
-  const st = STATUS[hack.status] || STATUS.upcoming;
+  const st = STATUS[hack.liveStatus || hack.status] || STATUS.upcoming;
   const accent = hack.bannerColor || "#6366f1";
   const daysLeft = hack.startDate ? Math.max(0,Math.ceil((new Date(hack.startDate)-Date.now())/864e5)) : null;
 
@@ -39,13 +39,14 @@ function HackCard({ hack }) {
           {hack.startDate && <span style={{ ...FF, fontSize:11, color:"#9ca3af" }}>
             📅 {new Date(hack.startDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
           </span>}
-          {hack.status==="active" && daysLeft !== null && <span style={{ ...FF, fontSize:11, color:"#10b981", fontWeight:600 }}>⚡ {daysLeft} days left</span>}
+          {(hack.liveStatus||hack.status)==="active" && <span style={{ ...FF, fontSize:11, color:"#10b981", fontWeight:600 }}>⚡ Register now</span>}
+          {(hack.liveStatus||hack.status)==="upcoming" && daysLeft>0 && <span style={{ ...FF, fontSize:11, color:"#f59e0b", fontWeight:600 }}>⏳ Starts in {daysLeft} day{daysLeft!==1?"s":""}</span>}
         </div>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:14,
           paddingTop:12, borderTop:"1px solid #f3f4f6" }}>
           <div style={{ display:"flex", gap:14 }}>
-            {hack.participants > 0 && <span style={{ ...FF, fontSize:11, color:"#6b7280" }}>👥 {hack.participants} registered</span>}
-            {hack.projects > 0 && <span style={{ ...FF, fontSize:11, color:"#6b7280" }}>📦 {hack.projects} projects</span>}
+            <span style={{ ...FF, fontSize:11, color:"#6b7280" }}>👥 {hack.registrations || 0} registered</span>
+            {hack.submissions > 0 && <span style={{ ...FF, fontSize:11, color:"#6b7280" }}>📦 {hack.submissions} projects</span>}
           </div>
           <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
             {(hack.tracks||"").split(",").slice(0,2).map(t=>t.trim()).filter(Boolean).map(t=>(
@@ -222,6 +223,13 @@ export default function MarketingPage() {
                 fontSize:16, fontWeight:700, textDecoration:"none",
                 boxShadow:"0 4px 14px rgba(79,70,229,0.4)" }}>
               📅 Request a demo
+            </a>
+            <a href="/admin?demo=1"
+              style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
+                padding:"14px 28px", borderRadius:12, background:"rgba(255,255,255,0.1)",
+                color:"#fff", border:"1.5px solid rgba(255,255,255,0.25)",
+                fontSize:16, fontWeight:700, textDecoration:"none" }}>
+              ⚡ Try live demo
             </a>
             <a href="#hackathons" className="outline-btn"
               style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,

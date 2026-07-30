@@ -1060,6 +1060,93 @@ function Gallery({images,accent}){
 
 
 
+
+// ── AI Matchmaker ─────────────────────────────────────────────────────────
+function AIMatchmaker({ hackathonId, accent }) {
+  const [open, setOpen]       = useState(false);
+  const [skills, setSkills]   = useState("");
+  const [looking, setLooking] = useState("");
+  const [result, setResult]   = useState("");
+  const [busy, setBusy]       = useState(false);
+  const [err, setErr]         = useState("");
+
+  const run = async () => {
+    setBusy(true); setErr(""); setResult("");
+    try {
+      const token = localStorage.getItem("hf_token");
+      const r = await fetch(`${BASE}/api/ai/matchmaking`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json",
+          ...(token ? { Authorization:`Bearer ${token}` } : {}) },
+        body: JSON.stringify({ hackathonId, mySkills: skills, lookingFor: looking }),
+      }).then(r => r.json());
+      if (r.error) setErr(r.error); else setResult(r.result);
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ background:`linear-gradient(135deg,${accent}18,rgba(255,255,255,0.02))`,
+      border:`1px solid ${accent}33`, borderRadius:16, padding:20, marginBottom:22 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+        gap:12, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:22 }}>✨</span>
+          <div>
+            <div style={{ ...FF, fontSize:14, fontWeight:700, color:"#fff" }}>
+              AI Teammate Matchmaker
+            </div>
+            <div style={{ ...FF, fontSize:12, color:"rgba(255,255,255,0.5)" }}>
+              Tell us your skills — we'll find your best matches on the board.
+            </div>
+          </div>
+        </div>
+        {!open && (
+          <button onClick={() => setOpen(true)}
+            style={{ ...FF, fontSize:13, fontWeight:700, padding:"9px 18px", borderRadius:10,
+              background:accent, color:"#fff", border:"none", cursor:"pointer", flexShrink:0 }}>
+            Find my match →
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <div style={{ marginTop:16 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
+            <input value={skills} onChange={e => setSkills(e.target.value)}
+              placeholder="Your skills — React, ML, design…"
+              style={{ ...FF, padding:"10px 13px", borderRadius:9, fontSize:14, color:"#fff",
+                background:"rgba(255,255,255,0.07)", border:"1.5px solid rgba(255,255,255,0.14)",
+                outline:"none", boxSizing:"border-box" }} />
+            <input value={looking} onChange={e => setLooking(e.target.value)}
+              placeholder="What you want — a team, a designer…"
+              style={{ ...FF, padding:"10px 13px", borderRadius:9, fontSize:14, color:"#fff",
+                background:"rgba(255,255,255,0.07)", border:"1.5px solid rgba(255,255,255,0.14)",
+                outline:"none", boxSizing:"border-box" }} />
+          </div>
+          <button onClick={run} disabled={busy}
+            style={{ ...FF, fontSize:13, fontWeight:700, padding:"10px 20px", borderRadius:9,
+              background:accent, color:"#fff", border:"none",
+              cursor:busy?"not-allowed":"pointer" }}>
+            {busy ? "Finding matches…" : "✨ Get my matches"}
+          </button>
+
+          {err && <div style={{ ...FF, marginTop:12, fontSize:13, color:"#f87171",
+            background:"rgba(239,68,68,0.12)", padding:"10px 13px", borderRadius:8 }}>{err}</div>}
+
+          {result && (
+            <div style={{ marginTop:14, padding:"16px 18px", background:"rgba(0,0,0,0.25)",
+              borderRadius:12, ...FF, fontSize:14, color:"rgba(255,255,255,0.85)",
+              lineHeight:1.75, whiteSpace:"pre-wrap" }}>
+              {result}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Team Formation Board ──────────────────────────────────────────────────
 function TeamFormationBoard({ hackathonId, accent }) {
   const [posts,   setPosts]   = useState([]);
@@ -1137,6 +1224,8 @@ function TeamFormationBoard({ hackathonId, accent }) {
       <div style={{ maxWidth:1000, margin:"0 auto" }}>
         <SecHead eyebrow="Find your people" title="Team Formation Board" accent={accent}
           sub="Looking for teammates, or want to join a team? Post here and connect." />
+
+        <AIMatchmaker hackathonId={hackathonId} accent={accent} />
 
         {/* Filters + post button */}
         <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap",

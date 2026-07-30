@@ -3140,6 +3140,54 @@ function CreateLoginBtn({ regId, email, onCreated }) {
    Lives inside the same AppShell as admin/judge
 ══════════════════════════════════════════════════════════════════════════ */
 
+
+/* ─── AI POLISH BUTTON (team submission helper) ─────────────────────────── */
+function AIPolishButton({ form, onApply, toast }) {
+  const [busy, setBusy]     = useState(false);
+  const [result, setResult] = useState("");
+
+  const polish = async () => {
+    if (!form.title?.trim() && !form.description?.trim()) {
+      toast("Add a title and description first", "error"); return;
+    }
+    setBusy(true); setResult("");
+    try {
+      const d = await POST("/api/ai/polish-submission", {
+        title: form.title, tagline: form.tagline, problem: form.problemStatement,
+        solution: form.solution, description: form.description,
+      });
+      setResult(d.result || "");
+    } catch(e) { toast(e.message, "error"); }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ marginBottom:14 }}>
+      <button type="button" onClick={polish} disabled={busy}
+        style={{ ...FONT, fontSize:13, fontWeight:600, padding:"8px 16px", borderRadius:8,
+          border:"none", cursor:busy?"not-allowed":"pointer",
+          background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"#fff",
+          display:"inline-flex", alignItems:"center", gap:6 }}>
+        {busy ? <><Spinner size={11}/> Polishing…</> : "✨ Polish with AI"}
+      </button>
+      {result && (
+        <div style={{ marginTop:12, padding:"14px 16px", background:C.bg2,
+          border:`1px solid ${C.bdBlue}`, borderRadius:R.md }}>
+          <div style={{ ...FONT, fontSize:11, fontWeight:700, color:C.blue,
+            textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
+            ✨ Suggested improvements
+          </div>
+          <div style={{ ...FONT, fontSize:13, color:C.text2, lineHeight:1.7,
+            whiteSpace:"pre-wrap", marginBottom:10 }}>{result}</div>
+          <div style={{ ...FONT, fontSize:11, color:C.text3 }}>
+            Copy anything useful into the fields above — your original text is untouched.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── INVITE TEAMMATES CARD ─────────────────────────────────────────────── */
 function InviteTeammates({ hackathonId, teamName, toast }) {
   const [link,   setLink]   = useState(null);
@@ -3272,6 +3320,122 @@ function InviteTeammates({ hackathonId, teamName, toast }) {
   );
 }
 
+
+/* ─── MY PUBLIC PROFILE (team/judge self-service) ───────────────────────── */
+function MyProfileCard({ currentUser, toast }) {
+  const [form, setForm]   = useState(null);
+  const [open, setOpen]   = useState(false);
+  const [busy, setBusy]   = useState(false);
+  const [copied, setCopied] = useState(false);
+  const sf = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  useEffect(() => {
+    GET("/api/me/profile").then(setForm).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await PUT("/api/me/profile", form);
+      toast("✓ Profile updated");
+      setOpen(false);
+    } catch(e) { toast(e.message, "error"); }
+    setBusy(false);
+  };
+
+  if (!form) return null;
+  const url = `${window.location.origin}/u/${form.id}`;
+  const IN2 = { ...IN, background:C.bg, fontSize:13 };
+
+  return (
+    <Card style={{ marginBottom:16 }}>
+      <div style={{ display:"flex", justifyContent:"space-between",
+        alignItems:"center", marginBottom: open ? 14 : 0 }}>
+        <div>
+          <div style={{ ...FONT, fontSize:13, fontWeight:700, color:C.text, marginBottom:2 }}>
+            👤 Your public profile
+          </div>
+          <div style={{ ...FONT, fontSize:12, color:C.text3 }}>
+            {form.profilePublic === false
+              ? "Currently private"
+              : "Visible to anyone with the link"}
+          </div>
+        </div>
+        <Btn size="sm" variant="secondary" onClick={() => setOpen(!open)}>
+          {open ? "Close" : "Edit profile"}
+        </Btn>
+      </div>
+
+      {open && (
+        <div>
+          <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+            <input readOnly value={url} onClick={e => e.target.select()}
+              style={{ ...IN2, flex:1, ...MONO, fontSize:12, cursor:"pointer", color:C.text2 }} />
+            <Btn size="sm" onClick={() => {
+              navigator.clipboard?.writeText(url);
+              setCopied(true); setTimeout(() => setCopied(false), 1800);
+            }} style={{ flexShrink:0, background: copied ? C.green : undefined }}>
+              {copied ? "✓ Copied" : "📋 Copy"}
+            </Btn>
+            <a href={url} target="_blank" rel="noopener">
+              <Btn size="sm" variant="secondary" style={{ flexShrink:0 }}>View →</Btn>
+            </a>
+          </div>
+
+          <Field label="Short bio">
+            <textarea value={form.bio || ""} onChange={sf("bio")}
+              placeholder="A sentence or two about what you build and what you're into."
+              style={{ ...TA, background:C.bg, minHeight:64, fontSize:13 }} />
+          </Field>
+
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <Field label="Skills" hint="Comma separated">
+              <input style={IN2} value={form.skills || ""} onChange={sf("skills")}
+                placeholder="React, Python, Figma" />
+            </Field>
+            <Field label="Location">
+              <input style={IN2} value={form.location || ""} onChange={sf("location")}
+                placeholder="Austin, TX" />
+            </Field>
+            <Field label="GitHub">
+              <input style={IN2} value={form.githubUrl || ""} onChange={sf("githubUrl")}
+                placeholder="https://github.com/…" />
+            </Field>
+            <Field label="LinkedIn">
+              <input style={IN2} value={form.linkedinUrl || ""} onChange={sf("linkedinUrl")}
+                placeholder="https://linkedin.com/in/…" />
+            </Field>
+            <Field label="Twitter / X">
+              <input style={IN2} value={form.twitterUrl || ""} onChange={sf("twitterUrl")}
+                placeholder="https://x.com/…" />
+            </Field>
+            <Field label="Website">
+              <input style={IN2} value={form.websiteUrl || ""} onChange={sf("websiteUrl")}
+                placeholder="https://…" />
+            </Field>
+          </div>
+
+          <label style={{ display:"flex", alignItems:"center", gap:8,
+            cursor:"pointer", marginBottom:14 }}>
+            <input type="checkbox" checked={form.profilePublic !== false}
+              onChange={e => setForm(p => ({ ...p, profilePublic: e.target.checked }))} />
+            <span style={{ ...FONT, fontSize:13, color:C.text }}>
+              Make my profile publicly visible
+            </span>
+          </label>
+
+          <div style={{ display:"flex", justifyContent:"flex-end", gap:8 }}>
+            <Btn variant="secondary" onClick={() => setOpen(false)}>Cancel</Btn>
+            <Btn onClick={save} disabled={busy}>
+              {busy ? <><Spinner/> Saving…</> : "Save profile"}
+            </Btn>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
   const [data,   setData]   = useState(null);
   const [loading,setLoading]= useState(false);
@@ -3368,6 +3532,9 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
           </div>
         )}
       </Card>
+
+      {/* Your public profile */}
+      <MyProfileCard currentUser={currentUser} toast={toast} />
 
       {/* Invite teammates */}
       {team && <InviteTeammates hackathonId={activeHackathon} teamName={team.name} toast={toast} />}
@@ -3512,6 +3679,8 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
             </Field>
           </div>
 
+          <AIPolishButton form={form} onApply={imp => setForm(f => ({ ...f, ...imp }))} toast={toast} />
+
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}>
             <Btn variant="secondary" onClick={()=>setEditing(false)}>Cancel</Btn>
             <Btn onClick={save} disabled={saving}>
@@ -3608,6 +3777,170 @@ export function ChangePasswordModal({ onClose, toast }) {
         </div>
       </form>
     </Modal>
+  );
+}
+
+
+/* ─── AI STUDIO (admin — all organizer AI tools in one place) ────────────── */
+export function AIStudioPage({ db, toast, activeHackathon }) {
+  const [tool, setTool] = useState("event-copy");
+
+  const TOOLS = [
+    { id:"event-copy",      icon:"✍️", name:"Event Copy Writer",     desc:"Generate taglines and page descriptions" },
+    { id:"similarity-scan", icon:"🔍", name:"Similarity Scan",       desc:"Flag suspiciously similar submissions" },
+    { id:"winner-rationale",icon:"🏆", name:"Winner Rationale",      desc:"Draft 'why they won' blurbs" },
+    { id:"report",          icon:"📊", name:"Hackathon Report",      desc:"AI summary of the whole event" },
+    { id:"calibration",     icon:"⚖️", name:"Judge Calibration",     desc:"Check for scoring bias across judges" },
+  ];
+
+  return (
+    <div>
+      <SectionHeader title="AI Studio" count="Organizer AI tools" />
+      <div style={{ display:"grid", gridTemplateColumns:"240px 1fr", gap:20, alignItems:"start" }}>
+        {/* Tool list */}
+        <div>
+          {TOOLS.map(t => (
+            <button key={t.id} onClick={() => setTool(t.id)}
+              style={{ ...FONT, width:"100%", textAlign:"left", marginBottom:6,
+                padding:"12px 14px", borderRadius:R.md, cursor:"pointer",
+                border:`1px solid ${tool===t.id ? C.bdBlue : C.border}`,
+                background: tool===t.id ? C.bgBlue : "transparent", transition:"all 0.12s" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:9, marginBottom:3 }}>
+                <span style={{ fontSize:16 }}>{t.icon}</span>
+                <span style={{ fontSize:13, fontWeight:700,
+                  color: tool===t.id ? C.blue : C.text }}>{t.name}</span>
+              </div>
+              <div style={{ fontSize:11, color:C.text3, paddingLeft:25 }}>{t.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Active tool */}
+        <div>
+          {tool === "event-copy"       && <AIEventCopy toast={toast} />}
+          {tool === "similarity-scan"  && <AISimpleTool endpoint="/api/ai/similarity-scan"
+            title="Similarity Scan" icon="🔍" body={{ hackathonId: activeHackathon }}
+            cta="Scan submissions" toast={toast}
+            hint="Compares all submitted project descriptions and flags concerning overlaps." />}
+          {tool === "winner-rationale" && <AIWinnerRationale db={db} activeHackathon={activeHackathon} toast={toast} />}
+          {tool === "report"           && <AISimpleTool endpoint="/api/ai/hackathon-report"
+            title="Hackathon Report" icon="📊" body={{ hackathonId: activeHackathon }}
+            cta="Generate report" toast={toast}
+            hint="A narrative summary of participation, submissions, and outcomes." />}
+          {tool === "calibration"      && <AISimpleTool endpoint="/api/ai/calibration"
+            title="Judge Calibration" icon="⚖️" body={{ hackathonId: activeHackathon }}
+            cta="Check calibration" toast={toast}
+            hint="Detects if any judge scores consistently higher or lower than peers." />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Reusable one-click AI tool
+function AISimpleTool({ endpoint, title, icon, body, cta, hint, toast }) {
+  const [result, setResult] = useState("");
+  const [busy, setBusy]     = useState(false);
+  const [err, setErr]       = useState("");
+
+  const run = async () => {
+    setBusy(true); setErr(""); setResult("");
+    try {
+      const d = await POST(endpoint, body);
+      setResult(d.result || "No output.");
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <Card>
+      <div style={{ ...FONT, fontSize:16, fontWeight:700, color:C.text, marginBottom:6 }}>
+        {icon} {title}
+      </div>
+      <div style={{ ...FONT, fontSize:13, color:C.text3, marginBottom:16, lineHeight:1.6 }}>{hint}</div>
+      <Btn onClick={run} disabled={busy}>{busy ? <><Spinner/> Working…</> : cta}</Btn>
+      {err && <div style={{ ...FONT, marginTop:14, fontSize:13, color:C.red,
+        background:"rgba(239,68,68,0.08)", padding:"11px 14px", borderRadius:R.sm }}>{err}</div>}
+      {result && (
+        <div style={{ marginTop:16, padding:"16px 18px", background:C.bg2,
+          borderRadius:R.md, border:`1px solid ${C.border}`, ...FONT, fontSize:14,
+          color:C.text2, lineHeight:1.75, whiteSpace:"pre-wrap" }}>{result}</div>
+      )}
+    </Card>
+  );
+}
+
+function AIEventCopy({ toast }) {
+  const [f, setF] = useState({ name:"", theme:"", audience:"", tracks:"", tone:"energetic and inspiring" });
+  const [result, setResult] = useState("");
+  const [busy, setBusy] = useState(false);
+  const sf = k => e => setF(p => ({ ...p, [k]: e.target.value }));
+
+  const run = async () => {
+    if (!f.name.trim()) { toast("Event name is required", "error"); return; }
+    setBusy(true);
+    try { const d = await POST("/api/ai/event-copy", f); setResult(d.result || ""); }
+    catch(e) { toast(e.message, "error"); }
+    setBusy(false);
+  };
+
+  return (
+    <Card>
+      <div style={{ ...FONT, fontSize:16, fontWeight:700, color:C.text, marginBottom:14 }}>
+        ✍️ Event Copy Writer
+      </div>
+      <Field label="Event name" required><input style={IN} value={f.name} onChange={sf("name")} placeholder="AI Innovation Challenge 2026" /></Field>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+        <Field label="Theme"><input style={IN} value={f.theme} onChange={sf("theme")} placeholder="Sustainable tech" /></Field>
+        <Field label="Audience"><input style={IN} value={f.audience} onChange={sf("audience")} placeholder="Students & pros" /></Field>
+        <Field label="Tracks"><input style={IN} value={f.tracks} onChange={sf("tracks")} placeholder="AI, Climate, Health" /></Field>
+        <Field label="Tone"><input style={IN} value={f.tone} onChange={sf("tone")} /></Field>
+      </div>
+      <Btn onClick={run} disabled={busy}>{busy ? <><Spinner/> Writing…</> : "Generate copy"}</Btn>
+      {result && (
+        <div style={{ marginTop:16, padding:"16px 18px", background:C.bg2, borderRadius:R.md,
+          border:`1px solid ${C.border}`, ...FONT, fontSize:14, color:C.text2,
+          lineHeight:1.75, whiteSpace:"pre-wrap" }}>{result}</div>
+      )}
+    </Card>
+  );
+}
+
+function AIWinnerRationale({ db, activeHackathon, toast }) {
+  const subs = db.submissions?.filter(s => s.hackathonId === activeHackathon) || [];
+  const [id, setId] = useState("");
+  const [result, setResult] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    if (!id) { toast("Pick a project", "error"); return; }
+    setBusy(true);
+    try { const d = await POST("/api/ai/winner-rationale", { submissionId: id }); setResult(d.result || ""); }
+    catch(e) { toast(e.message, "error"); }
+    setBusy(false);
+  };
+
+  return (
+    <Card>
+      <div style={{ ...FONT, fontSize:16, fontWeight:700, color:C.text, marginBottom:6 }}>
+        🏆 Winner Rationale
+      </div>
+      <div style={{ ...FONT, fontSize:13, color:C.text3, marginBottom:16 }}>
+        Draft a celebratory blurb from a project's scores and judge feedback.
+      </div>
+      <Field label="Project">
+        <select style={IN} value={id} onChange={e => setId(e.target.value)}>
+          <option value="">Select a project…</option>
+          {subs.map(s => <option key={s.id} value={s.id}>{s.title || "Untitled"}</option>)}
+        </select>
+      </Field>
+      <Btn onClick={run} disabled={busy || !id}>{busy ? <><Spinner/> Writing…</> : "Draft rationale"}</Btn>
+      {result && (
+        <div style={{ marginTop:16, padding:"16px 18px", background:C.bg2, borderRadius:R.md,
+          border:`1px solid ${C.border}`, ...FONT, fontSize:14, color:C.text2,
+          lineHeight:1.75, whiteSpace:"pre-wrap" }}>{result}</div>
+      )}
+    </Card>
   );
 }
 

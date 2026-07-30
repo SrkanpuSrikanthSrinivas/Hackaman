@@ -100,6 +100,24 @@ const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN || "*", credentials: true }));
 app.use(express.json());
 
+// Read-only guard for the demo account (applies to every authenticated write)
+app.use((req, res, next) => {
+    if (req.headers.authorization) {
+        try {
+            const tok = req.headers.authorization.replace("Bearer ", "");
+            const p = jwt.verify(tok, JWT_SECRET);
+            if (p?.email === "demo@hackfesthub.com" && req.method !== "GET" &&
+            !req.path.includes("/demo/") && !req.path.includes("/auth/")) {
+                return res.status(403).json({
+                    error: "This is a read-only demo. Sign up to manage your own hackathons.",
+                    demo: true,
+                });
+            }
+        } catch(_) {}
+    }
+    next();
+});
+
 
 
 // ─── MIDDLEWARE ──────────────────────────────────────────────────────────────
@@ -641,8 +659,54 @@ app.delete(["/api/feedbacks/:id", "/feedbacks/:id"], admin, async (req, res) => 
 });
 
 // ─── PUBLIC ENDPOINTS ─────────────────────────────────────────────────────────
-app.get(["/api/public/hackathons", "/public/hackathons"], async (_req, res) => {
-    try { const { rows } = await q("SELECT * FROM hackathons WHERE published=true ORDER BY start_date DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
+app.get(["/api/public/hackathons", "/public/hackathons"], async (req, res) => {
+    const { search = "", status = "", limit = 24 } = req.query;
+    try {
+        const params = [];
+        const where = ["published = true"];
+
+        if (search.trim()) {
+            params.push(`%${search.trim()}%`);
+            const i = params.length;
+            where.push(`(name ILIKE $${i} OR tagline ILIKE $${i} OR location ILIKE $${i} OR tracks ILIKE $${i} OR prize_pool ILIKE $${i})`);
+        }
+
+        // status is derived from dates so organizers don't have to maintain it
+        const now = "NOW()";
+        if (status === "active")    where.push(`(start_date <= ${now} AND (end_date IS NULL OR end_date >= ${now}))`);
+        else if (status === "upcoming")  where.push(`start_date > ${now}`);
+        else if (status === "completed") where.push(`end_date < ${now}`);
+
+        const sql = `SELECT id,name,tagline,status,start_date,end_date,location,tracks,
+                        prize_pool,banner_color,max_team_size,
+                        (SELECT count(*)::int FROM registrations r WHERE r.hackathon_id=hackathons.id) AS registrations,
+                        (SELECT count(*)::int FROM teams t WHERE t.hackathon_id=hackathons.id) AS teams,
+                        (SELECT count(*)::int FROM submissions s WHERE s.hackathon_id=hackathons.id) AS submissions
+                 FROM hackathons
+                 WHERE ${where.join(" AND ")}
+                 ORDER BY
+                   CASE WHEN start_date > ${now} THEN 0
+                        WHEN end_date IS NULL OR end_date >= ${now} THEN 1
+                        ELSE 2 END,
+                   start_date ASC
+                 LIMIT ${parseInt(limit) || 24}`;
+
+        const { rows } = await q(sql, params);
+
+        // Derive a live status label for each
+        const withStatus = rows.map(r => {
+            const row = camel(r);
+            const now2 = new Date();
+            const s = row.startDate ? new Date(row.startDate) : null;
+            const e = row.endDate   ? new Date(row.endDate)   : null;
+            row.liveStatus = s && now2 < s ? "upcoming"
+            : e && now2 > e ? "completed"
+            : "active";
+            return row;
+        });
+
+        res.json({ hackathons: withStatus, total: withStatus.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get(["/api/public/hackathons/:id", "/public/hackathons/:id"], async (req, res) => {
     try { const { rows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true", [req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2265,14 +2329,72 @@ app.put(["/api/participant/profile","/participant/profile"], async (req,res)=>{
     }catch(e){res.status(500).json({error:e.message});}
 });
 
-// Public participant profile
+async function ensureProfileCols() {
+    for (const c of ["bio TEXT","skills TEXT","location VARCHAR(255)","github_url VARCHAR(500)",
+        "linkedin_url VARCHAR(500)","twitter_url VARCHAR(500)","website_url VARCHAR(500)",
+        "profile_public BOOLEAN DEFAULT true"]) {
+        await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${c}`).catch(()=>{});
+    }
+}
+
+// Public profile — reads the users table (team/judge logins), not the legacy participants table
 app.get(["/api/public/participant/:id","/public/participant/:id"], async (req,res)=>{
     try{
-        const{rows:[p]}=await q("SELECT id,name,bio,skills,github_url,linkedin_url,twitter_url,website_url,avatar_url,location,looking_for_team,created_at FROM participants WHERE id=$1",[req.params.id]);
-        if(!p)return res.status(404).json({error:"Not found"});
-        const{rows:history}=await q("SELECT h.id,h.name,h.status,t.name as team_name FROM participant_hackathons ph JOIN hackathons h ON h.id=ph.hackathon_id LEFT JOIN teams t ON t.id=ph.team_id WHERE ph.participant_id=$1",
-            [req.params.id]).catch(()=>({rows:[]}));
-        res.json({participant:camel(p),history:history.map(camel)});
+        await ensureProfileCols();
+        const{rows:[u]}=await q(
+            `SELECT id,name,role,bio,skills,location,github_url,linkedin_url,twitter_url,
+                    website_url,avatar_url,profile_public,created_at
+             FROM users WHERE id=$1`,
+            [req.params.id]
+        );
+        if(!u) return res.status(404).json({error:"Profile not found"});
+        if(u.profile_public === false) return res.status(403).json({error:"This profile is private"});
+
+        // Event history via their team memberships
+        const{rows:history}=await q(
+            `SELECT DISTINCT h.id, h.name, h.status, t.name AS team_name, h.start_date
+             FROM users u
+             JOIN teams t      ON t.id = u.team_id
+             JOIN hackathons h ON h.id = t.hackathon_id
+             WHERE u.id = $1 AND h.published = true
+             ORDER BY h.start_date DESC`,
+            [req.params.id]
+        ).catch(()=>({rows:[]}));
+
+        res.json({ participant: camel(u), history: history.map(camel) });
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// Update your own profile
+app.put(["/api/me/profile","/me/profile"], auth, async (req,res)=>{
+    const{bio,skills,location,githubUrl,linkedinUrl,twitterUrl,websiteUrl,profilePublic}=req.body;
+    try{
+        await ensureProfileCols();
+        const{rows:[u]}=await q(
+            `UPDATE users SET bio=$1,skills=$2,location=$3,github_url=$4,linkedin_url=$5,
+                    twitter_url=$6,website_url=$7,profile_public=COALESCE($8,profile_public)
+             WHERE id=$9
+             RETURNING id,name,bio,skills,location,github_url,linkedin_url,twitter_url,website_url,profile_public`,
+            [bio||null,skills||null,location||null,githubUrl||null,linkedinUrl||null,
+                twitterUrl||null,websiteUrl||null,
+                typeof profilePublic==="boolean"?profilePublic:null, req.user.id]
+        );
+        if(!u) return res.status(404).json({error:"User not found"});
+        res.json(camel(u));
+    }catch(e){res.status(500).json({error:e.message});}
+});
+
+// Fetch your own profile (includes private fields)
+app.get(["/api/me/profile","/me/profile"], auth, async (req,res)=>{
+    try{
+        await ensureProfileCols();
+        const{rows:[u]}=await q(
+            `SELECT id,name,email,role,bio,skills,location,github_url,linkedin_url,
+                    twitter_url,website_url,profile_public FROM users WHERE id=$1`,
+            [req.user.id]
+        );
+        if(!u) return res.status(404).json({error:"Not found"});
+        res.json(camel(u));
     }catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -3724,6 +3846,189 @@ req.params.id]
 );
 if (!s) return res.status(404).json({ error: "Submission not found" });
 res.json(camel(s));
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPANDED AI SUITE
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 1. AI Matchmaking — suggest teammates from the formation board
+app.post(["/api/ai/matchmaking", "/ai/matchmaking"], auth, requireAI, async (req, res) => {
+const { hackathonId, lookingFor, mySkills } = req.body;
+try {
+await ensureFormationTable();
+const { rows: posts } = await q(
+`SELECT name, type, skills_offered, skills_needed, message
+       FROM team_formation WHERE hackathon_id=$1 AND COALESCE(status,'open')='open' LIMIT 40`,
+[hackathonId]
+).catch(() => ({ rows: [] }));
+
+if (!posts.length) return res.json({ result: "No open listings on the board yet — be the first to post!" });
+
+const board = posts.map((p,i) =>
+`${i+1}. ${p.name} (${p.type==="seeking_team"?"wants a team":"has a team, needs members"}) — brings: ${p.skills_offered||"n/a"}${p.skills_needed?`, needs: ${p.skills_needed}`:""}${p.message?` — "${p.message.slice(0,120)}"`:""}`
+).join("\n");
+
+const sys = "You are a hackathon teammate matchmaker. Given a person's skills and what they're looking for, recommend the 3 best matches from the board. Be specific about WHY each is a good fit (complementary skills, shared interest). Keep it warm and concise. Use the person's name from the listing.";
+const usr = `MY SKILLS: ${mySkills||"not specified"}\nI'M LOOKING FOR: ${lookingFor||"a team to join"}\n\nBOARD:\n${board}\n\nRecommend my top 3 matches with a one-line reason each.`;
+const result = await callGemini(sys, usr, 800);
+res.json({ result });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 2. AI Project Idea Generator — suggest project ideas from tracks + skills
+app.post(["/api/ai/project-ideas", "/ai/project-ideas"], auth, requireAI, async (req, res) => {
+const { hackathonId, skills, interests } = req.body;
+try {
+const { rows: [h] } = await q("SELECT name,tracks,problem_statements,tagline FROM hackathons WHERE id=$1", [hackathonId]);
+const sys = "You are a hackathon ideation coach. Generate 3 concrete, buildable-in-48-hours project ideas. For each: a catchy name, one-line pitch, the core feature to build first, and which track it fits. Be specific and technically grounded — no vague 'AI-powered platform' fluff.";
+const usr = `HACKATHON: ${h?.name}\nTRACKS: ${h?.tracks||"open"}\n${h?.problem_statements?`PROBLEM STATEMENTS: ${h.problem_statements}\n`:""}TEAM SKILLS: ${skills||"full-stack"}\nINTERESTS: ${interests||"anything impactful"}\n\nGenerate 3 project ideas.`;
+const result = await callGemini(sys, usr, 1000);
+res.json({ result });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 3. AI Submission Polish — improve a team's project writeup
+app.post(["/api/ai/polish-submission", "/ai/polish-submission"], auth, requireAI, async (req, res) => {
+const { title, tagline, problem, solution, description } = req.body;
+try {
+const sys = "You are an expert at hackathon project storytelling. Improve the submission below to be clearer and more compelling to judges, WITHOUT inventing features that aren't mentioned. Return improved versions of each field. Keep the team's authentic voice. Format as: TITLE:, TAGLINE:, PROBLEM:, SOLUTION:, DESCRIPTION: — each on its own line.";
+const usr = `TITLE: ${title||""}\nTAGLINE: ${tagline||""}\nPROBLEM: ${problem||""}\nSOLUTION: ${solution||""}\nDESCRIPTION: ${description||""}`;
+const result = await callGemini(sys, usr, 1200);
+res.json({ result });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 4. AI Duplicate / Plagiarism Signal — flag suspiciously similar submissions
+app.post(["/api/ai/similarity-scan", "/ai/similarity-scan"], admin, requireAI, async (req, res) => {
+const { hackathonId } = req.body;
+try {
+const { rows } = await q(
+"SELECT t.name AS team, s.title, s.description FROM submissions s JOIN teams t ON t.id=s.team_id WHERE s.hackathon_id=$1 AND s.description IS NOT NULL LIMIT 30",
+[hackathonId]
+).catch(()=>({rows:[]}));
+if (rows.length < 2) return res.json({ result: "Need at least 2 submissions with descriptions to compare." });
+
+const list = rows.map((r,i) => `${i+1}. [${r.team}] ${r.title}: ${(r.description||"").slice(0,200)}`).join("\n");
+const sys = "You are a hackathon integrity assistant. Scan these project descriptions and flag any PAIRS that look suspiciously similar in concept or wording (possible duplication). If nothing is concerning, say so clearly. Never accuse — describe the overlap objectively and suggest a human review only for genuine matches.";
+const result = await callGemini(sys, `SUBMISSIONS:\n${list}\n\nFlag any concerning overlaps.`, 800);
+res.json({ result });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 5. AI Event Description Writer — help organizers write their page copy
+app.post(["/api/ai/event-copy", "/ai/event-copy"], admin, requireAI, async (req, res) => {
+const { name, theme, audience, tracks, tone } = req.body;
+try {
+const sys = "You are a marketing copywriter for hackathons. Write compelling event page copy: a punchy tagline (under 12 words), a 2-sentence hero description, and an 'About' paragraph (3-4 sentences). Match the requested tone. Return as TAGLINE:, HERO:, ABOUT: on separate lines.";
+const usr = `EVENT: ${name}\nTHEME: ${theme||"innovation"}\nAUDIENCE: ${audience||"developers and designers"}\nTRACKS: ${tracks||"open"}\nTONE: ${tone||"energetic and inspiring"}`;
+const result = await callGemini(sys, usr, 900);
+res.json({ result });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 6. AI Winner Rationale — draft the "why they won" blurb from scores + feedback
+app.post(["/api/ai/winner-rationale", "/ai/winner-rationale"], admin, requireAI, async (req, res) => {
+const { submissionId } = req.body;
+try {
+const { rows: [s] } = await q(
+"SELECT s.*, t.name AS team FROM submissions s JOIN teams t ON t.id=s.team_id WHERE s.id=$1", [submissionId]
+);
+if (!s) return res.status(404).json({ error: "Submission not found" });
+const { rows: fb } = await q("SELECT overall, scores FROM feedbacks WHERE team_id=$1", [s.team_id]).catch(()=>({rows:[]}));
+const feedback = fb.map(f => f.overall).filter(Boolean).join(" | ") || "no written feedback";
+const sys = "You are writing a short, celebratory 'why this team won' blurb for a hackathon results page. 2-3 sentences, specific to their project. Warm but not over-the-top.";
+const usr = `TEAM: ${s.team}\nPROJECT: ${s.title}\nTAGLINE: ${s.tagline||""}\nSOLUTION: ${s.solution||s.description||""}\nJUDGE FEEDBACK: ${feedback}`;
+const result = await callGemini(sys, usr, 400);
+res.json({ result });
+} catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEMO / SANDBOX MODE  — a read-only tour of the admin for prospects
+// ═══════════════════════════════════════════════════════════════════════════
+
+const DEMO_EMAIL = "demo@hackfesthub.com";
+
+// A middleware that blocks writes for the demo account
+function blockDemoWrites(req, res, next) {
+if (req.user?.email === DEMO_EMAIL && req.method !== "GET") {
+return res.status(403).json({
+error: "This is a read-only demo. Sign up to create and manage your own hackathons.",
+demo: true,
+});
+}
+next();
+}
+
+// Provision (or refresh) the demo account + sample data, then return a token
+app.post(["/api/demo/enter", "/demo/enter"], async (req, res) => {
+try {
+// Ensure the demo admin user exists
+let { rows: [u] } = await q("SELECT * FROM users WHERE email=$1", [DEMO_EMAIL]);
+if (!u) {
+const hash = await bcrypt.hash("demo-" + Math.random().toString(36).slice(2), 10);
+const id = "udemo";
+await q(
+"INSERT INTO users(id,name,email,password_hash,role) VALUES($1,'Demo Organizer',$2,$3,'admin') ON CONFLICT (email) DO NOTHING",
+[id, DEMO_EMAIL, hash]
+);
+({ rows: [u] } = await q("SELECT * FROM users WHERE email=$1", [DEMO_EMAIL]));
+}
+
+// Seed one sample hackathon if the demo has none
+const { rows: existing } = await q("SELECT id FROM hackathons WHERE id='hdemo'");
+if (!existing.length) {
+const start = new Date(Date.now() + 7*864e5).toISOString().slice(0,10);
+const end   = new Date(Date.now() + 9*864e5).toISOString().slice(0,10);
+await q(
+`INSERT INTO hackathons(id,name,tagline,status,start_date,end_date,location,tracks,prize_pool,banner_color,published,max_team_size)
+         VALUES('hdemo','Demo Innovation Challenge','A sample event to explore HackFest Hub','upcoming',$1,$2,'Austin, TX + Virtual','AI/ML, Sustainability, FinTech, HealthTech','$10,000','#6366f1',false,4)
+         ON CONFLICT (id) DO NOTHING`,
+[start, end]
+);
+// Sample teams
+const teams = [
+["tdemo1","Neural Nomads","EcoRoute","Sustainability","Ava Chen, Ravi Patel, Maya Singh"],
+["tdemo2","Quantum Quokkas","MediSync","HealthTech","Liam Ortega, Zoe Kim"],
+["tdemo3","Byte Builders","FinPal","FinTech","Noah Adams, Sara Yun, Omar Haddad, Lin Wei"],
+];
+for (const [id,name,proj,cat,members] of teams) {
+await q("INSERT INTO teams(id,hackathon_id,name,project,category,members) VALUES($1,'hdemo',$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING",
+[id,name,proj,cat,members]).catch(()=>{});
+}
+// Sample submissions
+const subs = [
+["sdemo1","tdemo1","EcoRoute","Cut delivery emissions with smart routing","Logistics fleets waste fuel on inefficient routes.","An ML route optimizer that reduces CO2 by 22%.","React, Python, TensorFlow","submitted"],
+["sdemo2","tdemo2","MediSync","Never miss a medication again","Elderly patients forget complex medication schedules.","A companion app with smart reminders and caregiver alerts.","Flutter, Firebase, Node","submitted"],
+["sdemo3","tdemo3","FinPal","Budgeting that actually sticks","Young adults struggle to build saving habits.","A gamified budgeting app with peer challenges.","Next.js, Postgres, Plaid","submitted"],
+];
+for (const [id,tid,title,tagline,problem,solution,tech,status] of subs) {
+await q(
+`INSERT INTO submissions(id,hackathon_id,team_id,title,tagline,problem_statement,solution,tech_stack,status,submitted_at)
+           VALUES($1,'hdemo',$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (id) DO NOTHING`,
+[id,tid,title,tagline,problem,solution,tech,status]
+).catch(()=>{});
+}
+// Sample criteria
+const crit = [
+["cdemo1","Innovation","How novel and creative is the idea?",30,10],
+["cdemo2","Technical Execution","How well is it built?",30,10],
+["cdemo3","Impact","Real-world potential",25,10],
+["cdemo4","Presentation","Clarity of the pitch",15,10],
+];
+for (const [id,name,desc,weight,max] of crit) {
+await q("INSERT INTO criteria(id,hackathon_id,name,description,weight,max_score) VALUES($1,'hdemo',$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING",
+[id,name,desc,weight,max]).catch(()=>{});
+}
+}
+
+const payload = await buildUserPayload(u);
+const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "4h" });
+res.json({ token, demo: true });
 } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
