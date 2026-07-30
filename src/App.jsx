@@ -549,6 +549,7 @@ function AppShell() {
   );
 
   const isTeam = currentUser?.role === "team";
+  const isDemo = currentUser?.email === "demo@hackfesthub.com" || currentUser?.isDemo;
   const navItems = isAdmin ? ADMIN_NAV : isTeam ? getTeamNav() : getJudgeNav(currentUser);
   const activeSections = isAdmin ? SECTIONS : isTeam ? TEAM_SECTIONS : [{id:"judging",label:"Judging",icon:"◆"},{id:"operations",label:"Operations",icon:"◈"}];
   const sections = [...new Set(navItems.map(n => n.section))];
