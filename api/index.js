@@ -85,6 +85,7 @@ async function buildUserPayload(user) {
     return {
         id: user.id, name: user.name, email: user.email,
         role: user.role, judgeId: user.judge_id,
+        orgId: user.org_id || null,        // ← tenant boundary
         teamId: user.team_id || null, teamName,
         avatarUrl: user.avatar_url,
         assignedHackathons: user.role === "team"
@@ -94,6 +95,28 @@ async function buildUserPayload(user) {
         permissions: perms.map(r => ({ hackathonId: r.hackathon_id, page: r.page })),
         assignedTeams: jta.map(r => r.team_id),
     };
+}
+
+// ── Tenancy helpers ────────────────────────────────────────────────────────
+// Returns the org_id a hackathon belongs to (cached-free, one small query).
+async function hackathonOrg(hackathonId) {
+    if (!hackathonId) return null;
+    const { rows: [h] } = await q("SELECT org_id FROM hackathons WHERE id=$1", [hackathonId]).catch(()=>({rows:[]}));
+    return h?.org_id || null;
+}
+
+// Throws-style guard used inside write routes when needed.
+async function orgForHackathon(hackathonId) {
+    // Used when auto-creating users during approve/invite so they inherit the tenant.
+    const owner = await hackathonOrg(hackathonId);
+    return owner || "org_default";
+}
+
+async function orgOwnsHackathon(orgId, hackathonId) {
+    if (!orgId || !hackathonId) return false;
+    const owner = await hackathonOrg(hackathonId);
+    // org_default is the legacy/superadmin org — it can see everything
+    return owner === orgId || orgId === "org_default";
 }
 
 const app = express();
@@ -133,6 +156,122 @@ function admin(req, res, next) {
         next();
     });
 }
+
+// ── TENANT ISOLATION ───────────────────────────────────────────────────────
+// The core SaaS guarantee: whenever a request references a hackathonId, verify
+// that hackathon belongs to the caller's organization. This single global
+// middleware protects the vast majority of routes because nearly everything in
+// the app is scoped by hackathonId. org_default is treated as a superadmin org
+// (your own legacy data) and bypasses the check.
+//
+// Public routes (no token) and auth/signup/demo routes are exempt — public
+// hackathon pages are meant to be visible to everyone by design.
+const TENANCY_EXEMPT = [
+    "/api/public/", "/public/",
+    "/api/auth/",   "/auth/",
+    "/api/demo/",   "/demo/",
+    "/api/health",  "/health",
+    "/api/invite/", "/invite/",           // invite acceptance is public by code
+    "/api/team-formation", "/team-formation",
+];
+
+function pickHackathonId(req) {
+    return req.params?.hackathonId
+    || req.query?.hackathonId
+    || req.body?.hackathonId
+    || null;
+}
+
+async function tenantGuard(req, res, next) {
+    try {
+        // No token → not an authenticated tenant action; let route-level auth decide.
+        const token = req.headers.authorization?.replace("Bearer ", "");
+        if (!token) return next();
+
+        let payload;
+        try { payload = jwt.verify(token, JWT_SECRET); } catch { return next(); }
+
+        // Superadmin / legacy org sees everything.
+        if (!payload.orgId || payload.orgId === "org_default") return next();
+
+        // Exempt paths (public data, auth flows) are always allowed.
+        if (TENANCY_EXEMPT.some(p => req.path.startsWith(p))) return next();
+
+        const hackathonId = pickHackathonId(req);
+        if (!hackathonId) return next();   // route doesn't target a specific hackathon
+
+        const owner = await hackathonOrg(hackathonId);
+        // Unknown hackathon (not yet created) — let the route handle it normally.
+        if (owner === null) return next();
+
+        if (owner !== payload.orgId) {
+            return res.status(403).json({ error: "This resource belongs to another organization." });
+        }
+        next();
+    } catch (e) {
+        // Never let the guard crash a request; fail closed only on explicit mismatch.
+        next();
+    }
+}
+
+// Apply globally to the whole API surface.
+app.use(tenantGuard);
+
+// ── RESOURCE-LEVEL TENANT ISOLATION ────────────────────────────────────────
+// The hackathonId middleware covers routes that carry a hackathonId. This one
+// covers single-resource routes like /api/submissions/:id — it resolves the
+// resource's parent hackathon and checks the org. Maps URL segment → the SQL
+// that finds the owning org_id for a given resource id.
+const RESOURCE_ORG_SQL = {
+    submissions:   "SELECT h.org_id FROM submissions s JOIN hackathons h ON h.id=s.hackathon_id WHERE s.id=$1",
+    teams:         "SELECT h.org_id FROM teams t JOIN hackathons h ON h.id=t.hackathon_id WHERE t.id=$1",
+    criteria:      "SELECT h.org_id FROM criteria c JOIN hackathons h ON h.id=c.hackathon_id WHERE c.id=$1",
+    registrations: "SELECT h.org_id FROM registrations r JOIN hackathons h ON h.id=r.hackathon_id WHERE r.id=$1",
+    feedbacks:     "SELECT h.org_id FROM feedbacks f JOIN hackathons h ON h.id=f.hackathon_id WHERE f.id=$1",
+    announcements: "SELECT h.org_id FROM announcements a JOIN hackathons h ON h.id=a.hackathon_id WHERE a.id=$1",
+    mentors:       "SELECT h.org_id FROM mentors m JOIN hackathons h ON h.id=m.hackathon_id WHERE m.id=$1",
+    speakers:      "SELECT h.org_id FROM speakers s JOIN hackathons h ON h.id=s.hackathon_id WHERE s.id=$1",
+    partners:      "SELECT h.org_id FROM partners p JOIN hackathons h ON h.id=p.hackathon_id WHERE p.id=$1",
+    orgteam:       "SELECT h.org_id FROM org_team o JOIN hackathons h ON h.id=o.hackathon_id WHERE o.id=$1",
+    checkins:      "SELECT h.org_id FROM checkins c JOIN hackathons h ON h.id=c.hackathon_id WHERE c.id=$1",
+    certificates:  "SELECT h.org_id FROM certificates c JOIN hackathons h ON h.id=c.hackathon_id WHERE c.id=$1",
+    hackathons:    "SELECT org_id FROM hackathons WHERE id=$1",
+    users:         "SELECT org_id FROM users WHERE id=$1",
+};
+
+async function resourceGuard(req, res, next) {
+    try {
+        const token = req.headers.authorization?.replace("Bearer ", "");
+        if (!token) return next();
+        let payload;
+        try { payload = jwt.verify(token, JWT_SECRET); } catch { return next(); }
+        if (!payload.orgId || payload.orgId === "org_default") return next();
+        if (TENANCY_EXEMPT.some(p => req.path.startsWith(p))) return next();
+
+        // Only guard mutating verbs on single-resource routes; reads of a single
+        // record are lower-risk and some are intentionally public.
+        if (req.method === "GET") return next();
+
+        // Match /api/{resource}/{id}
+        const m = req.path.match(/^\/(?:api\/)?([a-z]+)\/([^\/]+)$/i);
+        if (!m) return next();
+        const [, resource, id] = m;
+        const sql = RESOURCE_ORG_SQL[resource];
+        if (!sql) return next();
+
+        const { rows: [row] } = await q(sql, [id]).catch(() => ({ rows: [] }));
+        if (!row) return next();                    // unknown id — let route 404 naturally
+        const owner = row.org_id;
+        if (owner && owner !== payload.orgId) {
+            return res.status(403).json({ error: "This resource belongs to another organization." });
+        }
+        next();
+    } catch (e) { next(); }
+}
+
+app.use(resourceGuard);
+
+
 
 // ─── HEALTH ──────────────────────────────────────────────────────────────────
 app.get(["/api/health", "/health"], async (_req, res) => {
@@ -175,6 +314,78 @@ app.get(["/api/debug/routes", "/debug/routes"], (req, res) => {
 });
 
 // ─── AUTH: EMAIL ─────────────────────────────────────────────────────────────
+// ── SELF-SERVE SIGNUP — creates an organization + its first admin ──────────
+app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
+    const { name, email, password, orgName } = req.body;
+    if (!name?.trim() || !email?.trim() || !password)
+    return res.status(400).json({ error: "Name, email, and password are required" });
+    if (password.length < 8)
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+    if (!orgName?.trim())
+    return res.status(400).json({ error: "Organization name is required" });
+
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+        // Make sure the multi-tenant tables exist (self-heal if migration not run)
+        await q(`CREATE TABLE IF NOT EXISTS organizations (
+      id VARCHAR(20) PRIMARY KEY, name VARCHAR(255) NOT NULL, slug VARCHAR(100) UNIQUE,
+      plan VARCHAR(20) DEFAULT 'free', owner_email VARCHAR(255), logo_url TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      max_hackathons INTEGER DEFAULT 1, max_participants INTEGER DEFAULT 50,
+      ai_enabled BOOLEAN DEFAULT false
+    )`).catch(()=>{});
+        await q("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
+        await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
+
+        // Email must be globally unique (one login = one account)
+        const { rows: existing } = await q("SELECT id FROM users WHERE email=$1", [cleanEmail]);
+        if (existing.length) return res.status(409).json({ error: "An account with this email already exists. Try signing in." });
+
+        // Create the organization
+        const orgId = "org_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+        const slug = orgName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0,60)
+        + "-" + Math.random().toString(36).slice(2,5);
+        await q(
+            `INSERT INTO organizations (id,name,slug,plan,owner_email,max_hackathons,max_participants,ai_enabled)
+             VALUES ($1,$2,$3,'free',$4,1,50,false)`,
+            [orgId, orgName.trim(), slug, cleanEmail]
+        );
+
+        // Create the admin user tied to that org
+        const hash = await bcrypt.hash(password, 10);
+        const userId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+        const { rows: [u] } = await q(
+            "INSERT INTO users (id,name,email,password_hash,role,org_id) VALUES ($1,$2,$3,$4,'admin',$5) RETURNING *",
+            [userId, name.trim(), cleanEmail, hash, orgId]
+        );
+
+        await logEvent("signup", u, req, "email").catch(()=>{});
+
+        // Welcome email
+        try {
+            const html = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
+        <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+          <div style="background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:32px;text-align:center;">
+            <h1 style="color:#fff;font-size:22px;margin:0;">⚡ Welcome to HackFest Hub</h1>
+          </div>
+          <div style="padding:30px 34px;">
+            <p style="font-size:15px;color:#334155;line-height:1.75;">Hi ${name.trim()},</p>
+            <p style="font-size:14px;color:#4b5563;line-height:1.75;">
+              Your workspace <strong>${orgName.trim()}</strong> is ready. You can create your first
+              hackathon, invite judges and teams, and run the whole event from one place.
+            </p>
+            <a href="${siteUrl()}" style="display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;padding:13px;border-radius:10px;font-size:15px;font-weight:700;margin-top:18px;">Go to your dashboard →</a>
+          </div>
+        </div></body></html>`;
+            sendEmail(cleanEmail, `Welcome to HackFest Hub — ${orgName.trim()}`, html).catch(()=>{});
+        } catch(_) {}
+
+        const payload = await buildUserPayload(u);
+        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
+        res.status(201).json({ token, user: payload });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post(["/api/auth/login", "/auth/login"], async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Email and password required" });
@@ -323,9 +534,14 @@ app.get(["/api/auth/gitlab/callback", "/auth/gitlab/callback"], async (req, res)
 });
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
-app.get(["/api/users", "/users"], admin, async (_req, res) => {
+app.get(["/api/users", "/users"], admin, async (req, res) => {
     try {
-        const { rows: users } = await q("SELECT id,name,email,role,judge_id,team_id,avatar_url,oauth_provider,created_at FROM users ORDER BY role,name");
+        // Tenant scoping: an org's admin sees only users in their org.
+        const orgId = req.user.orgId;
+        const scoped = orgId && orgId !== "org_default";
+        const { rows: users } = scoped
+        ? await q("SELECT id,name,email,role,judge_id,team_id,avatar_url,oauth_provider,created_at FROM users WHERE org_id=$1 ORDER BY role,name", [orgId])
+        : await q("SELECT id,name,email,role,judge_id,team_id,avatar_url,oauth_provider,created_at FROM users ORDER BY role,name");
         const { rows: hj }    = await q("SELECT user_id,hackathon_id FROM hackathon_judges");
         const { rows: perms } = await q("SELECT id,user_id,hackathon_id,page FROM user_permissions");
         // Include team assignments — graceful if migration_v6 hasn't been run yet
@@ -427,7 +643,13 @@ app.delete(["/api/permissions/:id", "/permissions/:id"], admin, async (req, res)
 // ─── HACKATHONS ───────────────────────────────────────────────────────────────
 app.get(["/api/hackathons", "/hackathons"], auth, async (req, res) => {
     try {
-        const { rows } = await q("SELECT * FROM hackathons ORDER BY start_date DESC");
+        // Tenant scoping: an org sees only its own hackathons.
+        // org_default is the legacy/superadmin org and sees everything.
+        const orgId = req.user.orgId;
+        const scoped = orgId && orgId !== "org_default";
+        const { rows } = scoped
+        ? await q("SELECT * FROM hackathons WHERE org_id=$1 ORDER BY start_date DESC", [orgId])
+        : await q("SELECT * FROM hackathons ORDER BY start_date DESC");
         const all = rows.map(camel);
         if (req.user.role === "judge") {
             const ok = new Set(req.user.assignedHackathons || []);
@@ -441,9 +663,21 @@ app.post(["/api/hackathons", "/hackathons"], admin, async (req, res) => {
     const { name, startDate, endDate, location, status = "upcoming", description, tagline, prizePool, maxTeams, tracks, published = false, bannerColor, sponsors, schedule, faq } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: "name required" });
     try {
+        // Enforce the org's plan limit on number of hackathons
+        const orgId = req.user.orgId || "org_default";
+        if (orgId !== "org_default") {
+            const { rows: [org] } = await q("SELECT max_hackathons FROM organizations WHERE id=$1", [orgId]).catch(()=>({rows:[]}));
+            const { rows: [cnt] } = await q("SELECT count(*)::int AS n FROM hackathons WHERE org_id=$1", [orgId]);
+            if (org && cnt.n >= org.max_hackathons) {
+                return res.status(403).json({
+                    error: `Your plan allows ${org.max_hackathons} hackathon${org.max_hackathons===1?"":"s"}. Upgrade to create more.`,
+                    limitReached: true,
+                });
+            }
+        }
         const { rows } = await q(
-            "INSERT INTO hackathons (id,name,start_date,end_date,location,status,description,tagline,prize_pool,max_teams,tracks,published,banner_color,sponsors,schedule,faq) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *",
-            [uid(), name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null]
+            "INSERT INTO hackathons (id,name,start_date,end_date,location,status,description,tagline,prize_pool,max_teams,tracks,published,banner_color,sponsors,schedule,faq,org_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
+            [uid(), name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null, orgId]
         );
         res.status(201).json(camel(rows[0]));
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -794,8 +1028,8 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
                         const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
                         judgeUserId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
                         await q(
-                            "INSERT INTO users(id,name,email,password_hash,role,judge_id) VALUES($1,$2,LOWER($3),$4,'judge',$5)",
-                            [judgeUserId, reg.name, reg.email, hash, judgeId]
+                            "INSERT INTO users(id,name,email,password_hash,role,judge_id,org_id) VALUES($1,$2,LOWER($3),$4,'judge',$5,$6)",
+                            [judgeUserId, reg.name, reg.email, hash, judgeId, await orgForHackathon(reg.hackathonId)]
                         );
                         autoResult.loginCreated = true;
                         autoResult.tempPassword = DEFAULT_PASSWORD;
@@ -836,8 +1070,8 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
                         const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
                         const uid2 = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
                         await q(
-                            "INSERT INTO users(id,name,email,password_hash,role,team_id) VALUES($1,$2,LOWER($3),$4,'team',$5)",
-                            [uid2, reg.name, reg.email, hash, teamId]
+                            "INSERT INTO users(id,name,email,password_hash,role,team_id,org_id) VALUES($1,$2,LOWER($3),$4,'team',$5,$6)",
+                            [uid2, reg.name, reg.email, hash, teamId, await orgForHackathon(reg.hackathonId)]
                         );
                         autoResult.loginCreated = true;
                         autoResult.tempPassword = DEFAULT_PASSWORD;
@@ -3133,8 +3367,8 @@ const hash=await bcrypt.hash(tempPass,10);
 const id=Date.now().toString(36)+Math.random().toString(36).slice(2,5);
 
 await q(
-"INSERT INTO users(id,name,email,password_hash,role,team_id) VALUES($1,$2,LOWER($3),$4,'team',$5)",
-[id,reg.name,reg.email,hash,team?.id||null]
+"INSERT INTO users(id,name,email,password_hash,role,team_id,org_id) VALUES($1,$2,LOWER($3),$4,'team',$5,$6)",
+[id,reg.name,reg.email,hash,team?.id||null, await orgForHackathon(reg.hackathonId||reg.hackathon_id)]
 );
 
 await logEvent("login",{id,name:reg.name,email:reg.email,role:"team"},req,"admin-created");
@@ -3711,8 +3945,8 @@ let created = false;
 if (!existingUser.length) {
 const hash = await bcrypt.hash("hackfest123", 10);
 await q(
-"INSERT INTO users(id,name,email,password_hash,role,team_id) VALUES($1,$2,LOWER($3),$4,'team',$5)",
-["u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5), name.trim(), email.trim(), hash, team.id]
+"INSERT INTO users(id,name,email,password_hash,role,team_id,org_id) VALUES($1,$2,LOWER($3),$4,'team',$5,$6)",
+["u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5), name.trim(), email.trim(), hash, team.id, await orgForHackathon(inv.hackathon_id)]
 );
 created = true;
 }

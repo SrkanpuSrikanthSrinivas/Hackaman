@@ -171,6 +171,13 @@ export default function MarketingPage() {
             <a href="#features" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Features</a>
             <a href="#how-it-works" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>How it works</a>
             <a href="#free" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Pricing</a>
+            <a href="/signup"
+              style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8,
+                padding:"14px 30px", borderRadius:12, background:"#fff",
+                color:"#4f46e5", fontSize:16, fontWeight:800, textDecoration:"none",
+                boxShadow:"0 8px 28px rgba(0,0,0,0.18)" }}>
+              Start free →
+            </a>
             <a href="/demo" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Demo</a>
             <a href="/admin" style={{ ...FF, fontSize:13, color:"#6b7280", padding:"6px 12px", textDecoration:"none" }}>Sign in</a>
             <a href="/demo"
