@@ -17,7 +17,7 @@ import {
   FeedbackPage, AllFeedbackPage, ReportPage,
   UserManagementPage, PublicPagesAdmin, PublicPageCMS, BestJudgePage, LoginLogsPage,
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
-  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage, ChangePasswordModal, AIStudioPage,
+  CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage, ChangePasswordModal, AIStudioPage, PlatformPage,
 } from "./pages.jsx";
 import PublicPage from "./PublicPage.jsx";
 
@@ -412,6 +412,26 @@ function AppShell() {
   });
   const [activeHackathon, setActive] = useState("");
   const [toasts, setToasts] = useState([]);
+  // Live org-approval status. Starts from the JWT; polled while frozen so an
+  // approval takes effect without the user needing to log out and back in.
+  const [liveOrgStatus, setLiveOrgStatus] = useState(currentUser?.orgStatus || "active");
+
+  useEffect(() => {
+    const frozen = currentUser && currentUser.orgId && currentUser.orgId !== "org_default"
+      && liveOrgStatus && liveOrgStatus !== "active";
+    if (!frozen) return;
+    let alive = true;
+    const check = async () => {
+      try {
+        const r = await fetch(`${BASE}/api/me/org-status`, {
+          headers: { "Authorization": `Bearer ${localStorage.getItem("hf_token")}` },
+        }).then(r => r.json());
+        if (alive && r?.orgStatus) setLiveOrgStatus(r.orgStatus);
+      } catch {}
+    };
+    const iv = setInterval(check, 15000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [currentUser, liveOrgStatus]);
 
   const toast = useCallback((msg, type="success") => {
     const id = Date.now().toString(36);
@@ -502,7 +522,59 @@ function AppShell() {
   // Reload data whenever user logs in
   useEffect(() => { if (currentUser) reload(); }, [currentUser]);
 
-  if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setPage(u.role==="admin"?"dashboard":u.role==="team"?"team-home":"feedback"); }} />;
+  if (!currentUser) return <LoginPage onLogin={u => { setCurrentUser(u); setLiveOrgStatus(u.orgStatus || "active"); setPage(u.role==="admin"?"dashboard":u.role==="team"?"team-home":"feedback"); }} />;
+
+  // ── APPROVAL GATE — a pending or suspended org sees only this screen ──────
+  const orgFrozen = currentUser.orgId && currentUser.orgId !== "org_default"
+    && liveOrgStatus && liveOrgStatus !== "active";
+  if (orgFrozen) {
+    const suspended = liveOrgStatus === "suspended";
+    return (
+      <div style={{minHeight:"100vh",background:"#f9fafb",display:"flex",alignItems:"center",
+        justifyContent:"center",padding:24,fontFamily:"'Inter',sans-serif"}}>
+        <div style={{maxWidth:460,width:"100%",background:"#fff",borderRadius:16,padding:40,
+          boxShadow:"0 8px 30px rgba(0,0,0,0.08)",border:"1px solid #e5e7eb",textAlign:"center"}}>
+          <div style={{fontSize:52,marginBottom:18}}>{suspended ? "⛔" : "⏳"}</div>
+          <h2 style={{fontSize:22,fontWeight:800,color:"#111827",marginBottom:10,letterSpacing:"-0.02em"}}>
+            {suspended ? "Workspace suspended" : "Awaiting approval"}
+          </h2>
+          <p style={{fontSize:14.5,color:"#6b7280",lineHeight:1.75,marginBottom:22}}>
+            {suspended ? (
+              <>Your workspace has been suspended. If you think this is a mistake, please reach out to the platform team.</>
+            ) : (
+              <>Thanks, <strong style={{color:"#111827"}}>{currentUser.name}</strong>. Your workspace is under
+              review — new organizations are approved manually to keep the platform safe. You'll get an email the
+              moment it's activated, and this page will update automatically.</>
+            )}
+          </p>
+          {!suspended && (
+            <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,
+              padding:"12px 16px",fontSize:13,color:"#1e40af",marginBottom:24,textAlign:"left",lineHeight:1.6}}>
+              <strong>What happens next</strong>
+              <ol style={{paddingLeft:18,marginTop:6,marginBottom:0,lineHeight:1.9}}>
+                <li>The platform owner reviews your request</li>
+                <li>You receive an approval email</li>
+                <li>This screen unlocks into your dashboard</li>
+              </ol>
+            </div>
+          )}
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button onClick={()=>window.location.reload()}
+              style={{padding:"10px 22px",background:"#111827",color:"#fff",border:"none",
+                borderRadius:9,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+              Check again
+            </button>
+            <button onClick={logout}
+              style={{padding:"10px 22px",background:"#f9fafb",color:"#374151",
+                border:"1px solid #d1d5db",borderRadius:9,fontSize:13,fontWeight:500,cursor:"pointer"}}>
+              Sign out
+            </button>
+          </div>
+          <p style={{fontSize:12,color:"#9ca3af",marginTop:18}}>Signed in as {currentUser.email}</p>
+        </div>
+      </div>
+    );
+  }
 
   const isAdmin = currentUser.role === "admin";
 
@@ -551,7 +623,11 @@ function AppShell() {
 
   const isTeam = currentUser?.role === "team";
   const isDemo = currentUser?.email === "demo@hackfesthub.com" || currentUser?.isDemo;
-  const navItems = isAdmin ? ADMIN_NAV : isTeam ? getTeamNav() : getJudgeNav(currentUser);
+  const navItems = isAdmin
+    ? (currentUser.isPlatformOwner
+        ? [...ADMIN_NAV, {id:"platform", label:"⬡ Platform (Owner)", section:"administration"}]
+        : ADMIN_NAV)
+    : isTeam ? getTeamNav() : getJudgeNav(currentUser);
   const activeSections = isAdmin ? SECTIONS : isTeam ? TEAM_SECTIONS : [{id:"judging",label:"Judging",icon:"◆"},{id:"operations",label:"Operations",icon:"◈"}];
   const sections = [...new Set(navItems.map(n => n.section))];
   const sectionLabels = { overview:"Overview", judging:"Judging", admin:"Administration" };
@@ -736,6 +812,7 @@ function AppShell() {
         {page==="team-import"  && isAdmin &&   <TeamImportPage    {...props} db={db} />}
         {page==="ai-studio"    && isAdmin &&   <AIStudioPage      {...props} db={db} />}
         {page==="demo-requests"&& isAdmin &&   <DemoRequestsPage  toast={toast} />}
+        {page==="platform"     && currentUser.isPlatformOwner && <PlatformPage toast={toast} />}
         {showPwModal && <ChangePasswordModal onClose={()=>setShowPwModal(false)} toast={toast} />}
         {isTeam && <TeamDashboardPage {...props} db={db} currentUser={currentUser} />}
         {page==="users"        && isAdmin && <UserManagementPage {...props} />}

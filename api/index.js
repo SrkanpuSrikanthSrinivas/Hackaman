@@ -82,10 +82,19 @@ async function buildUserPayload(user) {
         }
     }
 
+    // Live org status (so the frontend can gate a pending/suspended workspace).
+    let orgStatus = "active";
+    if (user.org_id && user.org_id !== "org_default") {
+        const { rows: [o] } = await q("SELECT status FROM organizations WHERE id=$1", [user.org_id]).catch(()=>({rows:[]}));
+        orgStatus = o?.status || "active";
+    }
+
     return {
         id: user.id, name: user.name, email: user.email,
         role: user.role, judgeId: user.judge_id,
         orgId: user.org_id || null,        // ← tenant boundary
+        orgStatus,                          // pending | active | suspended
+        isPlatformOwner: user.org_id === "org_default" && user.role === "admin",
         teamId: user.team_id || null, teamName,
         avatarUrl: user.avatar_url,
         assignedHackathons: user.role === "team"
@@ -103,6 +112,40 @@ async function hackathonOrg(hackathonId) {
     if (!hackathonId) return null;
     const { rows: [h] } = await q("SELECT org_id FROM hackathons WHERE id=$1", [hackathonId]).catch(()=>({rows:[]}));
     return h?.org_id || null;
+}
+
+// Live status of an org (authoritative — not the possibly-stale JWT).
+async function orgStatusOf(orgId) {
+    if (!orgId || orgId === "org_default") return "active";
+    const { rows: [o] } = await q("SELECT status FROM organizations WHERE id=$1", [orgId]).catch(()=>({rows:[]}));
+    return o?.status || "active";   // if column missing (pre-migration), treat as active
+}
+
+// ── Rate limiting (DB-backed so it works across serverless instances) ───────
+let rateTableReady = false;
+function clientIp(req) {
+    return (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "?")
+        .toString().split(",")[0].trim();
+}
+async function rateLimited(req, action, max, windowMin) {
+    try {
+        if (!rateTableReady) {
+            await q(`CREATE TABLE IF NOT EXISTS rate_events (
+        id BIGSERIAL PRIMARY KEY, ip VARCHAR(64), action VARCHAR(40),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`).catch(()=>{});
+            await q("CREATE INDEX IF NOT EXISTS idx_rate_ip_action ON rate_events(ip,action,created_at)").catch(()=>{});
+            rateTableReady = true;
+        }
+        const ip = clientIp(req);
+        const { rows: [c] } = await q(
+            `SELECT count(*)::int AS n FROM rate_events
+             WHERE ip=$1 AND action=$2 AND created_at > NOW() - ($3 || ' minutes')::interval`,
+            [ip, action, String(windowMin)]
+        );
+        await q("INSERT INTO rate_events (ip,action) VALUES ($1,$2)", [ip, action]).catch(()=>{});
+        return (c?.n || 0) >= max;
+    } catch { return false; }   // fail OPEN — a limiter error must never lock out real users
 }
 
 // Throws-style guard used inside write routes when needed.
@@ -271,6 +314,47 @@ async function resourceGuard(req, res, next) {
 
 app.use(resourceGuard);
 
+// ── APPROVAL GATE ("approve before anything") ───────────────────────────────
+// A pending or suspended org is completely frozen. Its admin can sign in and
+// see the "awaiting approval" screen, but every other API action is blocked
+// until the platform owner activates the org. Live DB status is authoritative,
+// so approval/suspension takes effect immediately without needing re-login.
+const FREEZE_ALLOW = [
+    "/api/auth/", "/auth/",              // login, logout, signup, password reset
+    "/api/me/org-status", "/me/org-status",
+    "/api/public/", "/public/",          // viewing public event pages is fine
+    "/api/health", "/health",
+];
+
+async function orgActiveGuard(req, res, next) {
+    try {
+        const token = req.headers.authorization?.replace("Bearer ", "");
+        if (!token) return next();
+        let payload;
+        try { payload = jwt.verify(token, JWT_SECRET); } catch { return next(); }
+
+        // Platform owner (org_default) is never frozen.
+        if (!payload.orgId || payload.orgId === "org_default") return next();
+
+        // Always-allowed paths (auth flow, status poll, public pages).
+        if (FREEZE_ALLOW.some(p => req.path.startsWith(p))) return next();
+
+        const status = await orgStatusOf(payload.orgId);
+        if (status === "active") return next();
+
+        // Frozen: block everything else.
+        return res.status(403).json({
+            error: status === "suspended"
+            ? "This workspace has been suspended. Contact support."
+            : "This workspace is awaiting approval and is not active yet.",
+            orgStatus: status,
+            frozen: true,
+        });
+    } catch (e) { next(); }
+}
+
+app.use(orgActiveGuard);
+
 
 
 // ─── HEALTH ──────────────────────────────────────────────────────────────────
@@ -325,6 +409,9 @@ app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
     return res.status(400).json({ error: "Organization name is required" });
 
     const cleanEmail = email.trim().toLowerCase();
+    // Abuse guard: no more than 5 signups per hour from one network.
+    if (await rateLimited(req, "signup", 5, 60))
+    return res.status(429).json({ error: "Too many signups from this network. Please try again later." });
     try {
         // Make sure the multi-tenant tables exist (self-heal if migration not run)
         await q(`CREATE TABLE IF NOT EXISTS organizations (
@@ -336,6 +423,9 @@ app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
     )`).catch(()=>{});
         await q("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
         await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
+        await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'").catch(()=>{});
+        await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ").catch(()=>{});
+        await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ").catch(()=>{});
 
         // Email must be globally unique (one login = one account)
         const { rows: existing } = await q("SELECT id FROM users WHERE email=$1", [cleanEmail]);
@@ -345,9 +435,10 @@ app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
         const orgId = "org_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
         const slug = orgName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0,60)
         + "-" + Math.random().toString(36).slice(2,5);
+        // NEW ORGS START 'pending' — frozen until the platform owner approves.
         await q(
-            `INSERT INTO organizations (id,name,slug,plan,owner_email,max_hackathons,max_participants,ai_enabled)
-             VALUES ($1,$2,$3,'free',$4,1,50,false)`,
+            `INSERT INTO organizations (id,name,slug,plan,owner_email,max_hackathons,max_participants,ai_enabled,status)
+             VALUES ($1,$2,$3,'free',$4,1,50,false,'pending')`,
             [orgId, orgName.trim(), slug, cleanEmail]
         );
 
@@ -361,34 +452,65 @@ app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
 
         await logEvent("signup", u, req, "email").catch(()=>{});
 
-        // Welcome email
+        // Applicant email: received, awaiting review (NOT "you're ready")
         try {
             const html = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
         <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
           <div style="background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:32px;text-align:center;">
-            <h1 style="color:#fff;font-size:22px;margin:0;">⚡ Welcome to HackFest Hub</h1>
+            <h1 style="color:#fff;font-size:22px;margin:0;">⚡ HackFest Hub</h1>
           </div>
           <div style="padding:30px 34px;">
             <p style="font-size:15px;color:#334155;line-height:1.75;">Hi ${name.trim()},</p>
             <p style="font-size:14px;color:#4b5563;line-height:1.75;">
-              Your workspace <strong>${orgName.trim()}</strong> is ready. You can create your first
-              hackathon, invite judges and teams, and run the whole event from one place.
+              Thanks for requesting a workspace for <strong>${orgName.trim()}</strong>. Your request is
+              now under review. We approve new organizations manually to keep the platform safe — you'll
+              get an email the moment your workspace is activated, usually within a day.
             </p>
-            <a href="${siteUrl()}" style="display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;padding:13px;border-radius:10px;font-size:15px;font-weight:700;margin-top:18px;">Go to your dashboard →</a>
+            <p style="font-size:13px;color:#94a3b8;line-height:1.6;margin-top:18px;">
+              You can sign in now, but your workspace stays locked until it's approved.
+            </p>
           </div>
         </div></body></html>`;
-            sendEmail(cleanEmail, `Welcome to HackFest Hub — ${orgName.trim()}`, html).catch(()=>{});
+            sendEmail(cleanEmail, `We received your request — ${orgName.trim()}`, html).catch(()=>{});
+        } catch(_) {}
+
+        // Owner notification: a new org needs your approval
+        try {
+            const owner = process.env.PLATFORM_OWNER_EMAIL || process.env.DEMO_NOTIFY_EMAIL || "contact@hackfesthub.com";
+            const ip = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "?").toString().split(",")[0].trim();
+            const ohtml = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
+        <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb;">
+          <div style="background:#111827;padding:22px 28px;">
+            <h2 style="color:#fff;font-size:17px;margin:0;">🔔 New organization awaiting approval</h2>
+          </div>
+          <div style="padding:24px 28px;">
+            <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
+              <tr><td style="padding:6px 0;color:#6b7280;width:130px;">Organization</td><td style="font-weight:700;">${orgName.trim()}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280;">Requested by</td><td>${name.trim()}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280;">Email</td><td>${cleanEmail}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280;">IP</td><td>${ip}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280;">When</td><td>${new Date().toISOString().replace("T"," ").slice(0,19)} UTC</td></tr>
+            </table>
+            <a href="${siteUrl()}/admin" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:11px 20px;border-radius:9px;font-size:14px;font-weight:700;margin-top:18px;">Review in Platform console →</a>
+            <p style="font-size:12px;color:#9ca3af;margin-top:14px;">This organization is frozen until you approve it.</p>
+          </div>
+        </div></body></html>`;
+            sendEmail(owner, `Approval needed: ${orgName.trim()}`, ohtml).catch(()=>{});
         } catch(_) {}
 
         const payload = await buildUserPayload(u);
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
-        res.status(201).json({ token, user: payload });
+        // orgStatus tells the frontend to show the "pending approval" gate.
+        res.status(201).json({ token, user: payload, orgStatus: "pending" });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post(["/api/auth/login", "/auth/login"], async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    // Brute-force guard: max 20 login attempts per 15 min from one network.
+    if (await rateLimited(req, "login", 20, 15))
+    return res.status(429).json({ error: "Too many login attempts. Please wait a few minutes and try again." });
     try {
         const { rows } = await q("SELECT * FROM users WHERE email=$1", [email.toLowerCase().trim()]);
         const user = rows[0];
@@ -401,7 +523,106 @@ app.post(["/api/auth/login", "/auth/login"], async (req, res) => {
         await logEvent("login", user, req, "email");
         const payload = await buildUserPayload(user);
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
-        res.json({ token, user: payload });
+        res.json({ token, user: payload, orgStatus: payload.orgStatus });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Org status poll (used by the "awaiting approval" gate to auto-advance) ──
+app.get(["/api/me/org-status", "/me/org-status"], auth, async (req, res) => {
+    try {
+        if (!req.user.orgId || req.user.orgId === "org_default")
+        return res.json({ orgStatus: "active" });
+        const { rows: [o] } = await q(
+            "SELECT name, status FROM organizations WHERE id=$1", [req.user.orgId]
+        ).catch(()=>({rows:[]}));
+        res.json({ orgStatus: o?.status || "active", orgName: o?.name || null });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLATFORM CONSOLE — owner only (org_default admin). Full oversight of every
+// tenant: who signed up, their status, and approve / suspend / delete controls.
+// ═══════════════════════════════════════════════════════════════════════════
+function platformOwner(req, res, next) {
+    auth(req, res, () => {
+        if (req.user.orgId !== "org_default" || req.user.role !== "admin")
+        return res.status(403).json({ error: "Platform owner only" });
+        next();
+    });
+}
+
+// List every organization with live counts.
+app.get(["/api/platform/orgs", "/platform/orgs"], platformOwner, async (req, res) => {
+    try {
+        const { rows } = await q(`
+      SELECT o.*,
+        (SELECT count(*)::int FROM hackathons h WHERE h.org_id=o.id) AS hackathon_count,
+        (SELECT count(*)::int FROM users u WHERE u.org_id=o.id)      AS user_count
+      FROM organizations o
+      ORDER BY (o.status='pending') DESC, o.created_at DESC
+    `).catch(()=>({rows:[]}));
+        const orgs = rows.map(camel);
+        const pending = orgs.filter(o => o.status === "pending").length;
+        res.json({ orgs, pending, total: orgs.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Approve / suspend / reactivate an organization.
+app.put(["/api/platform/orgs/:id/status", "/platform/orgs/:id/status"], platformOwner, async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!["active", "suspended", "pending"].includes(status))
+    return res.status(400).json({ error: "status must be active, suspended, or pending" });
+    if (id === "org_default")
+    return res.status(400).json({ error: "The platform organization cannot be modified." });
+    try {
+        const stamp = status === "active" ? "approved_at" : status === "suspended" ? "suspended_at" : "created_at";
+        const { rows: [org] } = await q(
+            `UPDATE organizations SET status=$1, ${stamp}=NOW()${status==="active" ? ", approved_by=$3" : ""} WHERE id=$2 RETURNING *`,
+            status === "active" ? [status, id, req.user.email] : [status, id]
+        );
+        if (!org) return res.status(404).json({ error: "Organization not found" });
+
+        // Notify the org owner when they're approved.
+        if (status === "active" && org.owner_email) {
+            try {
+                const html = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
+          <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+            <div style="background:linear-gradient(135deg,#059669,#10b981);padding:32px;text-align:center;">
+              <h1 style="color:#fff;font-size:22px;margin:0;">✅ You're approved!</h1>
+            </div>
+            <div style="padding:30px 34px;">
+              <p style="font-size:15px;color:#334155;line-height:1.75;">
+                Great news — <strong>${org.name}</strong> is now active on HackFest Hub. You can sign in
+                and start building your first hackathon right away.
+              </p>
+              <a href="${siteUrl()}/admin" style="display:block;background:#059669;color:#fff;text-decoration:none;text-align:center;padding:13px;border-radius:10px;font-size:15px;font-weight:700;margin-top:18px;">Go to your workspace →</a>
+            </div>
+          </div></body></html>`;
+                sendEmail(org.owner_email, `${org.name} is approved — welcome to HackFest Hub`, html).catch(()=>{});
+            } catch(_) {}
+        }
+        res.json(camel(org));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Delete an organization and all of its data. Irreversible.
+app.delete(["/api/platform/orgs/:id", "/platform/orgs/:id"], platformOwner, async (req, res) => {
+    const { id } = req.params;
+    if (id === "org_default" || id === "org_demo")
+    return res.status(400).json({ error: "This organization is protected and cannot be deleted." });
+    try {
+        const { rows: hacks } = await q("SELECT id FROM hackathons WHERE org_id=$1", [id]).catch(()=>({rows:[]}));
+        const hackIds = hacks.map(h => h.id);
+        if (hackIds.length) {
+            for (const table of ["submissions","teams","criteria","registrations","feedbacks","announcements","mentors","speakers","partners","org_team","checkins","certificates"]) {
+                await q(`DELETE FROM ${table} WHERE hackathon_id = ANY($1::varchar[])`, [hackIds]).catch(()=>{});
+            }
+            await q("DELETE FROM hackathons WHERE org_id=$1", [id]).catch(()=>{});
+        }
+        await q("DELETE FROM users WHERE org_id=$1", [id]).catch(()=>{});
+        await q("DELETE FROM organizations WHERE id=$1", [id]);
+        res.json({ ok: true, deletedHackathons: hackIds.length });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

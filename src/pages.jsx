@@ -5238,3 +5238,135 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
     </div>
   );
 }
+
+/* ─── PLATFORM CONSOLE (owner only) ──────────────────────────────────────── */
+export function PlatformPage({ toast }) {
+  const [orgs,    setOrgs]    = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter,  setFilter]  = useState("pending");
+  const [busy,    setBusy]    = useState("");
+
+  const load = () => {
+    setLoading(true);
+    GET("/api/platform/orgs")
+      .then(d => setOrgs(Array.isArray(d?.orgs) ? d.orgs : []))
+      .catch(e => toast(e.message, "error"))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const setStatus = async (id, status, name) => {
+    const verb = status === "active" ? "approve" : status === "suspended" ? "suspend" : "reset";
+    if (status === "suspended" && !confirm(`Suspend "${name}"? Their logins stop working immediately.`)) return;
+    setBusy(id);
+    try {
+      await PUT(`/api/platform/orgs/${id}/status`, { status });
+      toast(status === "active" ? `Approved ${name}` : status === "suspended" ? `Suspended ${name}` : "Reset to pending");
+      load();
+    } catch(e) { toast(e.message, "error"); }
+    finally { setBusy(""); }
+  };
+  const del = async (id, name) => {
+    if (!confirm(`PERMANENTLY delete "${name}" and ALL its hackathons, teams, and users? This cannot be undone.`)) return;
+    setBusy(id);
+    try { await DEL(`/api/platform/orgs/${id}`); toast(`Deleted ${name}`); load(); }
+    catch(e) { toast(e.message, "error"); }
+    finally { setBusy(""); }
+  };
+
+  const ST = {
+    pending:   { l:"Pending",   c:C.amber, bg:C.bgAmber },
+    active:    { l:"Active",    c:C.green, bg:C.bgGreen },
+    suspended: { l:"Suspended", c:C.red || "#dc2626", bg:C.bgRed || "#fef2f2" },
+  };
+  const counts = {
+    all: orgs.length,
+    pending:   orgs.filter(o => o.status === "pending").length,
+    active:    orgs.filter(o => o.status === "active").length,
+    suspended: orgs.filter(o => o.status === "suspended").length,
+  };
+  const filtered = filter === "all" ? orgs : orgs.filter(o => o.status === filter);
+
+  return (
+    <div>
+      <SectionHeader title="Platform — Organizations"
+        count={`${counts.pending} pending · ${counts.active} active · ${orgs.length} total`}
+        action={<Btn variant="secondary" onClick={load}>{loading ? <Spinner/> : "↻"} Refresh</Btn>}
+      />
+
+      <div style={{ background:C.bgBlue, border:`1px solid ${C.border}`, borderRadius:R.md,
+        padding:"12px 16px", fontSize:13, color:C.text2, marginBottom:16, lineHeight:1.6 }}>
+        You approve every new organization before it can do anything. Pending orgs are frozen — their
+        admins can sign in but cannot create or publish until you approve them here.
+      </div>
+
+      <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
+        {[["pending","⏳ Pending"],["active","🟢 Active"],["suspended","⛔ Suspended"],["all","All"]].map(([v,l]) => (
+          <button key={v} onClick={() => setFilter(v)}
+            style={{ ...FONT, fontSize:12, fontWeight:500, padding:"7px 14px",
+              borderRadius:R.sm, cursor:"pointer", transition:"all 0.13s",
+              border:`1px solid ${filter===v ? C.blue : C.border}`,
+              background:filter===v ? C.bgBlue : "transparent",
+              color:filter===v ? C.blue : C.text3 }}>
+            {l} ({counts[v]})
+          </button>
+        ))}
+      </div>
+
+      {loading ? <Spinner/> : filtered.length === 0 ? (
+        <Empty icon="⬡" title={`No ${filter==="all"?"":filter} organizations`} />
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {filtered.map(o => {
+            const st = ST[o.status] || ST.pending;
+            return (
+              <Card key={o.id}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+                  gap:14, flexWrap:"wrap" }}>
+                  <div style={{ minWidth:0, flex:1 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
+                      <span style={{ ...FONT, fontSize:15, fontWeight:700, color:C.text }}>{o.name}</span>
+                      <span style={{ ...FONT, fontSize:11, fontWeight:600, padding:"2px 9px",
+                        borderRadius:20, color:st.c, background:st.bg }}>{st.l}</span>
+                      <span style={{ ...FONT, fontSize:11, color:C.text3, textTransform:"uppercase",
+                        letterSpacing:"0.05em" }}>{o.plan}</span>
+                    </div>
+                    <div style={{ ...FONT, fontSize:13, color:C.text2 }}>{o.ownerEmail || "—"}</div>
+                    <div style={{ ...FONT, fontSize:12, color:C.text3, marginTop:4 }}>
+                      {o.hackathonCount ?? 0} hackathon{(o.hackathonCount??0)===1?"":"s"} ·
+                      {" "}{o.userCount ?? 0} user{(o.userCount??0)===1?"":"s"} ·
+                      {" "}joined {fmtDate ? fmtDate(o.createdAt) : (o.createdAt||"").slice(0,10)}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                    {o.status === "pending" && (
+                      <Btn onClick={() => setStatus(o.id, "active", o.name)} disabled={busy===o.id}>
+                        {busy===o.id ? <Spinner/> : "✓ Approve"}
+                      </Btn>
+                    )}
+                    {o.status === "active" && (
+                      <Btn variant="secondary" onClick={() => setStatus(o.id, "suspended", o.name)} disabled={busy===o.id}>
+                        Suspend
+                      </Btn>
+                    )}
+                    {o.status === "suspended" && (
+                      <Btn onClick={() => setStatus(o.id, "active", o.name)} disabled={busy===o.id}>
+                        Reactivate
+                      </Btn>
+                    )}
+                    <button onClick={() => del(o.id, o.name)} disabled={busy===o.id}
+                      style={{ ...FONT, fontSize:12, fontWeight:500, padding:"7px 12px",
+                        borderRadius:R.sm, cursor:"pointer", border:`1px solid ${C.border}`,
+                        background:"transparent", color:C.red || "#dc2626" }}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
