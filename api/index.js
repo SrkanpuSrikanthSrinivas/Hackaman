@@ -4,7 +4,16 @@ const cors     = require("cors");
 const bcrypt   = require("bcryptjs");
 const jwt      = require("jsonwebtoken");
 const fetch    = require("node-fetch");
-const { Pool } = require("pg");
+const { Pool, types } = require("pg");
+
+// ── Timezone-safe DATE handling ────────────────────────────────────────────
+// Postgres DATE columns (start_date, end_date, …) are calendar dates with no
+// time or zone. By default node-postgres converts them to JS Date objects at
+// UTC midnight, which then render one day early for users behind UTC (e.g.
+// Central Time). Returning them as raw "YYYY-MM-DD" strings keeps the exact
+// day the user picked, everywhere. OID 1082 = DATE. (Timestamps are OID
+// 1114/1184 and are untouched, so created_at etc. still work normally.)
+types.setTypeParser(1082, v => v);
 
 // ── Canonical public URL ──────────────────────────────────────────────────
 // Prefers CANONICAL_URL, then FRONTEND_URL, but never a *.vercel.app preview

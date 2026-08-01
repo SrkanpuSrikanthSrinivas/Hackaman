@@ -6,8 +6,8 @@ const BASE = ["localhost","127.0.0.1"].includes(window.location.hostname)
 const FF = {fontFamily:"'Inter',sans-serif"};
 const MM = {fontFamily:"'Space Mono',monospace"};
 
-function fmt(d){ if(!d)return""; const s=d.length<=10?d+"T12:00:00":d; const dt=new Date(s); return isNaN(dt)?"":dt.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}); }
-function fmtS(d){ if(!d)return""; const s=d.length<=10?d+"T12:00:00":d; const dt=new Date(s); return isNaN(dt)?"":dt.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
+function fmt(d){ if(!d)return""; const m=typeof d==="string"&&d.match(/^(\d{4})-(\d{2})-(\d{2})/); const dt=m?new Date(+m[1],+m[2]-1,+m[3]):new Date(d); return isNaN(dt.getTime())?"":dt.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}); }
+function fmtS(d){ if(!d)return""; const m=typeof d==="string"&&d.match(/^(\d{4})-(\d{2})-(\d{2})/); const dt=m?new Date(+m[1],+m[2]-1,+m[3]):new Date(d); return isNaN(dt.getTime())?"":dt.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
 function ytId(url){ const m=url?.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m?m[1]:null; }
 function vimId(url){ const m=url?.match(/vimeo\.com\/(?:video\/)?(\d+)/); return m?m[1]:null; }
 function initials(name){ return (name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(); }

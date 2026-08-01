@@ -28,9 +28,12 @@ export const PPOST  = (p,b) => fetch(`${BASE}${p}`,{method:"POST",headers:{"Cont
 /* ─── UTILS ─────────────────────────────────────────────────────────────── */
 export const fmtDate = d => {
   if (!d) return "—";
-  // Postgres returns full ISO timestamps; only append T12:00:00 for bare date strings
-  const s = (typeof d === "string" && d.length <= 10) ? d + "T12:00:00" : d;
-  const dt = new Date(s);
+  // A calendar date (start/end date) should show the literal Y-M-D the user
+  // picked — never shifted by a timezone. If the value looks like a date
+  // (with or without a trailing time), build a LOCAL date from its parts and
+  // ignore any time/zone. Only fall back to Date parsing for other formats.
+  const m = typeof d === "string" && d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const dt = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d);
   return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
 };
 export const fmtDt   = d => d ? new Date(d).toLocaleString("en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";

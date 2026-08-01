@@ -3491,7 +3491,12 @@ export function TeamDashboardPage({ activeHackathon, currentUser, toast }) {
   const adminClosed = hack?.submissionsOpen === false;
   const submissionsOpen = !notStarted && !hasEnded && !adminClosed;
   const daysToStart = startDate ? Math.ceil((startDate-now)/864e5) : null;
-  const fmt = d => d ? new Date(d).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : "";
+  const fmt = d => {
+    if (!d) return "";
+    const m = typeof d === "string" && d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const dt = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(d);
+    return isNaN(dt.getTime()) ? "" : dt.toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
+  };
 
   if (loading && !data) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:80}}>
