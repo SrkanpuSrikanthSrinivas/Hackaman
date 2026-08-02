@@ -626,7 +626,7 @@ function AppShell() {
   const navItems = isAdmin
     ? (currentUser.isPlatformOwner
         ? [...ADMIN_NAV, {id:"platform", label:"⬡ Platform (Owner)", section:"administration"}]
-        : ADMIN_NAV)
+        : ADMIN_NAV.filter(n => n.id !== "login-logs"))   // login activity is owner-only
     : isTeam ? getTeamNav() : getJudgeNav(currentUser);
   const activeSections = isAdmin ? SECTIONS : isTeam ? TEAM_SECTIONS : [{id:"judging",label:"Judging",icon:"◆"},{id:"operations",label:"Operations",icon:"◈"}];
   const sections = [...new Set(navItems.map(n => n.section))];
@@ -799,7 +799,7 @@ function AppShell() {
         {page==="all-feedback" && <AllFeedbackPage  {...props} currentUser={currentUser} />}
         {page==="reports"      && <ReportPage       {...props} />}
         {page==="best-judge"   && isAdmin && <BestJudgePage  {...props} />}
-        {page==="login-logs"   && isAdmin && <LoginLogsPage   toast={toast} />}
+        {page==="login-logs"   && currentUser.isPlatformOwner && <LoginLogsPage   toast={toast} />}
         {page==="submissions"  &&              <SubmissionsPage  {...props} db={db} isAdmin={isAdmin} />}
         {page==="judge-progress"&&isAdmin &&   <JudgeProgressPage {...props} db={db} />}
         {page==="announcements"&&isAdmin &&    <AnnouncementsPage {...props} db={db} />}

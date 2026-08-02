@@ -289,6 +289,7 @@ const RESOURCE_ORG_SQL = {
     certificates:  "SELECT h.org_id FROM certificates c JOIN hackathons h ON h.id=c.hackathon_id WHERE c.id=$1",
     hackathons:    "SELECT org_id FROM hackathons WHERE id=$1",
     users:         "SELECT org_id FROM users WHERE id=$1",
+    judges:        "SELECT org_id FROM judges WHERE id=$1",
 };
 
 async function resourceGuard(req, res, next) {
@@ -378,8 +379,8 @@ app.post(["/api/auth/logout", "/auth/logout"], auth, async (req, res) => {
     res.json({ ok: true });
 });
 
-// ── LOGIN AUDIT LOG (admin only) ─────────────────────────────────────────────
-app.get(["/api/login-logs", "/login-logs"], admin, async (req, res) => {
+// ── LOGIN AUDIT LOG (platform owner / super admin only) ──────────────────────
+app.get(["/api/login-logs", "/login-logs"], platformOwner, async (req, res) => {
     try {
         const limit  = Math.min(parseInt(req.query.limit)||100, 500);
         const offset = parseInt(req.query.offset)||0;
@@ -1019,15 +1020,32 @@ app.delete(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) =
 });
 
 // ─── JUDGES / TEAMS / CRITERIA (standard CRUD) ───────────────────────────────
-app.get(["/api/judges", "/judges"], auth, async (_req, res) => {
+app.get(["/api/judges", "/judges"], auth, async (req, res) => {
     try {
-        const { rows } = await q("SELECT * FROM judges ORDER BY name");
-        // Attach the list of hackathon IDs each judge is assigned to (via linked users)
-        const { rows: links } = await q(`
-      SELECT u.judge_id, hj.hackathon_id, u.email
-      FROM users u JOIN hackathon_judges hj ON hj.user_id = u.id
-      WHERE u.judge_id IS NOT NULL
-    `).catch(()=>({rows:[]}));
+        // Self-heal: ensure the tenant column exists + is backfilled from linked users.
+        await q("ALTER TABLE judges ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
+        await q(`UPDATE judges j SET org_id = u.org_id FROM users u
+             WHERE u.judge_id = j.id AND j.org_id IS NULL AND u.org_id IS NOT NULL`).catch(()=>{});
+
+        const orgId = req.user.orgId;
+        const scoped = orgId && orgId !== "org_default";
+        // A judge is visible to an org if it's tagged to that org OR linked to a
+        // user in that org. org_default (platform owner) sees all judges.
+        const { rows } = scoped
+        ? await q(`SELECT DISTINCT j.* FROM judges j
+                 LEFT JOIN users u ON u.judge_id = j.id
+                 WHERE j.org_id = $1 OR u.org_id = $1
+                 ORDER BY j.name`, [orgId])
+        : await q("SELECT * FROM judges ORDER BY name");
+
+        // Attach hackathon assignments — scoped to this org so no cross-org links leak.
+        const { rows: links } = scoped
+        ? await q(`SELECT u.judge_id, hj.hackathon_id, u.email
+                 FROM users u JOIN hackathon_judges hj ON hj.user_id = u.id
+                 WHERE u.judge_id IS NOT NULL AND u.org_id = $1`, [orgId]).catch(()=>({rows:[]}))
+        : await q(`SELECT u.judge_id, hj.hackathon_id, u.email
+                 FROM users u JOIN hackathon_judges hj ON hj.user_id = u.id
+                 WHERE u.judge_id IS NOT NULL`).catch(()=>({rows:[]}));
         const byJudge = {};
         links.forEach(l => {
             if (!byJudge[l.judge_id]) byJudge[l.judge_id] = { hacks:new Set(), email:l.email };
@@ -1047,7 +1065,9 @@ app.get(["/api/judges", "/judges"], auth, async (_req, res) => {
 app.post(["/api/judges", "/judges"], admin, async (req, res) => {
     const { name, org, role, avatarUrl } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: "name required" });
-    try { const { rows } = await q("INSERT INTO judges (id,name,org,role,avatar_url) VALUES ($1,$2,$3,$4,$5) RETURNING *", [uid(), name, org, role, avatarUrl||null]); res.status(201).json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
+    try {
+        await q("ALTER TABLE judges ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
+        const { rows } = await q("INSERT INTO judges (id,name,org,role,avatar_url,org_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *", [uid(), name, org, role, avatarUrl||null, req.user.orgId || "org_default"]); res.status(201).json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put(["/api/judges/:id", "/judges/:id"], admin, async (req, res) => {
     const { name, org, role, avatarUrl } = req.body;
@@ -1058,7 +1078,16 @@ app.delete(["/api/judges/:id", "/judges/:id"], admin, async (req, res) => {
 });
 
 app.get(["/api/teams", "/teams"], auth, async (req, res) => {
-    try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM teams WHERE hackathon_id=$1 ORDER BY name", [hackathonId]) : await q("SELECT * FROM teams ORDER BY name"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
+    try {
+        const { hackathonId } = req.query;
+        const orgId = req.user.orgId, scoped = orgId && orgId !== "org_default";
+        const { rows } = hackathonId
+        ? await q("SELECT * FROM teams WHERE hackathon_id=$1 ORDER BY name", [hackathonId])
+        : scoped
+        ? await q("SELECT t.* FROM teams t JOIN hackathons h ON h.id=t.hackathon_id WHERE h.org_id=$1 ORDER BY t.name", [orgId])
+        : await q("SELECT * FROM teams ORDER BY name");
+        res.json(rows.map(camel));
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post(["/api/teams", "/teams"], admin, async (req, res) => {
     const { hackathonId, name, project, category, members } = req.body;
@@ -1074,7 +1103,16 @@ app.delete(["/api/teams/:id", "/teams/:id"], admin, async (req, res) => {
 });
 
 app.get(["/api/criteria", "/criteria"], auth, async (req, res) => {
-    try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM criteria WHERE hackathon_id=$1 ORDER BY weight DESC", [hackathonId]) : await q("SELECT * FROM criteria ORDER BY weight DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
+    try {
+        const { hackathonId } = req.query;
+        const orgId = req.user.orgId, scoped = orgId && orgId !== "org_default";
+        const { rows } = hackathonId
+        ? await q("SELECT * FROM criteria WHERE hackathon_id=$1 ORDER BY weight DESC", [hackathonId])
+        : scoped
+        ? await q("SELECT c.* FROM criteria c JOIN hackathons h ON h.id=c.hackathon_id WHERE h.org_id=$1 ORDER BY c.weight DESC", [orgId])
+        : await q("SELECT * FROM criteria ORDER BY weight DESC");
+        res.json(rows.map(camel));
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post(["/api/criteria", "/criteria"], admin, async (req, res) => {
     const { hackathonId, name, description, maxScore = 10, weight = 20 } = req.body;
@@ -1091,7 +1129,16 @@ app.delete(["/api/criteria/:id", "/criteria/:id"], admin, async (req, res) => {
 
 // ─── FEEDBACKS (with extra metadata fields) ───────────────────────────────────
 app.get(["/api/feedbacks", "/feedbacks"], auth, async (req, res) => {
-    try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM feedbacks WHERE hackathon_id=$1 ORDER BY submitted_at DESC", [hackathonId]) : await q("SELECT * FROM feedbacks ORDER BY submitted_at DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
+    try {
+        const { hackathonId } = req.query;
+        const orgId = req.user.orgId, scoped = orgId && orgId !== "org_default";
+        const { rows } = hackathonId
+        ? await q("SELECT * FROM feedbacks WHERE hackathon_id=$1 ORDER BY submitted_at DESC", [hackathonId])
+        : scoped
+        ? await q("SELECT f.* FROM feedbacks f JOIN hackathons h ON h.id=f.hackathon_id WHERE h.org_id=$1 ORDER BY f.submitted_at DESC", [orgId])
+        : await q("SELECT * FROM feedbacks ORDER BY submitted_at DESC");
+        res.json(rows.map(camel));
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post(["/api/feedbacks", "/feedbacks"], auth, async (req, res) => {
     const { hackathonId, teamId, judgeId, scores, comments, overall,
@@ -1214,7 +1261,16 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
 
 // ─── REGISTRATIONS ────────────────────────────────────────────────────────────
 app.get(["/api/registrations", "/registrations"], admin, async (req, res) => {
-    try { const { hackathonId } = req.query; const { rows } = hackathonId ? await q("SELECT * FROM registrations WHERE hackathon_id=$1 ORDER BY created_at DESC", [hackathonId]) : await q("SELECT * FROM registrations ORDER BY created_at DESC"); res.json(rows.map(camel)); } catch (e) { res.status(500).json({ error: e.message }); }
+    try {
+        const { hackathonId } = req.query;
+        const orgId = req.user.orgId, scoped = orgId && orgId !== "org_default";
+        const { rows } = hackathonId
+        ? await q("SELECT * FROM registrations WHERE hackathon_id=$1 ORDER BY created_at DESC", [hackathonId])
+        : scoped
+        ? await q("SELECT r.* FROM registrations r JOIN hackathons h ON h.id=r.hackathon_id WHERE h.org_id=$1 ORDER BY r.created_at DESC", [orgId])
+        : await q("SELECT * FROM registrations ORDER BY created_at DESC");
+        res.json(rows.map(camel));
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res) => {
     try {
@@ -1244,9 +1300,10 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
 
                     if (!judgeId) {
                         judgeId = "j" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+                        await q("ALTER TABLE judges ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
                         await q(
-                            "INSERT INTO judges(id,name,org,role) VALUES($1,$2,$3,$4)",
-                            [judgeId, reg.name, reg.organization || reg.org || null, reg.title || reg.role || "Judge"]
+                            "INSERT INTO judges(id,name,org,role,org_id) VALUES($1,$2,$3,$4,$5)",
+                            [judgeId, reg.name, reg.organization || reg.org || null, reg.title || reg.role || "Judge", await orgForHackathon(reg.hackathonId)]
                         );
                         autoResult.judgeCreated = true;
                     }
@@ -1336,11 +1393,15 @@ app.delete(["/api/registrations/:id", "/registrations/:id"], admin, async (req, 
 app.get(["/api/speakers", "/speakers"], auth, async (req, res) => {
     try {
         const { hackathonId, type } = req.query;
-        let sql = "SELECT * FROM page_speakers WHERE 1=1";
+        const orgId = req.user.orgId, scoped = orgId && orgId !== "org_default";
+        let sql = "SELECT ps.* FROM page_speakers ps";
         const params = [];
-        if (hackathonId) { params.push(hackathonId); sql += ` AND hackathon_id=$${params.length}`; }
-        if (type)        { params.push(type);        sql += ` AND type=$${params.length}`; }
-        sql += " ORDER BY sort_order, name";
+        if (!hackathonId && scoped) sql += " JOIN hackathons h ON h.id=ps.hackathon_id";
+        sql += " WHERE 1=1";
+        if (hackathonId) { params.push(hackathonId); sql += ` AND ps.hackathon_id=$${params.length}`; }
+        else if (scoped) { params.push(orgId); sql += ` AND h.org_id=$${params.length}`; }
+        if (type)        { params.push(type);        sql += ` AND ps.type=$${params.length}`; }
+        sql += " ORDER BY ps.sort_order, ps.name";
         const { rows } = await q(sql, params);
         res.json(rows.map(camel));
     } catch (e) {
@@ -1379,8 +1440,11 @@ app.delete(["/api/speakers/:id", "/speakers/:id"], admin, async (req, res) => {
 app.get(["/api/partners", "/partners"], auth, async (req, res) => {
     try {
         const { hackathonId } = req.query;
+        const orgId = req.user.orgId, scoped = orgId && orgId !== "org_default";
         const { rows } = hackathonId
         ? await q("SELECT * FROM page_partners WHERE hackathon_id=$1 ORDER BY sort_order,name",[hackathonId])
+        : scoped
+        ? await q("SELECT p.* FROM page_partners p JOIN hackathons h ON h.id=p.hackathon_id WHERE h.org_id=$1 ORDER BY p.sort_order,p.name",[orgId])
         : await q("SELECT * FROM page_partners ORDER BY sort_order,name");
         res.json(rows.map(camel));
     } catch (e) { res.status(500).json({ error: e.message }); }
