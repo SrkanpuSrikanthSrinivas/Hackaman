@@ -274,12 +274,6 @@ export default function PublicPage({hackathonId}){
   const[data,setData]=useState(null);
   const[loading,setLoading]=useState(true);
   const[err,setErr]=useState("");
-  const[spotsTaken,setSpotsTaken]=useState(0);
-
-  useEffect(()=>{
-    fetch(`${BASE}/api/public/hackathons/${hackathonId}/registrations-count`)
-      .then(r=>r.json()).then(d=>setSpotsTaken(d.count||0)).catch(()=>{});
-  },[hackathonId]);
 
 
   useEffect(()=>{
