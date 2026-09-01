@@ -162,6 +162,7 @@ export default function MarketingPage() {
   const [hackathons, setHackathons] = useState([]);
   const [search,  setSearch]  = useState("");
   const [filter,  setFilter]  = useState("");
+  const [category,setCategory]= useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(()=>{
@@ -182,9 +183,9 @@ export default function MarketingPage() {
     return () => { document.title = "HackFest Hub"; };
   }, []);
 
-  const load = (s=search, f=filter) => {
+  const load = (s=search, f=filter, c=category) => {
     setLoading(true);
-    fetch(`${BASE}/api/public/hackathons?search=${encodeURIComponent(s)}&status=${f}&limit=12`)
+    fetch(`${BASE}/api/public/hackathons?search=${encodeURIComponent(s)}&status=${f}&category=${encodeURIComponent(c)}&limit=12`)
       .then(r=>r.json())
       .then(d=>setHackathons(d.hackathons||[]))
       .catch(()=>{})
@@ -207,6 +208,7 @@ export default function MarketingPage() {
     { n:"04", title:"Celebrate and close", desc:"Publish the leaderboard, email winners, issue certificates, and export everything." },
   ];
   const USE_CASES = ["University chapters","IEEE branches","Company hackathons","Online events","Student clubs","Developer communities"];
+  const CATEGORIES = ["AI & ML","Web & Mobile","Social Good","Fintech","Health","Hardware & IoT","Student","Open Innovation"];
 
   const btnPrimary = { ...FF, display:"inline-flex", alignItems:"center", gap:8, padding:"13px 22px",
     borderRadius:11, background:C.cobalt, color:"#fff", fontSize:15, fontWeight:600, textDecoration:"none",
@@ -255,6 +257,7 @@ export default function MarketingPage() {
             <a className="hf-link" href="#features"   style={{ ...FF, fontSize:14, color:C.muted, padding:"8px 12px", textDecoration:"none" }}>Features</a>
             <a className="hf-link" href="#how"        style={{ ...FF, fontSize:14, color:C.muted, padding:"8px 12px", textDecoration:"none" }}>How it works</a>
             <a className="hf-link" href="#events"     style={{ ...FF, fontSize:14, color:C.muted, padding:"8px 12px", textDecoration:"none" }}>Events</a>
+            <a className="hf-link" href="/community"   style={{ ...FF, fontSize:14, color:C.muted, padding:"8px 12px", textDecoration:"none" }}>Community</a>
             <a className="hf-link" href="#pricing"    style={{ ...FF, fontSize:14, color:C.muted, padding:"8px 12px", textDecoration:"none" }}>Pricing</a>
             <a href="/admin" style={{ ...FF, fontSize:14, fontWeight:500, color:C.ink, padding:"8px 14px", textDecoration:"none" }}>Sign in</a>
             <a className="hf-nav-cta" href="/signup" style={{ ...FF, fontSize:14, fontWeight:600, color:"#fff", background:C.cobalt,
@@ -371,19 +374,33 @@ export default function MarketingPage() {
               </h2>
             </div>
             <div style={{ position:"relative", minWidth:260, flex:"0 1 320px" }}>
-              <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&load(search,filter)}
+              <input value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&load(search,filter,category)}
                 placeholder="Search events…"
                 style={{ ...FF, width:"100%", padding:"11px 14px", borderRadius:10, border:`1px solid ${C.line}`,
                   fontSize:14, background:C.card, color:C.ink }} />
             </div>
           </div>
 
-          <div style={{ display:"flex", gap:8, marginBottom:26, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
             {[{v:"",l:"All"},{v:"active",l:"Open now"},{v:"upcoming",l:"Upcoming"},{v:"completed",l:"Completed"}].map(({v,l})=>(
-              <button key={v} onClick={()=>{ setFilter(v); load(search,v); }}
+              <button key={v} onClick={()=>{ setFilter(v); load(search,v,category); }}
                 style={{ ...FF, fontSize:13, fontWeight:500, padding:"9px 15px", borderRadius:9, cursor:"pointer",
                   border:`1px solid ${filter===v?C.ink:C.line}`, background:filter===v?C.ink:C.card,
                   color:filter===v?"#fff":C.muted, transition:"all .15s" }}>{l}</button>
+            ))}
+          </div>
+
+          <div style={{ display:"flex", gap:7, marginBottom:26, flexWrap:"wrap", alignItems:"center" }}>
+            <span style={{ ...MM, fontSize:11, color:C.faint, textTransform:"uppercase", letterSpacing:"0.08em", marginRight:4 }}>By use case</span>
+            <button onClick={()=>{ setCategory(""); load(search,filter,""); }}
+              style={{ ...FF, fontSize:12.5, fontWeight:500, padding:"6px 12px", borderRadius:20, cursor:"pointer",
+                border:`1px solid ${category===""?C.cobalt:C.line}`, background:category===""?C.cobalt:"transparent",
+                color:category===""?"#fff":C.muted }}>All</button>
+            {CATEGORIES.map(cat=>(
+              <button key={cat} onClick={()=>{ setCategory(cat); load(search,filter,cat); }}
+                style={{ ...FF, fontSize:12.5, fontWeight:500, padding:"6px 12px", borderRadius:20, cursor:"pointer",
+                  border:`1px solid ${category===cat?C.cobalt:C.line}`, background:category===cat?C.cobalt:"transparent",
+                  color:category===cat?"#fff":C.muted, transition:"all .15s" }}>{cat}</button>
             ))}
           </div>
 
@@ -446,7 +463,7 @@ export default function MarketingPage() {
             <span style={{ ...DISPLAY, fontSize:15, fontWeight:700, color:"#fff" }}>HackFest Hub</span>
           </div>
           <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
-            {[["Events","#events"],["Features","#features"],["Pricing","#pricing"],["Hall of Fame","/winners"],["Sign in","/admin"],["Contact","mailto:contact@hackfesthub.com"]].map(([l,h])=>(
+            {[["Events","#events"],["Community","/community"],["Features","#features"],["Pricing","#pricing"],["Hall of Fame","/winners"],["Sign in","/admin"],["Contact","mailto:contact@hackfesthub.com"]].map(([l,h])=>(
               <a key={l} href={h} className="hf-link" style={{ ...FF, fontSize:13, color:"rgba(255,255,255,0.5)", textDecoration:"none" }}>{l}</a>
             ))}
           </div>

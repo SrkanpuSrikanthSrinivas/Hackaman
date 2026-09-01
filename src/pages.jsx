@@ -225,6 +225,14 @@ export function HackathonsPage({ db, reload, toast, setActive, setPage }) {
             <Field label="Location"><input style={IN} value={form.location||""} onChange={f("location")} placeholder="City, State" /></Field>
             <Field label="Prize Pool"><input style={IN} value={form.prizePool||""} onChange={f("prizePool")} placeholder="$25,000 in prizes" /></Field>
           </div>
+          <Field label="Use-case category" hint="How people browse events on the public site">
+            <select style={IN} value={form.category||""} onChange={f("category")}>
+              <option value="">— Select a category —</option>
+              {["AI & ML","Web & Mobile","Social Good","Fintech","Health","Hardware & IoT","Student","Open Innovation"].map(c=>(
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </Field>
           <Field label="Tracks" hint="Comma-separated"><input style={IN} value={form.tracks||""} onChange={f("tracks")} placeholder="AI/ML, Sustainability, Security" /></Field>
           <Field label="Description"><textarea style={TA} value={form.description||""} onChange={f("description")} /></Field>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -2356,7 +2364,7 @@ export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
   }, []);
 
   const send = async (action, body = {}) => {
-    setSending(action);
+    setSending(action); 
     try {
       const r = await POST(`/api/email/${action}`, { hackathonId: activeHackathon, ...body });
       if (r.error) toast(r.error, "error");
@@ -5107,7 +5115,7 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
               <div style={{...FONT,fontSize:12,color:C.text3,marginBottom:3}}>{r.email}{r.org?` · ${r.org}`:""}</div>
               {r.type==="team"&&r.teamName&&(
                 <div style={{...FONT,fontSize:12,color:C.text2,marginBottom:3}}>
-                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""}
+                  🚀 <strong>{r.teamName}</strong>{r.teamSize?` · ${r.teamSize} member${r.teamSize!==1?"s":""}`:""} 
                 </div>
               )}
               {r.message&&(
@@ -5250,6 +5258,8 @@ export function PlatformPage({ toast }) {
   const [loading, setLoading] = useState(true);
   const [filter,  setFilter]  = useState("pending");
   const [busy,    setBusy]    = useState("");
+  const [planModal, setPlanModal] = useState(null);   // org being edited
+  const [planForm,  setPlanForm]  = useState({ plan:"free", maxHackathons:1, maxParticipants:50, aiEnabled:false });
 
   const load = () => {
     setLoading(true);
@@ -5276,6 +5286,41 @@ export function PlatformPage({ toast }) {
     setBusy(id);
     try { await DEL(`/api/platform/orgs/${id}`); toast(`Deleted ${name}`); load(); }
     catch(e) { toast(e.message, "error"); }
+    finally { setBusy(""); }
+  };
+
+  const PRESETS = {
+    free:       { maxHackathons: 1, maxParticipants: 50,  aiEnabled: false },
+    pro:        { maxHackathons: 5, maxParticipants: 500, aiEnabled: true  },
+    enterprise: { maxHackathons: 0, maxParticipants: 0,   aiEnabled: true  },
+  };
+  const openPlan = (o) => {
+    setPlanForm({
+      plan: o.plan || "free",
+      maxHackathons: o.maxHackathons ?? 1,
+      maxParticipants: o.maxParticipants ?? 50,
+      aiEnabled: !!o.aiEnabled,
+    });
+    setPlanModal(o);
+  };
+  const applyPreset = (plan) => {
+    const p = PRESETS[plan] || PRESETS.free;
+    setPlanForm(f => ({ ...f, plan, maxHackathons:p.maxHackathons, maxParticipants:p.maxParticipants, aiEnabled:p.aiEnabled }));
+  };
+  const savePlan = async () => {
+    if (!planModal) return;
+    setBusy(planModal.id);
+    try {
+      await PUT(`/api/platform/orgs/${planModal.id}/plan`, {
+        plan: planForm.plan,
+        maxHackathons: Number(planForm.maxHackathons) || 0,
+        maxParticipants: Number(planForm.maxParticipants) || 0,
+        aiEnabled: !!planForm.aiEnabled,
+      });
+      toast(`Updated ${planModal.name}'s plan`);
+      setPlanModal(null);
+      load();
+    } catch(e) { toast(e.message, "error"); }
     finally { setBusy(""); }
   };
 
@@ -5338,9 +5383,24 @@ export function PlatformPage({ toast }) {
                     </div>
                     <div style={{ ...FONT, fontSize:13, color:C.text2 }}>{o.ownerEmail || "—"}</div>
                     <div style={{ ...FONT, fontSize:12, color:C.text3, marginTop:4 }}>
-                      {o.hackathonCount ?? 0} hackathon{(o.hackathonCount??0)===1?"":"s"} ·
-                      {" "}{o.userCount ?? 0} user{(o.userCount??0)===1?"":"s"} ·
-                      {" "}joined {fmtDate ? fmtDate(o.createdAt) : (o.createdAt||"").slice(0,10)}
+                      {(() => {
+                        const hCap = o.maxHackathons ?? 0, pCap = o.maxParticipants ?? 0;
+                        const hUsed = o.hackathonCount ?? 0, pUsed = o.participantCount ?? 0;
+                        const near = (used, cap) => cap > 0 && used >= cap;
+                        return (
+                          <>
+                            <span style={{ color: near(hUsed,hCap) ? (C.red||"#dc2626") : C.text3 }}>
+                              {hUsed}/{hCap === 0 ? "∞" : hCap} hackathons
+                            </span>
+                            {" · "}
+                            <span style={{ color: near(pUsed,pCap) ? (C.red||"#dc2626") : C.text3 }}>
+                              {pUsed}/{pCap === 0 ? "∞" : pCap} participants
+                            </span>
+                            {" · "}{o.aiEnabled ? "AI on" : "AI off"}
+                            {" · joined "}{fmtDate ? fmtDate(o.createdAt) : (o.createdAt||"").slice(0,10)}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
@@ -5348,6 +5408,14 @@ export function PlatformPage({ toast }) {
                       <Btn onClick={() => setStatus(o.id, "active", o.name)} disabled={busy===o.id}>
                         {busy===o.id ? <Spinner/> : "✓ Approve"}
                       </Btn>
+                    )}
+                    {o.id !== "org_default" && (
+                      <button onClick={() => openPlan(o)} disabled={busy===o.id}
+                        style={{ ...FONT, fontSize:12, fontWeight:600, padding:"7px 14px",
+                          borderRadius:R.sm, cursor:"pointer", border:`1px solid ${C.blue}`,
+                          background:C.bgBlue, color:C.blue }}>
+                        Plan &amp; limits
+                      </button>
                     )}
                     {o.status === "active" && (
                       <Btn variant="secondary" onClick={() => setStatus(o.id, "suspended", o.name)} disabled={busy===o.id}>
@@ -5371,6 +5439,62 @@ export function PlatformPage({ toast }) {
             );
           })}
         </div>
+      )}
+
+      {planModal && (
+        <Modal title={`Plan & limits — ${planModal.name}`} onClose={() => setPlanModal(null)}>
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+            <div style={{ ...FONT, fontSize:12.5, color:C.text2, lineHeight:1.6,
+              background:C.bgBlue, border:`1px solid ${C.border}`, borderRadius:R.sm, padding:"10px 12px" }}>
+              Pick a plan to apply its preset, then fine-tune any limit. Set a limit to
+              <strong> 0 for unlimited</strong> — handy for colleges you're hosting free.
+            </div>
+
+            <div>
+              <label style={{ ...FONT, fontSize:12, fontWeight:600, color:C.text2, display:"block", marginBottom:6 }}>Plan</label>
+              <div style={{ display:"flex", gap:8 }}>
+                {["free","pro","enterprise"].map(p => (
+                  <button key={p} onClick={() => applyPreset(p)}
+                    style={{ ...FONT, flex:1, fontSize:13, fontWeight:600, padding:"9px 0",
+                      borderRadius:R.sm, cursor:"pointer", textTransform:"capitalize",
+                      border:`1.5px solid ${planForm.plan===p ? C.blue : C.border}`,
+                      background:planForm.plan===p ? C.bgBlue : "transparent",
+                      color:planForm.plan===p ? C.blue : C.text2 }}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:12 }}>
+              <div style={{ flex:1 }}>
+                <label style={{ ...FONT, fontSize:12, fontWeight:600, color:C.text2, display:"block", marginBottom:6 }}>Max hackathons</label>
+                <input type="number" min="0" value={planForm.maxHackathons} style={IN}
+                  onChange={e => setPlanForm(f => ({ ...f, maxHackathons: e.target.value }))} />
+                <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:4 }}>0 = unlimited</div>
+              </div>
+              <div style={{ flex:1 }}>
+                <label style={{ ...FONT, fontSize:12, fontWeight:600, color:C.text2, display:"block", marginBottom:6 }}>Max participants</label>
+                <input type="number" min="0" value={planForm.maxParticipants} style={IN}
+                  onChange={e => setPlanForm(f => ({ ...f, maxParticipants: e.target.value }))} />
+                <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:4 }}>0 = unlimited</div>
+              </div>
+            </div>
+
+            <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
+              <input type="checkbox" checked={planForm.aiEnabled}
+                onChange={e => setPlanForm(f => ({ ...f, aiEnabled: e.target.checked }))} />
+              <span style={{ ...FONT, fontSize:13, color:C.text }}>AI features enabled</span>
+            </label>
+
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:4 }}>
+              <Btn variant="secondary" onClick={() => setPlanModal(null)}>Cancel</Btn>
+              <Btn onClick={savePlan} disabled={busy===planModal.id}>
+                {busy===planModal.id ? <Spinner/> : "Save plan"}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

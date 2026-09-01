@@ -11,6 +11,8 @@ import DemoRequestPage from "./DemoRequestPage.jsx";
 import ResetPasswordPage from "./ResetPasswordPage.jsx";
 import JoinTeamPage from "./JoinTeamPage.jsx";
 import SignupPage from "./SignupPage.jsx";
+import CommunityPage, { PostReaderPage } from "./CommunityPage.jsx";
+import WritePage from "./WritePage.jsx";
 import { ProjectGalleryPage, ProjectDetailPage, WinnersPage, ProfilePage } from "./PublicViews.jsx";
 import {
   DashboardPage, HackathonsPage, TeamsPage, JudgesPage, CriteriaPage,
@@ -979,6 +981,9 @@ export default function App() {
   if (path.startsWith("/u/"))        return <ErrorBoundary><ProfilePage /></ErrorBoundary>;
   if (path === "/winners")           return <ErrorBoundary><WinnersPage /></ErrorBoundary>;
   if (path === "/signup" || path === "/start") return <ErrorBoundary><SignupPage /></ErrorBoundary>;
+  if (path === "/community")         return <ErrorBoundary><CommunityPage /></ErrorBoundary>;
+  if (path.startsWith("/read/"))     return <ErrorBoundary><PostReaderPage /></ErrorBoundary>;
+  if (path === "/write")             return <ErrorBoundary><WritePage /></ErrorBoundary>;
   // Public event page
   const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;

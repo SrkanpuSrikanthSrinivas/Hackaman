@@ -64,6 +64,18 @@
       "destination": "/index.html"
     },
     {
+      "source": "/community",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/read/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/write",
+      "destination": "/index.html"
+    },
+    {
       "source": "/hackathons",
       "destination": "/index.html"
     }
