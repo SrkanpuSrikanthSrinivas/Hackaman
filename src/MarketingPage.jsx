@@ -176,9 +176,9 @@ export default function MarketingPage() {
       if(!el){ el=document.createElement("meta"); el.setAttribute(prop?"property":"name",name); document.head.appendChild(el); }
       el.setAttribute("content", content);
     };
-    const desc = "Registration, judging, AI insights, and certificates in one clean platform. Built for university chapters, IEEE branches, and company hackathons.";
+    const desc = "The all-in-one platform for college and company hackathons — registration, judging, AI insights, and certificates in one place. Free for student communities.";
     setMeta("description", desc);
-    setMeta("og:title","HackFest Hub — Run hackathons without the chaos", true);
+    setMeta("og:title","HackFest Hub — Run your college or company hackathon", true);
     setMeta("og:description", desc, true);
     return () => { document.title = "HackFest Hub"; };
   }, []);
@@ -194,12 +194,12 @@ export default function MarketingPage() {
   useEffect(()=>{ load(); }, []);
 
   const FEATURES = [
-    { icon:"launch", title:"Launch in minutes", desc:"Build a branded event page, registration form, and tracks from one dashboard — no code, no setup calls." },
-    { icon:"judge",  title:"Judging that holds up", desc:"Weighted criteria, judge assignments, and conflict handling keep scoring consistent and defensible." },
-    { icon:"ai",     title:"AI that does the busywork", desc:"Score calibration, team summaries, and a full event report — drafted for you, reviewed by you." },
-    { icon:"award",  title:"Closeout in one click", desc:"Verified certificates, winner announcements, and a full data export the moment judging ends." },
-    { icon:"live",   title:"Control the live day", desc:"Real-time leaderboard, check-in, judge progress, and announcements — everything on one screen." },
-    { icon:"people", title:"Real community, built in", desc:"People's Choice voting, Q&A, team formation, and Discord, Slack, and WhatsApp links out of the box." },
+    { phase:"Set up",       icon:"launch", title:"Launch in minutes", desc:"A branded event page, registration form, and tracks — built from one dashboard, no code." },
+    { phase:"Registration", icon:"people", title:"Registration & teams", desc:"Sign-ups, team formation, Q&A, and Discord/Slack/WhatsApp links, all handled on your event page." },
+    { phase:"Live day",     icon:"live",   title:"Run the live day", desc:"Real-time leaderboard, check-in, judge progress, and announcements — everything on one screen." },
+    { phase:"Judging",      icon:"judge",  title:"Judging that holds up", desc:"Weighted criteria, judge assignments, and conflict handling keep scoring consistent and defensible." },
+    { phase:"Insights",     icon:"ai",     title:"AI does the busywork", desc:"Score calibration, team summaries, and a full event report — drafted for you, reviewed by you." },
+    { phase:"Wrap-up",      icon:"award",  title:"Close out in one click", desc:"Verified certificates, winner announcements, and a full data export the moment judging ends." },
   ];
   const STEPS = [
     { n:"01", title:"Create the event", desc:"Dates, prizes, tracks, judges, and a public registration page — set up in one sitting." },
@@ -210,10 +210,10 @@ export default function MarketingPage() {
   const USE_CASES = ["University chapters","IEEE branches","Company hackathons","Online events","Student clubs","Developer communities"];
   const CATEGORIES = ["AI & ML","Web & Mobile","Social Good","Fintech","Health","Hardware & IoT","Student","Open Innovation"];
 
-  const btnPrimary = { ...FF, display:"inline-flex", alignItems:"center", gap:8, padding:"13px 22px",
-    borderRadius:11, background:C.cobalt, color:"#fff", fontSize:15, fontWeight:600, textDecoration:"none",
-    border:`1px solid ${C.cobalt}` };
-  const btnGhost = { ...FF, display:"inline-flex", alignItems:"center", gap:8, padding:"13px 22px",
+  const btnPrimary = { ...FF, display:"inline-flex", alignItems:"center", gap:8, padding:"14px 24px",
+    borderRadius:11, background:C.ink, color:"#fff", fontSize:15, fontWeight:600, textDecoration:"none",
+    border:`1px solid ${C.ink}` };
+  const btnGhost = { ...FF, display:"inline-flex", alignItems:"center", gap:8, padding:"14px 24px",
     borderRadius:11, background:"transparent", color:C.ink, fontSize:15, fontWeight:600, textDecoration:"none",
     border:`1px solid ${C.line}` };
   const eyebrow = { ...MM, fontSize:12, fontWeight:600, color:C.cobalt, letterSpacing:"0.12em", textTransform:"uppercase" };
@@ -234,7 +234,11 @@ export default function MarketingPage() {
         .hf-bar { animation:hf-grow 1s cubic-bezier(.2,.7,.2,1) both; }
         .hf-hackcard:hover { transform:translateY(-3px); box-shadow:0 16px 34px -20px rgba(14,17,22,.35); border-color:${C.cobalt}; }
         .hf-feat:hover { border-color:${C.cobalt}; box-shadow:0 12px 30px -22px rgba(47,107,255,.5); }
-        .hf-nav-cta:hover { background:${C.cobaltDark}; }
+        .hf-cta { transition:background .15s, transform .15s; }
+        .hf-cta:hover { background:#242C38; transform:translateY(-1px); }
+        .hf-cta-coral { transition:background .15s, transform .15s; }
+        .hf-cta-coral:hover { background:#E9512E; transform:translateY(-1px); }
+        .hf-nav-cta:hover { background:#242C38; }
         .hf-link:hover { color:${C.ink}; }
         .hf-hero { display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center; }
         .hf-nav-links { display:flex; align-items:center; gap:4px; }
@@ -260,36 +264,32 @@ export default function MarketingPage() {
             <a className="hf-link" href="/community"   style={{ ...FF, fontSize:14, color:C.muted, padding:"8px 12px", textDecoration:"none" }}>Community</a>
             <a className="hf-link" href="#pricing"    style={{ ...FF, fontSize:14, color:C.muted, padding:"8px 12px", textDecoration:"none" }}>Pricing</a>
             <a href="/admin" style={{ ...FF, fontSize:14, fontWeight:500, color:C.ink, padding:"8px 14px", textDecoration:"none" }}>Sign in</a>
-            <a className="hf-nav-cta" href="/signup" style={{ ...FF, fontSize:14, fontWeight:600, color:"#fff", background:C.cobalt,
+            <a className="hf-nav-cta" href="/signup" style={{ ...FF, fontSize:14, fontWeight:600, color:"#fff", background:C.ink,
               padding:"9px 16px", borderRadius:9, textDecoration:"none", transition:"background .15s" }}>Start free</a>
           </div>
         </div>
       </nav>
 
       {/* HERO */}
-      <section style={{ padding:"88px 24px 72px" }}>
+      <section style={{ padding:"96px 24px 104px" }}>
         <div className="hf-hero" style={{ maxWidth:1160, margin:"0 auto" }}>
           <div className="hf-rise">
-            <div style={{ ...eyebrow, marginBottom:20 }}>Hackathon platform for organizers</div>
+            <div style={{ ...eyebrow, marginBottom:20 }}>For college &amp; company hackathons</div>
             <h1 style={{ ...DISPLAY, fontSize:"clamp(38px,5.4vw,62px)", fontWeight:700, color:C.ink,
               letterSpacing:"-0.035em", lineHeight:1.04, marginBottom:20 }}>
-              Run a hackathon<br/>without the chaos.
+              Run your hackathon<br/>without the chaos.
             </h1>
-            <p style={{ ...FF, fontSize:"clamp(16px,1.6vw,19px)", color:C.muted, lineHeight:1.65, maxWidth:520, marginBottom:32 }}>
-              Registration, judging, AI insights, and certificates — one clean platform that carries
-              your event from the first sign-up to the final award.
+            <p style={{ ...FF, fontSize:"clamp(16px,1.6vw,19px)", color:C.muted, lineHeight:1.65, maxWidth:500, marginBottom:32 }}>
+              The all-in-one platform for university chapters, student clubs, and company teams —
+              registration, judging, and certificates in one place.
             </p>
             <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:16 }}>
-              <a href="/signup" style={btnPrimary}>Start free <Icon name="arrow" size={17} color="#fff"/></a>
+              <a href="/signup" className="hf-cta" style={btnPrimary}>Start free <Icon name="arrow" size={17} color="#fff"/></a>
               <a href="/admin?demo=1" style={btnGhost}>Explore a live demo</a>
             </div>
-            <div style={{ ...FF, fontSize:13, color:C.faint, marginBottom:28, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+            <div style={{ ...FF, fontSize:13, color:C.faint, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
               <Icon name="check" size={15} color={C.coral} w={2}/>
-              Free for student &amp; community events · No credit card · Your data stays yours
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-              <span style={{ ...MM, fontSize:11.5, color:C.faint, textTransform:"uppercase", letterSpacing:"0.06em" }}>Built for</span>
-              <span style={{ ...FF, fontSize:13.5, color:C.muted }}>university chapters · IEEE branches · company hackathons</span>
+              Free for colleges &amp; student communities · No credit card
             </div>
           </div>
           <div className="hf-hero-frame hf-rise" style={{ animationDelay:".08s" }}>
@@ -298,38 +298,51 @@ export default function MarketingPage() {
         </div>
       </section>
 
-      {/* USE-CASE CREDIBILITY BAND (replaces vanity stats) */}
-      <section style={{ padding:"22px 24px", borderTop:`1px solid ${C.line}`, borderBottom:`1px solid ${C.line}`, background:C.card }}>
-        <div style={{ maxWidth:1160, margin:"0 auto", display:"flex", alignItems:"center", gap:24, flexWrap:"wrap", justifyContent:"center" }}>
-          <span style={{ ...MM, fontSize:11.5, color:C.faint, textTransform:"uppercase", letterSpacing:"0.1em" }}>Made for the people who run events</span>
+      {/* MADE FOR ORGANIZERS — audience callout */}
+      <section style={{ padding:"64px 24px", borderTop:`1px solid ${C.line}`, borderBottom:`1px solid ${C.line}`, background:C.card }}>
+        <div style={{ maxWidth:1160, margin:"0 auto", textAlign:"center" }}>
+          <div style={{ ...eyebrow, marginBottom:16 }}>Made for the people who run events</div>
+          <h2 style={{ ...DISPLAY, fontSize:"clamp(26px,3.2vw,38px)", fontWeight:700, color:C.ink,
+            letterSpacing:"-0.03em", lineHeight:1.12, marginBottom:16, maxWidth:720, marginLeft:"auto", marginRight:"auto" }}>
+            You shouldn't need a dev team to run a great hackathon.
+          </h2>
+          <p style={{ ...FF, fontSize:17, color:C.muted, lineHeight:1.6, maxWidth:600, margin:"0 auto 28px" }}>
+            HackFest Hub is built for the club lead, the faculty advisor, and the engineering manager
+            running it on the side — not for a full-time events team.
+          </p>
           <div style={{ display:"flex", gap:10, flexWrap:"wrap", justifyContent:"center" }}>
             {USE_CASES.map(u=>(
-              <span key={u} style={{ ...FF, fontSize:13, fontWeight:500, color:C.inkSoft,
-                padding:"7px 13px", borderRadius:8, background:C.paper, border:`1px solid ${C.line}` }}>{u}</span>
+              <span key={u} style={{ ...FF, fontSize:13.5, fontWeight:500, color:C.inkSoft,
+                padding:"9px 16px", borderRadius:9, background:C.paper, border:`1px solid ${C.line}` }}>{u}</span>
             ))}
           </div>
         </div>
       </section>
 
       {/* FEATURES */}
-      <section id="features" style={{ padding:"92px 24px" }}>
+      <section id="features" style={{ padding:"120px 24px" }}>
         <div style={{ maxWidth:1160, margin:"0 auto" }}>
           <div style={{ maxWidth:560, marginBottom:52 }}>
-            <div style={{ ...eyebrow, marginBottom:14 }}>Everything in one place</div>
+            <div style={{ ...eyebrow, marginBottom:14 }}>One dashboard, start to finish</div>
             <h2 style={{ ...DISPLAY, fontSize:"clamp(28px,3.4vw,40px)", fontWeight:700, color:C.ink, letterSpacing:"-0.03em", lineHeight:1.1, marginBottom:14 }}>
               The whole event, one dashboard
             </h2>
             <p style={{ ...FF, fontSize:16, color:C.muted, lineHeight:1.65 }}>
-              No stitching together forms, spreadsheets, and email threads. Every part of the event lives in the same place.
+              Every stage below is a part of the same dashboard — set up, registration, the live day,
+              judging, and wrap-up. No stitching together forms, spreadsheets, and email threads.
             </p>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:16 }}>
             {FEATURES.map((f,i)=>(
               <div key={i} className="hf-feat" style={{ background:C.card, borderRadius:14, border:`1px solid ${C.line}`,
                 padding:"26px 24px", transition:"border-color .18s ease, box-shadow .18s ease" }}>
-                <div style={{ width:44, height:44, borderRadius:11, background:C.paper, border:`1px solid ${C.line}`,
-                  display:"flex", alignItems:"center", justifyContent:"center", marginBottom:18 }}>
-                  <Icon name={f.icon} size={22} color={C.cobalt}/>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
+                  <div style={{ width:44, height:44, borderRadius:11, background:C.paper, border:`1px solid ${C.line}`,
+                    display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <Icon name={f.icon} size={22} color={C.cobalt}/>
+                  </div>
+                  <span style={{ ...MM, fontSize:10.5, fontWeight:600, color:C.cobalt, textTransform:"uppercase",
+                    letterSpacing:"0.07em", background:"rgba(47,107,255,0.07)", padding:"4px 9px", borderRadius:20 }}>{f.phase}</span>
                 </div>
                 <h3 style={{ ...DISPLAY, fontSize:17, fontWeight:700, color:C.ink, marginBottom:8, letterSpacing:"-0.01em" }}>{f.title}</h3>
                 <p style={{ ...FF, fontSize:13.5, color:C.muted, lineHeight:1.65 }}>{f.desc}</p>
@@ -340,7 +353,7 @@ export default function MarketingPage() {
       </section>
 
       {/* HOW IT WORKS */}
-      <section id="how" style={{ padding:"88px 24px", background:C.card, borderTop:`1px solid ${C.line}`, borderBottom:`1px solid ${C.line}` }}>
+      <section id="how" style={{ padding:"120px 24px", background:C.card, borderTop:`1px solid ${C.line}`, borderBottom:`1px solid ${C.line}` }}>
         <div style={{ maxWidth:1160, margin:"0 auto" }}>
           <div style={{ maxWidth:560, marginBottom:52 }}>
             <div style={{ ...eyebrow, marginBottom:14 }}>Four steps</div>
@@ -364,7 +377,7 @@ export default function MarketingPage() {
       </section>
 
       {/* EVENTS DIRECTORY (no counts) */}
-      <section id="events" style={{ padding:"88px 24px" }}>
+      <section id="events" style={{ padding:"120px 24px" }}>
         <div style={{ maxWidth:1160, margin:"0 auto" }}>
           <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:20, flexWrap:"wrap", marginBottom:32 }}>
             <div style={{ maxWidth:560 }}>
@@ -418,7 +431,7 @@ export default function MarketingPage() {
       </section>
 
       {/* PRICING */}
-      <section id="pricing" style={{ padding:"88px 24px", background:C.card, borderTop:`1px solid ${C.line}`, borderBottom:`1px solid ${C.line}` }}>
+      <section id="pricing" style={{ padding:"120px 24px", background:C.card, borderTop:`1px solid ${C.line}`, borderBottom:`1px solid ${C.line}` }}>
         <div style={{ maxWidth:640, margin:"0 auto", textAlign:"center" }}>
           <div style={{ ...eyebrow, marginBottom:14 }}>Pricing</div>
           <h2 style={{ ...DISPLAY, fontSize:"clamp(28px,3.4vw,40px)", fontWeight:700, color:C.ink, letterSpacing:"-0.03em", lineHeight:1.1, marginBottom:16 }}>
@@ -429,26 +442,28 @@ export default function MarketingPage() {
             We'll set your limits to fit. Colleges hosting community events run free.
           </p>
           <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
-            <a href="/signup" style={btnPrimary}>Start free <Icon name="arrow" size={17} color="#fff"/></a>
+            <a href="/signup" className="hf-cta" style={btnPrimary}>Start free <Icon name="arrow" size={17} color="#fff"/></a>
             <a href="/demo" style={btnGhost}>Talk to us about a larger event</a>
           </div>
         </div>
       </section>
 
       {/* FINAL CTA */}
-      <section style={{ padding:"96px 24px", background:C.ink }}>
-        <div style={{ maxWidth:720, margin:"0 auto", textAlign:"center" }}>
-          <h2 style={{ ...DISPLAY, fontSize:"clamp(30px,4vw,46px)", fontWeight:700, color:"#fff", letterSpacing:"-0.03em", lineHeight:1.08, marginBottom:16 }}>
+      <section style={{ padding:"128px 24px", background:C.ink }}>
+        <div style={{ maxWidth:760, margin:"0 auto", textAlign:"center" }}>
+          <h2 style={{ ...DISPLAY, fontSize:"clamp(34px,4.6vw,54px)", fontWeight:700, color:"#fff", letterSpacing:"-0.035em", lineHeight:1.05, marginBottom:18 }}>
             Your next hackathon, handled.
           </h2>
-          <p style={{ ...FF, fontSize:17, color:"rgba(255,255,255,0.6)", lineHeight:1.6, marginBottom:32, maxWidth:520, margin:"0 auto 32px" }}>
+          <p style={{ ...FF, fontSize:18, color:"rgba(255,255,255,0.6)", lineHeight:1.6, marginBottom:38, maxWidth:520, margin:"0 auto 38px" }}>
             Set up your event page today and see how much of the work runs itself.
           </p>
-          <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
-            <a href="/signup" style={{ ...btnPrimary, padding:"14px 26px", fontSize:16 }}>Start free <Icon name="arrow" size={17} color="#fff"/></a>
-            <a href="/demo" style={{ ...FF, display:"inline-flex", alignItems:"center", gap:8, padding:"14px 26px",
-              borderRadius:11, background:"rgba(255,255,255,0.08)", color:"#fff", fontSize:16, fontWeight:600,
-              textDecoration:"none", border:"1px solid rgba(255,255,255,0.18)" }}>Request a demo</a>
+          <a href="/signup" className="hf-cta-coral" style={{ ...FF, display:"inline-flex", alignItems:"center", gap:10,
+            padding:"20px 44px", borderRadius:14, background:C.coral, color:"#fff", fontSize:19, fontWeight:700,
+            textDecoration:"none", boxShadow:"0 18px 40px -16px rgba(255,106,69,0.6)" }}>
+            Start free <Icon name="arrow" size={20} color="#fff" w={2}/>
+          </a>
+          <div style={{ ...FF, fontSize:13.5, color:"rgba(255,255,255,0.4)", marginTop:20 }}>
+            Free for colleges &amp; student communities · No credit card
           </div>
         </div>
       </section>

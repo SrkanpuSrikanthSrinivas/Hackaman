@@ -5256,10 +5256,12 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
 export function PlatformPage({ toast }) {
   const [orgs,    setOrgs]    = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter,  setFilter]  = useState("pending");
+  const [filter,  setFilter]  = useState("unverified");
   const [busy,    setBusy]    = useState("");
   const [planModal, setPlanModal] = useState(null);   // org being edited
   const [planForm,  setPlanForm]  = useState({ plan:"free", maxHackathons:1, maxParticipants:50, aiEnabled:false });
+  const [activity, setActivity]   = useState([]);
+  const [showActivity, setShowActivity] = useState(true);
 
   const load = () => {
     setLoading(true);
@@ -5267,8 +5269,30 @@ export function PlatformPage({ toast }) {
       .then(d => setOrgs(Array.isArray(d?.orgs) ? d.orgs : []))
       .catch(e => toast(e.message, "error"))
       .finally(() => setLoading(false));
+    GET("/api/platform/activity")
+      .then(d => setActivity(Array.isArray(d?.events) ? d.events : []))
+      .catch(() => {});
   };
   useEffect(() => { load(); }, []);
+
+  const ago = (d) => {
+    if (!d) return "never";
+    const s = Math.floor((Date.now() - new Date(d).getTime())/1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s/60)}m ago`;
+    if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+    if (s < 2592000) return `${Math.floor(s/86400)}d ago`;
+    return `${Math.floor(s/2592000)}mo ago`;
+  };
+  const EV_ICON = { "org.signup":"◆", "hackathon.created":"🚀", "hackathon.published":"🌐", "participant.first":"🎉" };
+  const [eventsModal, setEventsModal] = useState(null);   // { org, list, loading }
+  const openEvents = async (o) => {
+    setEventsModal({ org:o, list:[], loading:true });
+    try {
+      const d = await GET(`/api/platform/orgs/${o.id}/hackathons`);
+      setEventsModal({ org:o, list: Array.isArray(d?.hackathons) ? d.hackathons : [], loading:false });
+    } catch(e) { toast(e.message, "error"); setEventsModal({ org:o, list:[], loading:false }); }
+  };
 
   const setStatus = async (id, status, name) => {
     const verb = status === "active" ? "approve" : status === "suspended" ? "suspend" : "reset";
@@ -5285,6 +5309,12 @@ export function PlatformPage({ toast }) {
     if (!confirm(`PERMANENTLY delete "${name}" and ALL its hackathons, teams, and users? This cannot be undone.`)) return;
     setBusy(id);
     try { await DEL(`/api/platform/orgs/${id}`); toast(`Deleted ${name}`); load(); }
+    catch(e) { toast(e.message, "error"); }
+    finally { setBusy(""); }
+  };
+  const verify = async (id, name, verified) => {
+    setBusy(id);
+    try { await PUT(`/api/platform/orgs/${id}/verify`, { verified }); toast(verified ? `Verified ${name}` : `Removed verification from ${name}`); load(); }
     catch(e) { toast(e.message, "error"); }
     finally { setBusy(""); }
   };
@@ -5324,34 +5354,56 @@ export function PlatformPage({ toast }) {
     finally { setBusy(""); }
   };
 
-  const ST = {
-    pending:   { l:"Pending",   c:C.amber, bg:C.bgAmber },
-    active:    { l:"Active",    c:C.green, bg:C.bgGreen },
-    suspended: { l:"Suspended", c:C.red || "#dc2626", bg:C.bgRed || "#fef2f2" },
-  };
   const counts = {
     all: orgs.length,
-    pending:   orgs.filter(o => o.status === "pending").length,
-    active:    orgs.filter(o => o.status === "active").length,
-    suspended: orgs.filter(o => o.status === "suspended").length,
+    unverified: orgs.filter(o => !o.verified && o.status !== "suspended").length,
+    verified:   orgs.filter(o => o.verified && o.status !== "suspended").length,
+    suspended:  orgs.filter(o => o.status === "suspended").length,
   };
-  const filtered = filter === "all" ? orgs : orgs.filter(o => o.status === filter);
+  const filtered =
+    filter === "unverified" ? orgs.filter(o => !o.verified && o.status !== "suspended") :
+    filter === "verified"   ? orgs.filter(o => o.verified && o.status !== "suspended") :
+    filter === "suspended"  ? orgs.filter(o => o.status === "suspended") :
+    orgs;
 
   return (
     <div>
       <SectionHeader title="Platform — Organizations"
-        count={`${counts.pending} pending · ${counts.active} active · ${orgs.length} total`}
+        count={`${counts.unverified} unverified · ${counts.verified} verified · ${orgs.length} total`}
         action={<Btn variant="secondary" onClick={load}>{loading ? <Spinner/> : "↻"} Refresh</Btn>}
       />
 
       <div style={{ background:C.bgBlue, border:`1px solid ${C.border}`, borderRadius:R.md,
         padding:"12px 16px", fontSize:13, color:C.text2, marginBottom:16, lineHeight:1.6 }}>
-        You approve every new organization before it can do anything. Pending orgs are frozen — their
-        admins can sign in but cannot create or publish until you approve them here.
+        New organizations can use their workspace right away — no waiting. They start <strong>unverified</strong>;
+        verify one to give it a trust badge, or suspend it to block access if something looks wrong.
+      </div>
+
+      {/* ACTIVITY FEED — who signed up and who's actually building */}
+      <div style={{ border:`1px solid ${C.border}`, borderRadius:R.md, marginBottom:18, overflow:"hidden", background:C.card||"#fff" }}>
+        <button onClick={()=>setShowActivity(s=>!s)}
+          style={{ ...FONT, width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between",
+            padding:"12px 16px", background:"transparent", border:"none", cursor:"pointer", fontSize:13, fontWeight:700, color:C.text }}>
+          <span>Recent activity {activity.length ? `· ${activity.length}` : ""}</span>
+          <span style={{ color:C.text3, transform:showActivity?"rotate(90deg)":"none", transition:"transform .15s" }}>›</span>
+        </button>
+        {showActivity && (
+          <div style={{ borderTop:`1px solid ${C.border}`, maxHeight:280, overflowY:"auto" }}>
+            {activity.length === 0 ? (
+              <div style={{ ...FONT, fontSize:13, color:C.text3, padding:"16px" }}>No activity yet. Signups and new events will show up here.</div>
+            ) : activity.map(e => (
+              <div key={e.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 16px", borderBottom:`1px solid ${C.bgSubtle||"#f3f4f6"}` }}>
+                <span style={{ fontSize:15, width:22, textAlign:"center" }}>{EV_ICON[e.type] || "•"}</span>
+                <span style={{ ...FONT, fontSize:13, color:C.text2, flex:1, minWidth:0 }}>{e.summary || e.type}</span>
+                <span style={{ ...FONT, fontSize:11.5, color:C.text3, whiteSpace:"nowrap" }}>{ago(e.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ display:"flex", gap:6, marginBottom:16, flexWrap:"wrap" }}>
-        {[["pending","⏳ Pending"],["active","🟢 Active"],["suspended","⛔ Suspended"],["all","All"]].map(([v,l]) => (
+        {[["unverified","● Unverified"],["verified","✓ Verified"],["suspended","⛔ Suspended"],["all","All"]].map(([v,l]) => (
           <button key={v} onClick={() => setFilter(v)}
             style={{ ...FONT, fontSize:12, fontWeight:500, padding:"7px 14px",
               borderRadius:R.sm, cursor:"pointer", transition:"all 0.13s",
@@ -5368,7 +5420,12 @@ export function PlatformPage({ toast }) {
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
           {filtered.map(o => {
-            const st = ST[o.status] || ST.pending;
+            const suspended = o.status === "suspended";
+            const badge = suspended
+              ? { l:"Suspended", c:C.red || "#dc2626", bg:C.bgRed || "#fef2f2" }
+              : o.verified
+                ? { l:"✓ Verified", c:C.green, bg:C.bgGreen }
+                : { l:"Unverified", c:C.text3, bg:C.bgSubtle || C.bg2 || "#f3f4f6" };
             return (
               <Card key={o.id}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start",
@@ -5377,7 +5434,7 @@ export function PlatformPage({ toast }) {
                     <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
                       <span style={{ ...FONT, fontSize:15, fontWeight:700, color:C.text }}>{o.name}</span>
                       <span style={{ ...FONT, fontSize:11, fontWeight:600, padding:"2px 9px",
-                        borderRadius:20, color:st.c, background:st.bg }}>{st.l}</span>
+                        borderRadius:20, color:badge.c, background:badge.bg }}>{badge.l}</span>
                       <span style={{ ...FONT, fontSize:11, color:C.text3, textTransform:"uppercase",
                         letterSpacing:"0.05em" }}>{o.plan}</span>
                     </div>
@@ -5398,16 +5455,32 @@ export function PlatformPage({ toast }) {
                             </span>
                             {" · "}{o.aiEnabled ? "AI on" : "AI off"}
                             {" · joined "}{fmtDate ? fmtDate(o.createdAt) : (o.createdAt||"").slice(0,10)}
+                            {" · "}<span style={{ color: o.lastActive ? C.green : C.text3, fontWeight:600 }}>
+                              {o.lastActive ? `active ${ago(o.lastActive)}` : "no activity yet"}
+                            </span>
                           </>
                         );
                       })()}
                     </div>
                   </div>
                   <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-                    {o.status === "pending" && (
-                      <Btn onClick={() => setStatus(o.id, "active", o.name)} disabled={busy===o.id}>
-                        {busy===o.id ? <Spinner/> : "✓ Approve"}
+                    {o.id !== "org_default" && !suspended && !o.verified && (
+                      <Btn onClick={() => verify(o.id, o.name, true)} disabled={busy===o.id}>
+                        {busy===o.id ? <Spinner/> : "✓ Verify"}
                       </Btn>
+                    )}
+                    {o.id !== "org_default" && !suspended && o.verified && (
+                      <Btn variant="secondary" onClick={() => verify(o.id, o.name, false)} disabled={busy===o.id}>
+                        Unverify
+                      </Btn>
+                    )}
+                    {o.id !== "org_default" && (
+                      <button onClick={() => openEvents(o)} disabled={busy===o.id}
+                        style={{ ...FONT, fontSize:12, fontWeight:600, padding:"7px 14px",
+                          borderRadius:R.sm, cursor:"pointer", border:`1px solid ${C.border}`,
+                          background:"transparent", color:C.text2 }}>
+                        {o.hackathonCount ?? 0} event{(o.hackathonCount??0)===1?"":"s"} ›
+                      </button>
                     )}
                     {o.id !== "org_default" && (
                       <button onClick={() => openPlan(o)} disabled={busy===o.id}
@@ -5417,28 +5490,58 @@ export function PlatformPage({ toast }) {
                         Plan &amp; limits
                       </button>
                     )}
-                    {o.status === "active" && (
+                    {o.id !== "org_default" && !suspended && (
                       <Btn variant="secondary" onClick={() => setStatus(o.id, "suspended", o.name)} disabled={busy===o.id}>
                         Suspend
                       </Btn>
                     )}
-                    {o.status === "suspended" && (
+                    {suspended && (
                       <Btn onClick={() => setStatus(o.id, "active", o.name)} disabled={busy===o.id}>
                         Reactivate
                       </Btn>
                     )}
-                    <button onClick={() => del(o.id, o.name)} disabled={busy===o.id}
-                      style={{ ...FONT, fontSize:12, fontWeight:500, padding:"7px 12px",
-                        borderRadius:R.sm, cursor:"pointer", border:`1px solid ${C.border}`,
-                        background:"transparent", color:C.red || "#dc2626" }}>
-                      Delete
-                    </button>
+                    {o.id !== "org_default" && (
+                      <button onClick={() => del(o.id, o.name)} disabled={busy===o.id}
+                        style={{ ...FONT, fontSize:12, fontWeight:500, padding:"7px 12px",
+                          borderRadius:R.sm, cursor:"pointer", border:`1px solid ${C.border}`,
+                          background:"transparent", color:C.red || "#dc2626" }}>
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </Card>
             );
           })}
         </div>
+      )}
+
+      {eventsModal && (
+        <Modal title={`Events — ${eventsModal.org.name}`} onClose={() => setEventsModal(null)}>
+          {eventsModal.loading ? <Spinner/> : eventsModal.list.length === 0 ? (
+            <Empty icon="📋" title="No events yet" subtitle="This organization hasn't created a hackathon." />
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {eventsModal.list.map(h => (
+                <div key={h.id} style={{ border:`1px solid ${C.border}`, borderRadius:R.sm, padding:"12px 14px" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                    <span style={{ ...FONT, fontSize:14, fontWeight:700, color:C.text }}>{h.name}</span>
+                    <span style={{ ...FONT, fontSize:10.5, fontWeight:600, padding:"2px 8px", borderRadius:20,
+                      color: h.published ? C.green : C.text3,
+                      background: h.published ? C.bgGreen : (C.bgSubtle||"#f3f4f6") }}>
+                      {h.published ? "Public" : "Draft"}
+                    </span>
+                    {h.category && <span style={{ ...FONT, fontSize:11, color:C.text3 }}>{h.category}</span>}
+                  </div>
+                  <div style={{ ...FONT, fontSize:12, color:C.text3 }}>
+                    {h.registrations ?? 0} registered · {h.teams ?? 0} teams · {h.submissions ?? 0} submissions
+                    {" · created "}{fmtDate ? fmtDate(h.createdAt) : (h.createdAt||"").slice(0,10)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
 
       {planModal && (

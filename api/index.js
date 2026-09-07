@@ -90,6 +90,26 @@ async function logEvent(action, user, req, method = "email") {
   } catch (_) { /* never break auth over a logging failure */ }
 }
 
+// ── Platform activity log (owner oversight) ─────────────────────────────────
+// Records key tenant events — org signups, hackathons created/published — so
+// the platform owner can see who's active. Fire-and-forget; never breaks a request.
+let platEventsReady = false;
+async function logPlatform(type, { orgId=null, orgName=null, actor=null, summary=null } = {}) {
+  try {
+    if (!platEventsReady) {
+      await q(`CREATE TABLE IF NOT EXISTS platform_events (
+        id VARCHAR(28) PRIMARY KEY, type VARCHAR(40), org_id VARCHAR(20),
+        org_name VARCHAR(255), actor VARCHAR(255), summary TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`).catch(()=>{});
+      await q("CREATE INDEX IF NOT EXISTS idx_plat_events_time ON platform_events(created_at DESC)").catch(()=>{});
+      platEventsReady = true;
+    }
+    await q("INSERT INTO platform_events (id,type,org_id,org_name,actor,summary) VALUES ($1,$2,$3,$4,$5,$6)",
+      ["pe"+Date.now().toString(36)+Math.random().toString(36).slice(2,6), type, orgId, orgName, actor, summary]);
+  } catch(_) {}
+}
+
 const toCamel = s => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 function camel(row) {
@@ -123,18 +143,21 @@ async function buildUserPayload(user) {
     }
   }
 
-  // Live org status (so the frontend can gate a pending/suspended workspace).
-  let orgStatus = "active";
+  // Live org status + verification (frontend shows a trust badge; only
+  // 'suspended' blocks access — unverified orgs work normally).
+  let orgStatus = "active", orgVerified = true;
   if (user.org_id && user.org_id !== "org_default") {
-    const { rows: [o] } = await q("SELECT status FROM organizations WHERE id=$1", [user.org_id]).catch(()=>({rows:[]}));
+    const { rows: [o] } = await q("SELECT status, verified FROM organizations WHERE id=$1", [user.org_id]).catch(()=>({rows:[]}));
     orgStatus = o?.status || "active";
+    orgVerified = o?.verified ?? false;
   }
 
   return {
     id: user.id, name: user.name, email: user.email,
     role: user.role, judgeId: user.judge_id,
     orgId: user.org_id || null,        // ← tenant boundary
-    orgStatus,                          // pending | active | suspended
+    orgStatus,                          // active | suspended
+    orgVerified,                        // trust badge, not a gate
     isPlatformOwner: user.org_id === "org_default" && user.role === "admin",
     teamId: user.team_id || null, teamName,
     avatarUrl: user.avatar_url,
@@ -395,14 +418,12 @@ async function orgActiveGuard(req, res, next) {
     // Always-allowed paths (auth flow, status poll, public pages).
     if (FREEZE_ALLOW.some(p => req.path.startsWith(p))) return next();
 
+    // Only SUSPENDED workspaces are blocked. Unverified/active ones work normally.
     const status = await orgStatusOf(payload.orgId);
-    if (status === "active") return next();
+    if (status !== "suspended") return next();
 
-    // Frozen: block everything else.
     return res.status(403).json({
-      error: status === "suspended"
-        ? "This workspace has been suspended. Contact support."
-        : "This workspace is awaiting approval and is not active yet.",
+      error: "This workspace has been suspended. Contact support.",
       orgStatus: status,
       frozen: true,
     });
@@ -455,6 +476,36 @@ app.get(["/api/debug/routes", "/debug/routes"], (req, res) => {
 
 // ─── AUTH: EMAIL ─────────────────────────────────────────────────────────────
 // ── SELF-SERVE SIGNUP — creates an organization + its first admin ──────────
+// ── MEMBER SIGNUP — a personal community account (write posts, participate) ──
+// Distinct from org signup: no organization, no approval gate. Just a login
+// that can publish community posts and take part in events.
+app.post(["/api/auth/member-signup", "/auth/member-signup"], async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name?.trim() || !email?.trim() || !password)
+    return res.status(400).json({ error: "Name, email, and password are required" });
+  if (password.length < 8)
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  const cleanEmail = email.trim().toLowerCase();
+  if (await rateLimited(req, "signup", 5, 60))
+    return res.status(429).json({ error: "Too many signups from this network. Please try again later." });
+  try {
+    const { rows: existing } = await q("SELECT id FROM users WHERE email=$1", [cleanEmail]);
+    if (existing.length) return res.status(409).json({ error: "An account with this email already exists. Try signing in." });
+
+    const hash = await bcrypt.hash(password, 10);
+    const userId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+    // role 'team' = participant; no org, no hackathon → free community member.
+    const { rows: [u] } = await q(
+      "INSERT INTO users (id,name,email,password_hash,role,org_id) VALUES ($1,$2,$3,$4,'team',NULL) RETURNING *",
+      [userId, name.trim(), cleanEmail, hash]
+    );
+    await logEvent("signup", u, req, "member").catch(()=>{});
+    const payload = await buildUserPayload(u);
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
+    res.status(201).json({ token, user: payload });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
   const { name, email, password, orgName } = req.body;
   if (!name?.trim() || !email?.trim() || !password)
@@ -479,7 +530,8 @@ app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
     )`).catch(()=>{});
     await q("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
     await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
-    await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'").catch(()=>{});
+    await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'").catch(()=>{});
+    await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false").catch(()=>{});
     await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ").catch(()=>{});
     await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ").catch(()=>{});
 
@@ -491,10 +543,10 @@ app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
     const orgId = "org_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
     const slug = orgName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0,60)
       + "-" + Math.random().toString(36).slice(2,5);
-    // NEW ORGS START 'pending' — frozen until the platform owner approves.
+    // New orgs are ACTIVE immediately (no freeze) but UNVERIFIED until reviewed.
     await q(
-      `INSERT INTO organizations (id,name,slug,plan,owner_email,max_hackathons,max_participants,ai_enabled,status)
-       VALUES ($1,$2,$3,'free',$4,1,50,false,'pending')`,
+      `INSERT INTO organizations (id,name,slug,plan,owner_email,max_hackathons,max_participants,ai_enabled,status,verified)
+       VALUES ($1,$2,$3,'free',$4,1,50,false,'active',false)`,
       [orgId, orgName.trim(), slug, cleanEmail]
     );
 
@@ -507,57 +559,58 @@ app.post(["/api/auth/signup", "/auth/signup"], async (req, res) => {
     );
 
     await logEvent("signup", u, req, "email").catch(()=>{});
+    logPlatform("org.signup", { orgId, orgName: orgName.trim(), actor: cleanEmail, summary: `${name.trim()} created the workspace “${orgName.trim()}”` });
 
     // Applicant email: received, awaiting review (NOT "you're ready")
     try {
       const html = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
         <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
           <div style="background:linear-gradient(135deg,#1e1b4b,#4c1d95);padding:32px;text-align:center;">
-            <h1 style="color:#fff;font-size:22px;margin:0;">⚡ HackFest Hub</h1>
+            <h1 style="color:#fff;font-size:22px;margin:0;">⚡ Welcome to HackFest Hub</h1>
           </div>
           <div style="padding:30px 34px;">
             <p style="font-size:15px;color:#334155;line-height:1.75;">Hi ${name.trim()},</p>
             <p style="font-size:14px;color:#4b5563;line-height:1.75;">
-              Thanks for requesting a workspace for <strong>${orgName.trim()}</strong>. Your request is
-              now under review. We approve new organizations manually to keep the platform safe — you'll
-              get an email the moment your workspace is activated, usually within a day.
+              Your workspace <strong>${orgName.trim()}</strong> is ready — you can create your first
+              hackathon and start setting things up right away.
             </p>
+            <a href="${siteUrl()}/admin" style="display:block;background:#4f46e5;color:#fff;text-decoration:none;text-align:center;padding:13px;border-radius:10px;font-size:15px;font-weight:700;margin-top:18px;">Go to your dashboard →</a>
             <p style="font-size:13px;color:#94a3b8;line-height:1.6;margin-top:18px;">
-              You can sign in now, but your workspace stays locked until it's approved.
+              New workspaces show as <strong>unverified</strong> until our team reviews them — usually within a day.
+              Verification adds a trust badge; it doesn't limit what you can do.
             </p>
           </div>
         </div></body></html>`;
-      sendEmail(cleanEmail, `We received your request — ${orgName.trim()}`, html).catch(()=>{});
+      sendEmail(cleanEmail, `Welcome to HackFest Hub — ${orgName.trim()}`, html).catch(()=>{});
     } catch(_) {}
 
-    // Owner notification: a new org needs your approval
+    // Owner notification: a new org signed up (awareness — not a blocker)
     try {
       const owner = process.env.PLATFORM_OWNER_EMAIL || process.env.DEMO_NOTIFY_EMAIL || "contact@hackfesthub.com";
       const ip = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "?").toString().split(",")[0].trim();
       const ohtml = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
         <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb;">
           <div style="background:#111827;padding:22px 28px;">
-            <h2 style="color:#fff;font-size:17px;margin:0;">🔔 New organization awaiting approval</h2>
+            <h2 style="color:#fff;font-size:17px;margin:0;">🔔 New organization signed up</h2>
           </div>
           <div style="padding:24px 28px;">
             <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
               <tr><td style="padding:6px 0;color:#6b7280;width:130px;">Organization</td><td style="font-weight:700;">${orgName.trim()}</td></tr>
-              <tr><td style="padding:6px 0;color:#6b7280;">Requested by</td><td>${name.trim()}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280;">Signed up by</td><td>${name.trim()}</td></tr>
               <tr><td style="padding:6px 0;color:#6b7280;">Email</td><td>${cleanEmail}</td></tr>
               <tr><td style="padding:6px 0;color:#6b7280;">IP</td><td>${ip}</td></tr>
               <tr><td style="padding:6px 0;color:#6b7280;">When</td><td>${new Date().toISOString().replace("T"," ").slice(0,19)} UTC</td></tr>
             </table>
-            <a href="${siteUrl()}/admin" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:11px 20px;border-radius:9px;font-size:14px;font-weight:700;margin-top:18px;">Review in Platform console →</a>
-            <p style="font-size:12px;color:#9ca3af;margin-top:14px;">This organization is frozen until you approve it.</p>
+            <a href="${siteUrl()}/admin" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:11px 20px;border-radius:9px;font-size:14px;font-weight:700;margin-top:18px;">Review &amp; verify in Platform console →</a>
+            <p style="font-size:12px;color:#9ca3af;margin-top:14px;">They can use their workspace now. Verify them to add a trust badge, or suspend if needed.</p>
           </div>
         </div></body></html>`;
-      sendEmail(owner, `Approval needed: ${orgName.trim()}`, ohtml).catch(()=>{});
+      sendEmail(owner, `New signup: ${orgName.trim()}`, ohtml).catch(()=>{});
     } catch(_) {}
 
     const payload = await buildUserPayload(u);
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
-    // orgStatus tells the frontend to show the "pending approval" gate.
-    res.status(201).json({ token, user: payload, orgStatus: "pending" });
+    res.status(201).json({ token, user: payload, orgStatus: "active" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -610,19 +663,80 @@ function platformOwner(req, res, next) {
 // List every organization with live counts.
 app.get(["/api/platform/orgs", "/platform/orgs"], platformOwner, async (req, res) => {
   try {
+    await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false").catch(()=>{});
+    await q("UPDATE organizations SET status='active' WHERE status='pending'").catch(()=>{});   // migrate old frozen orgs
+    await q("UPDATE organizations SET verified=true WHERE id IN ('org_default','org_demo') AND verified=false").catch(()=>{});
     const { rows } = await q(`
       SELECT o.*,
         (SELECT count(*)::int FROM hackathons h WHERE h.org_id=o.id) AS hackathon_count,
         (SELECT count(*)::int FROM users u WHERE u.org_id=o.id)      AS user_count,
         (SELECT count(*)::int FROM registrations r
            JOIN hackathons h ON h.id=r.hackathon_id
-          WHERE h.org_id=o.id AND r.status='approved')              AS participant_count
+          WHERE h.org_id=o.id AND r.status='approved')              AS participant_count,
+        (SELECT max(pe.created_at) FROM platform_events pe WHERE pe.org_id=o.id) AS last_active
       FROM organizations o
-      ORDER BY (o.status='pending') DESC, o.created_at DESC
+      ORDER BY (o.status='suspended') DESC, (o.verified=false) DESC, o.created_at DESC
     `).catch(()=>({rows:[]}));
     const orgs = rows.map(camel);
-    const pending = orgs.filter(o => o.status === "pending").length;
-    res.json({ orgs, pending, total: orgs.length });
+    const unverified = orgs.filter(o => !o.verified && o.status !== "suspended").length;
+    res.json({ orgs, unverified, total: orgs.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Per-org drill-down: every event a given organization has created.
+app.get(["/api/platform/orgs/:id/hackathons", "/platform/orgs/:id/hackathons"], platformOwner, async (req, res) => {
+  try {
+    const { rows } = await q(`
+      SELECT h.id, h.name, h.status, h.published, h.start_date, h.end_date, h.category, h.created_at,
+        (SELECT count(*)::int FROM registrations r WHERE r.hackathon_id=h.id) AS registrations,
+        (SELECT count(*)::int FROM teams t WHERE t.hackathon_id=h.id)         AS teams,
+        (SELECT count(*)::int FROM submissions s WHERE s.hackathon_id=h.id)   AS submissions
+      FROM hackathons h WHERE h.org_id=$1 ORDER BY h.created_at DESC`, [req.params.id]).catch(()=>({rows:[]}));
+    res.json({ hackathons: rows.map(camel) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Platform-wide activity feed — who signed up, who created events, when.
+app.get(["/api/platform/activity", "/platform/activity"], platformOwner, async (req, res) => {
+  try {
+    await q(`CREATE TABLE IF NOT EXISTS platform_events (
+      id VARCHAR(28) PRIMARY KEY, type VARCHAR(40), org_id VARCHAR(20),
+      org_name VARCHAR(255), actor VARCHAR(255), summary TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`).catch(()=>{});
+    const { rows } = await q("SELECT * FROM platform_events ORDER BY created_at DESC LIMIT 60").catch(()=>({rows:[]}));
+    res.json({ events: rows.map(camel) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Verify / unverify an organization (trust badge — does not gate access).
+app.put(["/api/platform/orgs/:id/verify", "/platform/orgs/:id/verify"], platformOwner, async (req, res) => {
+  const { id } = req.params;
+  const verified = req.body.verified !== false;
+  try {
+    await q("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false").catch(()=>{});
+    const { rows: [org] } = await q(
+      "UPDATE organizations SET verified=$1, approved_at=CASE WHEN $1 THEN NOW() ELSE approved_at END WHERE id=$2 RETURNING *",
+      [verified, id]
+    );
+    if (!org) return res.status(404).json({ error: "Organization not found" });
+    if (verified && org.owner_email) {
+      try {
+        const html = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
+          <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+            <div style="background:linear-gradient(135deg,#059669,#10b981);padding:32px;text-align:center;">
+              <h1 style="color:#fff;font-size:22px;margin:0;">✅ ${org.name} is verified</h1>
+            </div>
+            <div style="padding:30px 34px;">
+              <p style="font-size:14px;color:#4b5563;line-height:1.75;">
+                Your workspace now carries a verified badge on HackFest Hub. Thanks for being part of the community!
+              </p>
+            </div>
+          </div></body></html>`;
+        sendEmail(org.owner_email, `${org.name} is now verified`, html).catch(()=>{});
+      } catch(_) {}
+    }
+    res.json(camel(org));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1004,6 +1118,29 @@ app.post(["/api/hackathons", "/hackathons"], admin, async (req, res) => {
       [uid(), name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null, orgId, category||null]
     );
     res.status(201).json(camel(rows[0]));
+
+    // Platform oversight: record + notify the owner when a tenant creates an event.
+    if (orgId && orgId !== "org_default") {
+      const { rows: [org] } = await q("SELECT name, verified FROM organizations WHERE id=$1", [orgId]).catch(()=>({rows:[]}));
+      const orgName = org?.name || orgId;
+      logPlatform("hackathon.created", { orgId, orgName, actor: req.user.email, summary: `${orgName} created a hackathon: “${name}”` });
+      try {
+        const owner = process.env.PLATFORM_OWNER_EMAIL || process.env.DEMO_NOTIFY_EMAIL || "contact@hackfesthub.com";
+        const html = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
+          <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb;">
+            <div style="background:#111827;padding:20px 26px;"><h2 style="color:#fff;font-size:16px;margin:0;">🚀 A workspace is using HackFest Hub</h2></div>
+            <div style="padding:22px 26px;">
+              <table style="width:100%;font-size:14px;color:#374151;border-collapse:collapse;">
+                <tr><td style="padding:5px 0;color:#6b7280;width:120px;">Organization</td><td style="font-weight:700;">${orgName}${org?.verified ? " ✓" : " (unverified)"}</td></tr>
+                <tr><td style="padding:5px 0;color:#6b7280;">Created</td><td>${name}</td></tr>
+                <tr><td style="padding:5px 0;color:#6b7280;">By</td><td>${req.user.email}</td></tr>
+              </table>
+              <a href="${siteUrl()}/admin" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:10px 18px;border-radius:9px;font-size:14px;font-weight:700;margin-top:16px;">Open Platform console →</a>
+            </div>
+          </div></body></html>`;
+        sendEmail(owner, `New event created — ${orgName}`, html).catch(()=>{});
+      } catch(_) {}
+    }
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1022,6 +1159,8 @@ app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
   } = req.body;
   try {
     await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS category VARCHAR(40)").catch(()=>{});
+    // Capture prior publish state so we can detect a newly-published event.
+    const { rows: [prev] } = await q("SELECT published, org_id, name FROM hackathons WHERE id=$1", [req.params.id]).catch(()=>({rows:[]}));
     const { rows } = await q(
       `UPDATE hackathons SET
         name=$1,start_date=$2,end_date=$3,location=$4,status=$5,
@@ -1047,6 +1186,14 @@ app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: "Not found" });
     res.json(camel(rows[0]));
+
+    // Platform oversight: log when an event is newly made public.
+    const pOrgId = prev?.org_id;
+    if (pOrgId && pOrgId !== "org_default" && Boolean(published) && !prev?.published) {
+      const { rows: [org] } = await q("SELECT name FROM organizations WHERE id=$1", [pOrgId]).catch(()=>({rows:[]}));
+      const orgName = org?.name || pOrgId;
+      logPlatform("hackathon.published", { orgId: pOrgId, orgName, actor: req.user.email, summary: `${orgName} published “${name || prev?.name}” publicly` });
+    }
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1339,6 +1486,17 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message]
     );
     const reg = camel(rows[0]);
+
+    // Platform oversight: flag an org's very first participant registration.
+    try {
+      const { rows: [oc] } = await q(
+        `SELECT h.org_id, o.name,
+           (SELECT count(*)::int FROM registrations r JOIN hackathons h2 ON h2.id=r.hackathon_id WHERE h2.org_id=h.org_id) AS total
+         FROM hackathons h JOIN organizations o ON o.id=h.org_id WHERE h.id=$1`, [hackathonId]);
+      if (oc && oc.org_id && oc.org_id !== "org_default" && oc.total === 1) {
+        logPlatform("participant.first", { orgId: oc.org_id, orgName: oc.name, actor: reg.email, summary: `${oc.name} got its first participant registration` });
+      }
+    } catch(_) {}
 
     // Send "we got your registration" email immediately
     try {
