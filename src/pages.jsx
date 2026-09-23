@@ -9,30 +9,188 @@ import {
 } from "./shared.jsx";
 
 /* ─── DASHBOARD ────────────────────────────────────────────────────────── */
+/* ─── DASHBOARD ANALYTICS ─────────────────────────────────────────────── */
+const CHART_COLORS = [C.blue, C.green, C.amber, C.purple, "#0EA5A0", "#E11D48", C.text3];
+
+function Kpi({ label, value, sub, trend, tone }) {
+  const col = tone==="up"?C.green:tone==="down"?C.amber:C.text3;
+  return (
+    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:"15px 17px"}}>
+      <div style={{...FONT,fontSize:11,fontWeight:600,color:C.text3,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
+      <div style={{...FONT,fontSize:28,fontWeight:700,color:C.text,lineHeight:1,marginBottom:8}}>{value}</div>
+      {sub && <div style={{...FONT,fontSize:11.5,color:col,display:"flex",alignItems:"center",gap:4}}>
+        {trend && <span style={{fontSize:9}}>{trend}</span>}{sub}</div>}
+    </div>
+  );
+}
+
+function HBars({ data, color }) {
+  const max=Math.max(...data.map(d=>d.value),1);
+  if(!data.length) return <div style={{...FONT,fontSize:12,color:C.text3,padding:"18px 0",textAlign:"center"}}>No data yet.</div>;
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:13}}>
+      {data.map((d,i)=>(
+        <div key={i}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:5,gap:8}}>
+            <span style={{...FONT,fontSize:12,color:C.text2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span>
+            <span style={{...MONO,fontSize:12,fontWeight:600,color:C.text}}>{d.value}</span>
+          </div>
+          <div style={{height:9,background:C.bg3,borderRadius:5,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${(d.value/max)*100}%`,background:d.color||color||C.blue,borderRadius:5,transition:"width .4s"}}/>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Donut({ data, size=148, thickness=20, centerLabel, centerSub }) {
+  const clean=data.filter(d=>d.value>0);
+  const total=clean.reduce((s,d)=>s+d.value,0);
+  const r=(size-thickness)/2, cx=size/2, cy=size/2, CIRC=2*Math.PI*r;
+  let offset=0;
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+      <svg width={size} height={size} style={{flexShrink:0}}>
+        <circle r={r} cx={cx} cy={cy} fill="none" stroke={C.bg3} strokeWidth={thickness}/>
+        {total>0 && clean.map((d,i)=>{
+          const len=(d.value/total)*CIRC;
+          const el=(<circle key={i} r={r} cx={cx} cy={cy} fill="none" stroke={d.color||CHART_COLORS[i%CHART_COLORS.length]}
+            strokeWidth={thickness} strokeDasharray={`${len} ${CIRC-len}`} strokeDashoffset={-offset}
+            transform={`rotate(-90 ${cx} ${cy})`}/>);
+          offset+=len; return el;
+        })}
+        <text x={cx} y={cy-1} textAnchor="middle" style={{...FONT,fontSize:23,fontWeight:700,fill:C.text}}>{centerLabel??total}</text>
+        {centerSub && <text x={cx} y={cy+15} textAnchor="middle" style={{...FONT,fontSize:10,fill:C.text3}}>{centerSub}</text>}
+      </svg>
+      <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:130,flex:1}}>
+        {data.map((d,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{width:10,height:10,borderRadius:3,background:d.color||CHART_COLORS[i%CHART_COLORS.length],flexShrink:0}}/>
+            <span style={{...FONT,fontSize:12,color:C.text2,flex:1}}>{d.label}</span>
+            <span style={{...MONO,fontSize:12,fontWeight:600,color:C.text}}>{d.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChartCard({ title, sub, children }) {
+  return (
+    <Card>
+      <div style={{marginBottom:16}}>
+        <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>{title}</div>
+        {sub && <div style={{...FONT,fontSize:11.5,color:C.text3,marginTop:2}}>{sub}</div>}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
 export function DashboardPage({ db, activeHackathon }) {
+  const [regs,setRegs]=useState([]);
+  const [subs,setSubs]=useState([]);
+  const [track,setTrack]=useState("");
+  useEffect(()=>{
+    if(!activeHackathon) return;
+    setTrack("");
+    GET(`/api/registrations?hackathonId=${activeHackathon}`).then(d=>setRegs(Array.isArray(d)?d:[])).catch(()=>setRegs([]));
+    GET(`/api/submissions?hackathonId=${activeHackathon}`).then(d=>setSubs(Array.isArray(d)?d:[])).catch(()=>setSubs([]));
+  },[activeHackathon]);
+
   const hack=db.hackathons.find(h=>h.id===activeHackathon);
   if (!hack) return <Empty icon="🏆" title="Select a hackathon" sub="Choose an event from the sidebar." />;
-  const teams=db.teams.filter(t=>t.hackathonId===hack.id);
+
+  const allTeams=db.teams.filter(t=>t.hackathonId===hack.id);
   const criteria=db.criteria.filter(c=>c.hackathonId===hack.id);
-  const fbs=db.feedbacks.filter(f=>f.hackathonId===hack.id);
+  const allFbs=db.feedbacks.filter(f=>f.hackathonId===hack.id);
+  const tracks=[...new Set(allTeams.map(t=>t.category).filter(Boolean))];
+
+  const teams=track?allTeams.filter(t=>t.category===track):allTeams;
+  const teamIds=new Set(teams.map(t=>t.id));
+  const fbs=track?allFbs.filter(f=>teamIds.has(f.teamId)):allFbs;
+  const subsScoped=track?subs.filter(s=>teamIds.has(s.teamId)):subs;
+
   const possible=teams.length*db.judges.length;
   const coverage=possible>0?Math.round(fbs.length/possible*100):0;
   const ranked=[...teams].map(t=>{const tf=fbs.filter(f=>f.teamId===t.id);return{...t,avg:avgOf(tf,criteria),count:tf.length};}).sort((a,b)=>(b.avg||0)-(a.avg||0));
+  const scored=ranked.filter(t=>t.avg!=null);
+  const avgScore=scored.length?(scored.reduce((s,t)=>s+(t.avg||0),0)/scored.length).toFixed(1):"—";
+  const approved=regs.filter(r=>r.status==="approved").length;
+  const submittedTeams=new Set(subsScoped.map(s=>s.teamId)).size;
+  const subPct=teams.length?Math.round(submittedTeams/teams.length*100):0;
   const recent=[...fbs].sort((a,b)=>new Date(b.submittedAt)-new Date(a.submittedAt)).slice(0,6);
+
+  const teamsByTrack=tracks.map((tr,i)=>({label:tr,value:allTeams.filter(t=>t.category===tr).length,color:CHART_COLORS[i%CHART_COLORS.length]}));
+  const regByStatus=[
+    {label:"Approved",value:regs.filter(r=>r.status==="approved").length,color:C.green},
+    {label:"Pending",value:regs.filter(r=>!r.status||r.status==="pending").length,color:C.amber},
+    {label:"Rejected",value:regs.filter(r=>r.status==="rejected").length,color:C.red},
+  ];
+  const judging=[
+    {label:"Reviewed",value:fbs.length,color:C.blue},
+    {label:"Pending",value:Math.max(possible-fbs.length,0),color:C.border2},
+  ];
+  const dist=[
+    {label:"8–10 (strong)",value:scored.filter(t=>t.avg>=8).length,color:C.green},
+    {label:"6–8 (solid)",value:scored.filter(t=>t.avg>=6&&t.avg<8).length,color:C.blue},
+    {label:"Below 6",value:scored.filter(t=>t.avg<6).length,color:C.amber},
+  ];
+
+  const ctrlLabel={...FONT,fontSize:11,color:C.text3,textTransform:"uppercase",letterSpacing:"0.05em"};
+
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:22}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
         <div><h1 style={{...FONT,fontSize:20,fontWeight:600,color:C.text,marginBottom:3}}>{hack.name}</h1>
           <div style={{...FONT,fontSize:13,color:C.text3}}>{hack.location} · {fmtDate(hack.startDate)} – {fmtDate(hack.endDate)}</div></div>
         <Chip label={hack.status} color={STATUS_CHIP[hack.status]||"neutral"} />
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:22}}>
-        <Stat label="Teams" value={teams.length} />
-        <Stat label="Judges" value={db.judges.length} />
-        <Stat label="Feedbacks" value={fbs.length} sub={`of ${possible} possible`} color={C.blue} />
-        <Stat label="Coverage" value={`${coverage}%`} color={coverage>=75?C.green:C.amber} />
+
+      <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 16px",marginBottom:18}}>
+        <span style={ctrlLabel}>Controls</span>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={ctrlLabel}>Track</span>
+          <select value={track} onChange={e=>setTrack(e.target.value)}
+            style={{...FONT,fontSize:12.5,color:C.text,background:C.bg,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",cursor:"pointer"}}>
+            <option value="">All tracks</option>
+            {tracks.map(tr=><option key={tr} value={tr}>{tr}</option>)}
+          </select>
+        </div>
+        <div style={{marginLeft:"auto",...FONT,fontSize:12,color:C.text3}}>{hack.category||"Uncategorized"} · {allTeams.length} teams</div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1.6fr 1fr",gap:14}}>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:26}}>
+        <Kpi label="Registrations" value={regs.length} sub={`${approved} approved`} trend="▲" tone={approved>0?"up":null}/>
+        <Kpi label="Teams" value={teams.length} sub={`${tracks.length||1} track${tracks.length===1?"":"s"}`}/>
+        <Kpi label="Submissions" value={subsScoped.length} sub={`${subPct}% of teams`} trend={subPct>=50?"▲":"▼"} tone={subPct>=50?"up":"down"}/>
+        <Kpi label="Judges" value={db.judges.length} sub={`${criteria.length} criteria`}/>
+        <Kpi label="Avg Score" value={avgScore} sub={`${scored.length} scored`}/>
+        <Kpi label="Coverage" value={`${coverage}%`} sub={`of ${possible} reviews`} trend={coverage>=75?"▲":"▼"} tone={coverage>=75?"up":"down"}/>
+      </div>
+
+      <SectionHeader title="Event overview" />
+      <div style={{...FONT,fontSize:13,color:C.text3,marginTop:-8,marginBottom:18}}>A snapshot of participation, judging, and output{track?` · ${track} track`:""}.</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:14,marginBottom:14}}>
+        <ChartCard title="Teams by track" sub="Where builders are focused">
+          <HBars data={teamsByTrack}/>
+        </ChartCard>
+        <ChartCard title="Registrations by status" sub="Approval pipeline">
+          <Donut data={regByStatus} centerSub="total"/>
+        </ChartCard>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:14,marginBottom:22}}>
+        <ChartCard title="Judging progress" sub="Reviews completed vs outstanding">
+          <Donut data={judging} centerLabel={`${coverage}%`} centerSub="done"/>
+        </ChartCard>
+        <ChartCard title="Score distribution" sub="Scored teams by band">
+          <HBars data={dist}/>
+        </ChartCard>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:14}}>
         <Card>
           <div style={{...FONT,fontSize:13,fontWeight:600,color:C.text,marginBottom:16,display:"flex",justifyContent:"space-between"}}>
             <span>Leaderboard</span><span style={{fontSize:11,fontWeight:400,color:C.text3}}>{criteria.length} criteria · weighted</span>
