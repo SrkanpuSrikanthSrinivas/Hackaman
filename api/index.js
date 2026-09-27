@@ -1473,17 +1473,25 @@ app.get(["/api/public/hackathons/:id/judges", "/public/hackathons/:id/judges"], 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post(["/api/public/register", "/public/register"], async (req, res) => {
-  const { hackathonId, name, email, org, type, teamName, teamSize, message } = req.body;
+  const { hackathonId, name, email, org, type, teamName, teamSize, message,
+          projectName, projectDesc, projectTrack, repoUrl, demoUrl, videoUrl } = req.body;
   if (!hackathonId || !name?.trim() || !email?.trim()) return res.status(400).json({ error: "hackathonId, name, email required" });
   try {
     const { rows: hack } = await q("SELECT id FROM hackathons WHERE id=$1 AND published=true", [hackathonId]);
     if (!hack.length) return res.status(404).json({ error: "Hackathon not found or not open" });
+    // Self-heal project columns on the registrations table.
+    for (const col of ["project_name VARCHAR(200)","project_desc TEXT","project_track VARCHAR(80)","repo_url TEXT","demo_url TEXT","video_url TEXT"]) {
+      await q(`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS ${col}`).catch(()=>{});
+    }
     const { rows } = await q(
-      `INSERT INTO registrations (id,hackathon_id,name,email,org,type,team_name,team_size,message)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (hackathon_id,email) DO UPDATE SET name=$3,org=$4,type=$6,team_name=$7,team_size=$8,message=$9
+      `INSERT INTO registrations (id,hackathon_id,name,email,org,type,team_name,team_size,message,
+                                  project_name,project_desc,project_track,repo_url,demo_url,video_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (hackathon_id,email) DO UPDATE SET name=$3,org=$4,type=$6,team_name=$7,team_size=$8,message=$9,
+         project_name=$10,project_desc=$11,project_track=$12,repo_url=$13,demo_url=$14,video_url=$15
        RETURNING *`,
-      [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message]
+      [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message,
+       projectName||null, projectDesc||null, projectTrack||null, repoUrl||null, demoUrl||null, videoUrl||null]
     );
     const reg = camel(rows[0]);
 

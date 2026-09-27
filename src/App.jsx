@@ -100,8 +100,33 @@ function PublicRegisterPage({ hackathonId }) {
                     <Field label="Team Size"><input type="number" min={1} max={10} style={IN} value={form.teamSize||""} onChange={f("teamSize")} placeholder="Number of members" /></Field>
                   </div>
                 )}
-                <Field label="Tell us about yourself / your project">
-                  <textarea style={{...TA,minHeight:90}} value={form.message||""} onChange={f("message")} placeholder="Brief introduction — what are you building? What's your background?" />
+                {type==="team"&&(
+                  <div style={{marginTop:6,marginBottom:4,padding:"18px 18px 4px",background:C.bg2,borderRadius:R.md,border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:2}}>Your project</div>
+                    <div style={{fontSize:12,color:C.text3,marginBottom:16}}>Tell us what you're building. You can refine these details later.</div>
+                    <div style={{display:"grid",gridTemplateColumns:tracks.length?"1fr 1fr":"1fr",gap:12}}>
+                      <Field label="Project Title"><input style={IN} value={form.projectName||""} onChange={f("projectName")} placeholder="Give your project a name" /></Field>
+                      {tracks.length>0&&(
+                        <Field label="Track">
+                          <select style={IN} value={form.projectTrack||""} onChange={f("projectTrack")}>
+                            <option value="">Select a track</option>
+                            {tracks.map(t=><option key={t} value={t}>{t}</option>)}
+                          </select>
+                        </Field>
+                      )}
+                    </div>
+                    <Field label="What does it do?">
+                      <textarea style={{...TA,minHeight:80}} value={form.projectDesc||""} onChange={f("projectDesc")} placeholder="A short description of your project and the problem it solves." />
+                    </Field>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                      <Field label="Repo / GitHub"><input style={IN} value={form.repoUrl||""} onChange={f("repoUrl")} placeholder="https://github.com/…" /></Field>
+                      <Field label="Live demo"><input style={IN} value={form.demoUrl||""} onChange={f("demoUrl")} placeholder="https://…" /></Field>
+                      <Field label="Demo video"><input style={IN} value={form.videoUrl||""} onChange={f("videoUrl")} placeholder="https://youtu.be/…" /></Field>
+                    </div>
+                  </div>
+                )}
+                <Field label={type==="team"?"Anything else? (optional)":"Tell us about yourself / your background"}>
+                  <textarea style={{...TA,minHeight:70}} value={form.message||""} onChange={f("message")} placeholder={type==="team"?"Notes for the organizers — questions, accessibility needs, anything.":"Brief introduction — your background and why you'd like to judge."} />
                 </Field>
                 <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`,marginBottom:16}}>
                   <span style={{fontSize:12,color:C.text3}}>🔒 Your information is submitted securely and will only be used by the organizers.</span>

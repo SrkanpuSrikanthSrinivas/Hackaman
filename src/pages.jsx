@@ -4820,6 +4820,84 @@ export function BestJudgePage({ db, toast, activeHackathon }) {
 }
 
 /* ─── PUBLIC PAGE CMS ───────────────────────────────────────────────────── */
+/* ─── SHARE & EMBED REGISTRATION ──────────────────────────────────────── */
+function ShareEmbed({ url, published, name }) {
+  const [tab, setTab] = useState("link");
+  const [copied, setCopied] = useState("");
+  const copy = (text, which) => { navigator.clipboard?.writeText(text); setCopied(which); setTimeout(()=>setCopied(""), 1500); };
+  const btnCode = `<a href="${url}" target="_blank" rel="noopener"\n   style="display:inline-block;background:#2563eb;color:#fff;font-family:sans-serif;\n          font-weight:600;font-size:16px;padding:14px 28px;border-radius:10px;\n          text-decoration:none;">Register &amp; submit your project →</a>`;
+  const iframeCode = `<iframe src="${url}" title="${(name||"Hackathon")} registration"\n        style="width:100%;min-height:900px;border:0;border-radius:12px;"\n        loading="lazy"></iframe>`;
+  const box = { ...MONO, fontSize:12, lineHeight:1.6, color:C.text2, background:C.bg2,
+    border:`1px solid ${C.border}`, borderRadius:R.sm, padding:"12px 14px", width:"100%",
+    resize:"none", whiteSpace:"pre", overflowX:"auto" };
+  const TABS = [["link","Link"],["button","Website button"],["embed","Embed form"]];
+
+  return (
+    <Card>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+        <div>
+          <div style={{ ...FONT, fontSize:14, fontWeight:600, color:C.text, marginBottom:2 }}>Share &amp; embed registration</div>
+          <div style={{ ...FONT, fontSize:12, color:C.text3 }}>Put this on your own website — participants register and submit their project here.</div>
+        </div>
+        {!published && <Chip label="Publish to activate" color="amber" />}
+      </div>
+
+      {!published && (
+        <div style={{ ...FONT, fontSize:12.5, color:C.amber, background:C.bgAmber, border:`1px solid ${C.bdAmber}`,
+          borderRadius:R.sm, padding:"10px 13px", marginBottom:14 }}>
+          This event is a draft, so the link isn't live yet. Hit <strong>Publish</strong> above and the link will start working.
+        </div>
+      )}
+
+      <div style={{ display:"flex", gap:1, marginBottom:14, background:C.bg2, borderRadius:R.sm, padding:3, border:`1px solid ${C.border}`, width:"fit-content" }}>
+        {TABS.map(([id,label]) => (
+          <button key={id} onClick={()=>setTab(id)} style={{ ...FONT, padding:"6px 14px", fontSize:12, fontWeight:500,
+            borderRadius:R.sm, border:"none", cursor:"pointer", background:tab===id?C.bg:C.bg2,
+            color:tab===id?C.text:C.text3 }}>{label}</button>
+        ))}
+      </div>
+
+      {tab==="link" && (
+        <>
+          <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+            <input readOnly value={url} onClick={e=>e.target.select()}
+              style={{ ...IN, flex:1, ...MONO, fontSize:12, color:C.text2, cursor:"pointer" }} />
+            <Btn size="sm" onClick={()=>copy(url,"link")} style={{ flexShrink:0, background: copied==="link"?C.green:undefined }}>
+              {copied==="link" ? "✓ Copied" : "📋 Copy"}
+            </Btn>
+            <Btn size="sm" variant="secondary" onClick={()=>window.open(url,"_blank")} style={{ flexShrink:0 }}>Open ↗</Btn>
+          </div>
+          <div style={{ ...FONT, fontSize:12, color:C.text3 }}>Paste this anywhere — your site, an email, social media, a QR code.</div>
+        </>
+      )}
+
+      {tab==="button" && (
+        <>
+          <div style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:8 }}>A ready-made button. Paste into your site's HTML.</div>
+          <div style={{ marginBottom:10, padding:"18px", background:C.bg2, border:`1px dashed ${C.border}`, borderRadius:R.sm, textAlign:"center" }}>
+            <span style={{ display:"inline-block", background:"#2563eb", color:"#fff", ...FONT, fontWeight:600, fontSize:15, padding:"12px 24px", borderRadius:10 }}>Register &amp; submit your project →</span>
+          </div>
+          <textarea readOnly rows={4} value={btnCode} onClick={e=>e.target.select()} style={box} />
+          <Btn size="sm" onClick={()=>copy(btnCode.replace(/\n\s+/g," "),"button")} style={{ marginTop:8, background: copied==="button"?C.green:undefined }}>
+            {copied==="button" ? "✓ Copied" : "📋 Copy button code"}
+          </Btn>
+        </>
+      )}
+
+      {tab==="embed" && (
+        <>
+          <div style={{ ...FONT, fontSize:12, color:C.text3, marginBottom:8 }}>Embeds the whole registration form inside a page on your site.</div>
+          <textarea readOnly rows={4} value={iframeCode} onClick={e=>e.target.select()} style={box} />
+          <Btn size="sm" onClick={()=>copy(iframeCode.replace(/\n\s+/g," "),"embed")} style={{ marginTop:8, background: copied==="embed"?C.green:undefined }}>
+            {copied==="embed" ? "✓ Copied" : "📋 Copy embed code"}
+          </Btn>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/* ─── PUBLIC PAGE CMS ─────────────────────────────────────────────────── */
 export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
   const [tab,setTab]=useState("content");
   const [partners,setPartners]=useState([]);
@@ -4941,6 +5019,10 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
             <Btn size="sm" variant="blue" onClick={()=>window.open(pubUrl,"_blank")}>Preview →</Btn>
           </>}
         </div>
+      </div>
+
+      <div style={{marginBottom:20}}>
+        <ShareEmbed url={pubUrl} published={!!hack.published} name={hack.name} />
       </div>
 
       {/* Tab bar */}
@@ -5280,6 +5362,21 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
                 <div style={{...FONT,fontSize:11,color:C.text3,fontStyle:"italic",
                   borderLeft:`3px solid ${C.border2}`,paddingLeft:8,lineHeight:1.5,marginTop:4}}>
                   "{r.message.slice(0,140)}{r.message.length>140?"…":""}"
+                </div>
+              )}
+              {(r.projectName||r.projectDesc||r.repoUrl||r.demoUrl||r.videoUrl)&&(
+                <div style={{marginTop:8,padding:"10px 12px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:R.sm}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:r.projectDesc?5:0,flexWrap:"wrap"}}>
+                    <span style={{...FONT,fontSize:10,fontWeight:600,color:C.text3,textTransform:"uppercase",letterSpacing:"0.06em"}}>Project</span>
+                    {r.projectName&&<span style={{...FONT,fontSize:12.5,fontWeight:600,color:C.text}}>{r.projectName}</span>}
+                    {r.projectTrack&&<Chip label={r.projectTrack} color={CAT_CHIP[r.projectTrack]||"neutral"} />}
+                  </div>
+                  {r.projectDesc&&<div style={{...FONT,fontSize:11.5,color:C.text2,lineHeight:1.55,marginBottom:6}}>{r.projectDesc}</div>}
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    {[["Repo",r.repoUrl],["Demo",r.demoUrl],["Video",r.videoUrl]].filter(([,u])=>u).map(([l,u])=>(
+                      <a key={l} href={u} target="_blank" rel="noopener" style={{...FONT,fontSize:11,fontWeight:600,color:C.blue,textDecoration:"none"}}>{l} ↗</a>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
