@@ -28,12 +28,16 @@ function PublicRegisterPage({ hackathonId }) {
   const [hack,setHack]=useState(null);const [loading,setLoading]=useState(true);
   const [err,setErr]=useState("");const [type,setType]=useState("team");
   const [form,setForm]=useState({});const [submitting,setSubmitting]=useState(false);const [done,setDone]=useState(false);
+  const [result,setResult]=useState(null);
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
   useEffect(()=>{ PGET(`/api/public/hackathons/${hackathonId}`).then(d=>{if(d.error)setErr(d.error);else setHack(d);setLoading(false);}).catch(()=>{setErr("Could not load hackathon.");setLoading(false);}); },[hackathonId]);
   const submit=async e=>{
-    e.preventDefault();if(!form.name?.trim()||!form.email?.trim())return;setSubmitting(true);
+    e.preventDefault();
+    if(!form.name?.trim()||!form.email?.trim())return;
+    if(type==="team"&&!form.projectName?.trim()){setErr("Please give your project a title.");return;}
+    setSubmitting(true);setErr("");
     const res=await PPOST("/api/public/register",{...form,hackathonId,type});
-    if(res.error)setErr(res.error);else setDone(true);setSubmitting(false);
+    if(res.error)setErr(res.error);else{setResult(res);setDone(true);}setSubmitting(false);
   };
   if(loading)return <div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh"}}><Spinner size={28}/></div>;
   if(err&&!hack)return <div style={{display:"flex",justifyContent:"center",alignItems:"center",height:"100vh",...FONT,color:C.red,fontSize:14}}>{err}</div>;
@@ -77,13 +81,22 @@ function PublicRegisterPage({ hackathonId }) {
           {done?(
             <div style={{textAlign:"center",padding:"36px 0"}}>
               <div style={{fontSize:52,marginBottom:16}}>🎉</div>
-              <h2 style={{fontSize:20,fontWeight:600,color:C.text,marginBottom:8}}>Registration Received!</h2>
-              <p style={{fontSize:14,color:C.text3}}>We'll review your application and reach out at <strong style={{color:C.text}}>{form.email}</strong>.</p>
+              {result?.autoApproved?(
+                <>
+                  <h2 style={{fontSize:20,fontWeight:600,color:C.text,marginBottom:8}}>You're in! Project submitted.</h2>
+                  <p style={{fontSize:14,color:C.text3,lineHeight:1.7}}>Your team is registered and your project is entered for judging. We've emailed sign-in details to <strong style={{color:C.text}}>{form.email}</strong> — you can log in anytime to update your submission.</p>
+                </>
+              ):(
+                <>
+                  <h2 style={{fontSize:20,fontWeight:600,color:C.text,marginBottom:8}}>Registration Received!</h2>
+                  <p style={{fontSize:14,color:C.text3}}>We'll review your application and reach out at <strong style={{color:C.text}}>{form.email}</strong>.</p>
+                </>
+              )}
             </div>
           ):(
             <>
-              <h2 style={{fontSize:16,fontWeight:600,color:C.text,marginBottom:4}}>Register to Participate</h2>
-              <p style={{fontSize:13,color:C.text3,marginBottom:22}}>Submit your interest — we'll review and reach out with next steps.</p>
+              <h2 style={{fontSize:16,fontWeight:600,color:C.text,marginBottom:4}}>{type==="team"?"Register & Submit Your Project":"Register to Judge"}</h2>
+              <p style={{fontSize:13,color:C.text3,marginBottom:22}}>{type==="team"?"Register your team and submit your project — you're in right away, no approval needed.":"Submit your interest — the organizers will review and reach out."}</p>
               <div style={{display:"flex",gap:2,marginBottom:22,background:C.bg2,borderRadius:R.sm,padding:3,border:`1px solid ${C.border}`}}>
                 {["team","judge"].map(t=><button key={t} onClick={()=>setType(t)} style={{flex:1,padding:"7px 16px",fontSize:13,fontWeight:500,borderRadius:R.sm,border:"none",cursor:"pointer",background:type===t?"#fff":C.bg2,color:type===t?C.text:C.text3,transition:"all 0.1s",boxShadow:type===t?"0 1px 3px rgba(0,0,0,0.08)":"none",...FONT,textTransform:"capitalize"}}>Register as {t}</button>)}
               </div>
@@ -102,10 +115,10 @@ function PublicRegisterPage({ hackathonId }) {
                 )}
                 {type==="team"&&(
                   <div style={{marginTop:6,marginBottom:4,padding:"18px 18px 4px",background:C.bg2,borderRadius:R.md,border:`1px solid ${C.border}`}}>
-                    <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:2}}>Your project</div>
-                    <div style={{fontSize:12,color:C.text3,marginBottom:16}}>Tell us what you're building. You can refine these details later.</div>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:2}}>Submit Project</div>
+                    <div style={{fontSize:12,color:C.text3,marginBottom:16}}>This goes straight to the judges. You can log in later to edit it anytime.</div>
                     <div style={{display:"grid",gridTemplateColumns:tracks.length?"1fr 1fr":"1fr",gap:12}}>
-                      <Field label="Project Title"><input style={IN} value={form.projectName||""} onChange={f("projectName")} placeholder="Give your project a name" /></Field>
+                      <Field label="Project Title" required><input style={IN} value={form.projectName||""} onChange={f("projectName")} placeholder="Your project name" required /></Field>
                       {tracks.length>0&&(
                         <Field label="Track">
                           <select style={IN} value={form.projectTrack||""} onChange={f("projectTrack")}>
@@ -115,24 +128,37 @@ function PublicRegisterPage({ hackathonId }) {
                         </Field>
                       )}
                     </div>
-                    <Field label="What does it do?">
-                      <textarea style={{...TA,minHeight:80}} value={form.projectDesc||""} onChange={f("projectDesc")} placeholder="A short description of your project and the problem it solves." />
+                    <Field label="Tagline"><input style={IN} value={form.tagline||""} onChange={f("tagline")} placeholder="One sentence that sums it up" /></Field>
+                    <Field label="Problem Statement">
+                      <textarea style={{...TA,minHeight:70}} value={form.problemStatement||""} onChange={f("problemStatement")} placeholder="What problem are you solving?" />
                     </Field>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-                      <Field label="Repo / GitHub"><input style={IN} value={form.repoUrl||""} onChange={f("repoUrl")} placeholder="https://github.com/…" /></Field>
-                      <Field label="Live demo"><input style={IN} value={form.demoUrl||""} onChange={f("demoUrl")} placeholder="https://…" /></Field>
-                      <Field label="Demo video"><input style={IN} value={form.videoUrl||""} onChange={f("videoUrl")} placeholder="https://youtu.be/…" /></Field>
+                    <Field label="Your Solution">
+                      <textarea style={{...TA,minHeight:70}} value={form.solution||""} onChange={f("solution")} placeholder="How does your project solve it?" />
+                    </Field>
+                    <Field label="Description">
+                      <textarea style={{...TA,minHeight:80}} value={form.projectDesc||""} onChange={f("projectDesc")} placeholder="A fuller description — features, how it works, what you built." />
+                    </Field>
+                    <Field label="Tech Stack"><input style={IN} value={form.techStack||""} onChange={f("techStack")} placeholder="React, Node.js, PostgreSQL, …" /></Field>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Field label="GitHub URL"><input style={IN} value={form.repoUrl||""} onChange={f("repoUrl")} placeholder="https://github.com/…" /></Field>
+                      <Field label="Live Demo URL"><input style={IN} value={form.demoUrl||""} onChange={f("demoUrl")} placeholder="https://…" /></Field>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <Field label="Video URL"><input style={IN} value={form.videoUrl||""} onChange={f("videoUrl")} placeholder="https://youtu.be/…" /></Field>
+                      <Field label="Pitch Deck URL"><input style={IN} value={form.deckUrl||""} onChange={f("deckUrl")} placeholder="https://…/deck.pdf" /></Field>
                     </div>
                   </div>
                 )}
-                <Field label={type==="team"?"Anything else? (optional)":"Tell us about yourself / your background"}>
-                  <textarea style={{...TA,minHeight:70}} value={form.message||""} onChange={f("message")} placeholder={type==="team"?"Notes for the organizers — questions, accessibility needs, anything.":"Brief introduction — your background and why you'd like to judge."} />
-                </Field>
+                {type==="judge"&&(
+                  <Field label="Tell us about yourself / your background">
+                    <textarea style={{...TA,minHeight:70}} value={form.message||""} onChange={f("message")} placeholder="Brief introduction — your background and why you'd like to judge." />
+                  </Field>
+                )}
                 <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`,marginBottom:16}}>
                   <span style={{fontSize:12,color:C.text3}}>🔒 Your information is submitted securely and will only be used by the organizers.</span>
                 </div>
                 <button type="submit" disabled={submitting} style={{width:"100%",background:C.text,color:"#fff",border:"none",borderRadius:R.md,padding:"12px",fontSize:14,fontWeight:600,cursor:"pointer",...FONT,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                  {submitting&&<Spinner/>} Submit Registration
+                  {submitting&&<Spinner/>} {type==="team"?"Register & Submit Project":"Submit Registration"}
                 </button>
               </form>
             </>

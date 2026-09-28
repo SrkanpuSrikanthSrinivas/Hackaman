@@ -1474,24 +1474,50 @@ app.get(["/api/public/hackathons/:id/judges", "/public/hackathons/:id/judges"], 
 });
 app.post(["/api/public/register", "/public/register"], async (req, res) => {
   const { hackathonId, name, email, org, type, teamName, teamSize, message,
-          projectName, projectDesc, projectTrack, repoUrl, demoUrl, videoUrl } = req.body;
+          projectName, tagline, problemStatement, solution, projectDesc, techStack,
+          projectTrack, repoUrl, demoUrl, videoUrl, deckUrl } = req.body;
   if (!hackathonId || !name?.trim() || !email?.trim()) return res.status(400).json({ error: "hackathonId, name, email required" });
+  const isJudge = type === "judge";
+  // Teams must give a project title (this is now a project submission).
+  if (!isJudge && !projectName?.trim()) return res.status(400).json({ error: "Project title is required" });
   try {
-    const { rows: hack } = await q("SELECT id FROM hackathons WHERE id=$1 AND published=true", [hackathonId]);
-    if (!hack.length) return res.status(404).json({ error: "Hackathon not found or not open" });
+    const { rows: hackRows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true", [hackathonId]);
+    if (!hackRows.length) return res.status(404).json({ error: "Hackathon not found or not open" });
+    const hack = hackRows[0];
+
     // Self-heal project columns on the registrations table.
-    for (const col of ["project_name VARCHAR(200)","project_desc TEXT","project_track VARCHAR(80)","repo_url TEXT","demo_url TEXT","video_url TEXT"]) {
+    for (const col of ["project_name VARCHAR(200)","project_tagline VARCHAR(255)","project_problem TEXT",
+        "project_solution TEXT","project_desc TEXT","project_tech TEXT","project_track VARCHAR(80)",
+        "repo_url TEXT","demo_url TEXT","video_url TEXT","deck_url TEXT"]) {
       await q(`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS ${col}`).catch(()=>{});
     }
+
+    // Teams are auto-approved (self-serve). Judges still await organizer review.
+    // If the org's participant cap is reached, a team is held as 'pending' instead.
+    let autoApprove = !isJudge;
+    if (autoApprove) {
+      const { rows: [cap] } = await q(
+        `SELECT o.max_participants AS cap,
+           (SELECT count(*)::int FROM registrations r JOIN hackathons h ON h.id=r.hackathon_id
+             WHERE h.org_id=o.id AND r.status='approved' AND r.type<>'judge') AS used
+         FROM organizations o WHERE o.id=(SELECT org_id FROM hackathons WHERE id=$1)`, [hackathonId]
+      ).catch(()=>({rows:[]}));
+      if (cap && cap.cap && cap.cap > 0 && cap.used >= cap.cap) autoApprove = false;
+    }
+    const status = autoApprove ? "approved" : "pending";
+
     const { rows } = await q(
-      `INSERT INTO registrations (id,hackathon_id,name,email,org,type,team_name,team_size,message,
-                                  project_name,project_desc,project_track,repo_url,demo_url,video_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-       ON CONFLICT (hackathon_id,email) DO UPDATE SET name=$3,org=$4,type=$6,team_name=$7,team_size=$8,message=$9,
-         project_name=$10,project_desc=$11,project_track=$12,repo_url=$13,demo_url=$14,video_url=$15
+      `INSERT INTO registrations (id,hackathon_id,name,email,org,type,team_name,team_size,message,status,
+                                  project_name,project_tagline,project_problem,project_solution,project_desc,
+                                  project_tech,project_track,repo_url,demo_url,video_url,deck_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+       ON CONFLICT (hackathon_id,email) DO UPDATE SET name=$3,org=$4,type=$6,team_name=$7,team_size=$8,message=$9,status=$10,
+         project_name=$11,project_tagline=$12,project_problem=$13,project_solution=$14,project_desc=$15,
+         project_tech=$16,project_track=$17,repo_url=$18,demo_url=$19,video_url=$20,deck_url=$21
        RETURNING *`,
-      [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message,
-       projectName||null, projectDesc||null, projectTrack||null, repoUrl||null, demoUrl||null, videoUrl||null]
+      [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message, status,
+       projectName||null, tagline||null, problemStatement||null, solution||null, projectDesc||null,
+       techStack||null, projectTrack||null, repoUrl||null, demoUrl||null, videoUrl||null, deckUrl||null]
     );
     const reg = camel(rows[0]);
 
@@ -1506,16 +1532,65 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       }
     } catch(_) {}
 
-    // Send "we got your registration" email immediately
-    try {
-      const { rows: [h] } = await q("SELECT * FROM hackathons WHERE id=$1", [hackathonId]);
-      sendEmail(reg.email,
-        `Registration received — ${h?.name || "HackFest Hub"}`,
-        emailRegReceived(reg, h || {})
-      ).catch(()=>{});
-    } catch(_) {}
+    let autoResult = { autoApproved:false, teamCreated:false, loginCreated:false, submissionCreated:false };
+    const DEFAULT_PASSWORD = "hackfest123";
 
-    res.status(201).json(reg);
+    if (autoApprove) {
+      // ── Provision the team, its login, and a project submission ──
+      try {
+        const tName = reg.teamName || reg.name;
+        const orgId = await orgForHackathon(reg.hackathonId);
+        const { rows: existingTeam } = await q(
+          "SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)", [reg.hackathonId, tName]);
+        let teamId;
+        if (existingTeam.length) { teamId = existingTeam[0].id; }
+        else {
+          teamId = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+          await q("INSERT INTO teams(id,hackathon_id,name,project,category,members) VALUES($1,$2,$3,$4,$5,$6)",
+            [teamId, reg.hackathonId, tName, projectName||null, projectTrack||null, reg.name||null]);
+          autoResult.teamCreated = true;
+        }
+
+        const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+        if (!existingUser.length) {
+          const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+          const uid2 = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+          await q("INSERT INTO users(id,name,email,password_hash,role,team_id,org_id) VALUES($1,$2,LOWER($3),$4,'team',$5,$6)",
+            [uid2, reg.name, reg.email, hash, teamId, orgId]);
+          autoResult.loginCreated = true;
+        }
+
+        // ── Create the project submission (goes straight to judging) ──
+        const subId = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+        await q(
+          `INSERT INTO submissions(id,hackathon_id,team_id,title,tagline,description,problem_statement,solution,
+             tech_stack,github_url,demo_url,video_url,deck_url,track,team_members,status,submitted_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'submitted',NOW())
+           ON CONFLICT(hackathon_id,team_id) DO UPDATE SET title=$4,tagline=$5,description=$6,problem_statement=$7,
+             solution=$8,tech_stack=$9,github_url=$10,demo_url=$11,video_url=$12,deck_url=$13,track=$14,
+             team_members=$15,status='submitted',updated_at=NOW()`,
+          [subId, reg.hackathonId, teamId, projectName, tagline||null, projectDesc||null, problemStatement||null,
+           solution||null, techStack||null, repoUrl||null, demoUrl||null, videoUrl||null, deckUrl||null,
+           projectTrack||null, reg.name||null]
+        ).catch(e=>console.error("auto-submission:", e.message));
+        autoResult.submissionCreated = true;
+        autoResult.autoApproved = true;
+      } catch(autoErr) { console.error("Auto-provision team on register:", autoErr.message); }
+
+      // Welcome email with login credentials.
+      try {
+        sendEmail(reg.email, `You're in! Sign in to ${hack.name || "the hackathon"}`,
+          emailRegApproved(reg, hack, { email: reg.email, password: DEFAULT_PASSWORD })).catch(()=>{});
+      } catch(_) {}
+    } else {
+      // Judge, or a team held for review because the cap is full.
+      try {
+        sendEmail(reg.email, `Registration received — ${hack.name || "HackFest Hub"}`,
+          emailRegReceived(reg, hack)).catch(()=>{});
+      } catch(_) {}
+    }
+
+    res.status(201).json({ ...reg, ...autoResult });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
