@@ -408,6 +408,25 @@ export function HackathonsPage({ db, reload, toast, setActive, setPage }) {
           <Field label="FAQ" hint="Separate Q&amp;A blocks with a blank line. Use Q: and A: prefixes">
             <textarea style={{...TA,minHeight:80,fontSize:12}} value={form.faq||""} onChange={f("faq")} placeholder="Q: Who can participate?&#10;A: Anyone 18+ with a laptop.&#10;&#10;Q: Is it free?&#10;A: Yes, completely free." />
           </Field>
+          <div style={{padding:"12px 14px",marginBottom:14,background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
+            <label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+              <input type="checkbox" checked={!!form.detailedRegistration} onChange={e=>setForm(p=>({...p,detailedRegistration:e.target.checked}))} style={{accentColor:C.blue,cursor:"pointer",width:14,height:14,marginTop:2}} />
+              <span>
+                <span style={{...FONT,fontSize:13,fontWeight:600,color:C.text}}>Detailed registration form</span>
+                <span style={{...FONT,fontSize:12,color:C.text3,display:"block",marginTop:2}}>Collect full participant &amp; project details (country, role, education, area of interest, problem statement, time zone, contact numbers, project links, consent). Leave off for the simple form.</span>
+              </span>
+            </label>
+            {form.detailedRegistration&&(
+              <div style={{marginTop:12}}>
+                <Field label="Problem statements" hint="One per line — these populate the participant's dropdown (e.g. DN-AI-01 — Multilingual Document Understanding)">
+                  <textarea style={{...TA,minHeight:90,fontSize:12}} value={form.problemStatements||""} onChange={f("problemStatements")} placeholder="DN-AI-01 — Multilingual Intelligent Document Understanding&#10;DN-BU-01 — Customer Churn Prediction and Retention Strategy" />
+                </Field>
+                <Field label="Privacy notice URL" hint="Shown in the consent checkbox">
+                  <input style={IN} value={form.privacyUrl||""} onChange={f("privacyUrl")} placeholder="https://yourevent.com/privacy" />
+                </Field>
+              </div>
+            )}
+          </div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,padding:"10px 12px",background:C.bg2,borderRadius:R.sm,border:`1px solid ${C.border}`}}>
             <input type="checkbox" id="pub" checked={!!form.published} onChange={e=>setForm(p=>({...p,published:e.target.checked}))} style={{accentColor:C.blue,cursor:"pointer",width:14,height:14}} />
             <label htmlFor="pub" style={{...FONT,fontSize:13,color:C.text,cursor:"pointer"}}>Publish — make visible publicly and accept registrations</label>
@@ -5327,6 +5346,36 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
     catch(e){toast(e.message,"error");}
   };
 
+  // Export all registrations for this event to a CSV (opens directly in Excel).
+  const exportRegs=()=>{
+    const list=filtered;
+    if(!list.length){toast("No registrations to export","error");return;}
+    const cols=[
+      ["Type","type"],["Status","status"],["Full name","name"],["Email","email"],
+      ["Country","country"],["Organization / University","org"],["Current role","currentRole"],
+      ["Education level","educationLevel"],["Area of interest","areaOfInterest"],
+      ["Team name","teamName"],["Team size","teamSize"],["Team members","teamMembers"],
+      ["Problem statement","problemStatementSel"],["Track preference","projectTrack"],
+      ["Project title","projectName"],["Tagline","projectTagline"],
+      ["Primary contact","phone"],["Secondary contact","phone2"],["Time zone","timezone"],
+      ["Presentation link","presentationUrl"],["Video link","videoUrl"],["Demo link","demoUrl"],
+      ["GitHub / Portfolio","repoUrl"],["LinkedIn","linkedin"],["Deck URL","deckUrl"],
+      ["Problem (text)","projectProblem"],["Solution","projectSolution"],["Description","projectDesc"],
+      ["Tech stack","projectTech"],["Message / notes","message"],["Consent",r=>r.consent?"Yes":""],
+      ["Registered at",r=>r.createdAt?new Date(r.createdAt).toLocaleString():""],
+    ];
+    const esc=v=>{ const s=(v==null?"":String(v)); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; };
+    const header=cols.map(c=>esc(c[0])).join(",");
+    const rows=list.map(r=>cols.map(([,k])=>esc(typeof k==="function"?k(r):r[k])).join(","));
+    const csv="﻿"+[header,...rows].join("\r\n");   // BOM → Excel reads UTF-8
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`${(hack?.name||"registrations").replace(/[^a-z0-9]+/gi,"-")}-registrations.csv`;
+    a.click(); URL.revokeObjectURL(a.href);
+    toast(`Exported ${list.length} registration${list.length===1?"":"s"}`);
+  };
+
   // Team/Judge auto-created on approval — no manual convert needed
 
   const pending  =regs.filter(r=>r.status==="pending");
@@ -5420,7 +5469,8 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
 
   return(
     <div>
-      <SectionHeader title="Registrations" count="Review applications and onboard approved participants" />
+      <SectionHeader title="Registrations" count="Review applications and onboard approved participants"
+        action={<Btn size="sm" onClick={exportRegs}>⬇ Export to Excel</Btn>} />
       <div style={{display:"grid",gridTemplateColumns:"210px 1fr",gap:14,alignItems:"start"}}>
         <Card pad={0} style={{overflow:"hidden"}}>
           <div style={{...FONT,fontSize:11,fontWeight:500,color:C.text3,letterSpacing:"0.05em",textTransform:"uppercase",

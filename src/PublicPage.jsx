@@ -91,7 +91,11 @@ function FAQItem({q,a,accent}){
 }
 
 // ── RegistrationForm ─────────────────────────────────────────────────────────
-function RegForm({hackathonId,accent,deadline,tracks:tracksStr}){
+const REG_ROLES=["Undergraduate student","Postgraduate student","PhD scholar","Researcher","Developer","Data scientist","AI/ML practitioner","Technology professional","Independent innovator","Other"];
+const REG_EDU=["Undergraduate","Postgraduate","Doctorate","Other","Prefer not to say"];
+const REG_TRACK_FALLBACK=["AI & Machine Learning","Data Science & Analytics","Generative AI","Responsible AI","Optimization & Decision Intelligence","Business Intelligence","Healthcare & Social Impact","Cybersecurity & Fraud Detection","Sustainability & Climate","Open Innovation","Undecided"];
+
+function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemStatements,privacyUrl}){
   const[type,setType]=useState("team");
   const[form,setForm]=useState({});
   const[busy,setBusy]=useState(false);
@@ -100,12 +104,14 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr}){
   const[err,setErr]=useState("");
   function sf(k){return e=>setForm(p=>({...p,[k]:e.target.value}));}
   const trackList=(tracksStr||"").split(",").map(t=>t.trim()).filter(Boolean);
+  const problemList=(problemStatements||"").split(/\n|,/).map(s=>s.trim()).filter(Boolean);
+  const trackOptions=trackList.length?trackList:REG_TRACK_FALLBACK;
   const IS={...FF,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",
     borderRadius:8,padding:"10px 14px",fontSize:14,color:"#fff",width:"100%",outline:"none"};
   const lbl={...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"};
   // Plain render helper (not a component) — keeps input identity stable, no focus loss.
   const field=(label,key,opts={})=>{
-    const{type:t="text",required,placeholder,textarea,min,max,select}=opts;
+    const{type:t="text",required,placeholder,textarea,min,max,select,options}=opts;
     const common={value:form[key]||"",onChange:sf(key),
       onFocus:e=>e.target.style.borderColor=accent,
       onBlur:e=>e.target.style.borderColor="rgba(255,255,255,0.12)"};
@@ -113,7 +119,7 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr}){
       <div style={{marginBottom:10}}>
         <div style={lbl}>{label}{required?" *":""}</div>
         {select
-          ? <select {...common} style={IS}><option value="">Select a track</option>{trackList.map(t=><option key={t} value={t}>{t}</option>)}</select>
+          ? <select {...common} style={IS}><option value="">{placeholder||"Select an option"}</option>{(options||trackList).map(t=><option key={t} value={t}>{t}</option>)}</select>
           : textarea
             ? <textarea {...common} placeholder={placeholder} style={{...IS,resize:"vertical",minHeight:70}}/>
             : <input {...common} type={t} required={required} min={min} max={max} placeholder={placeholder} style={IS}/>}
@@ -123,7 +129,11 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr}){
   async function submit(e){
     e.preventDefault();
     if(!form.name?.trim()||!form.email?.trim())return;
-    if(type==="team"&&!form.projectName?.trim()){setErr("Please give your project a title.");return;}
+    if(detailed){
+      if(!form.consent){setErr("Please accept the privacy & data-handling consent to register.");return;}
+      if(!form.country?.trim()||!form.currentRole?.trim()||!form.areaOfInterest?.trim()){setErr("Country, current role, and area of interest are required.");return;}
+      if(type==="team"&&(!form.problemStatementSel?.trim()||!form.phone?.trim()||!form.timezone?.trim()||!form.presentationUrl?.trim())){setErr("Problem statement, primary contact, time zone, and project presentation link are required.");return;}
+    } else if(type==="team"&&!form.projectName?.trim()){setErr("Please give your project a title.");return;}
     setBusy(true); setErr("");
     try{
       const r=await fetch(`${BASE}/api/public/register`,{method:"POST",
@@ -201,12 +211,67 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr}){
           </div>
         </div>
         <div style={{marginBottom:10}}>
-          <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Organization</div>
+          <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Organization / University</div>
           <input style={IS} value={form.org||""} onChange={sf("org")} placeholder="Optional"
             onFocus={e=>e.target.style.borderColor=accent}
             onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
         </div>
-        {type==="team"&&(
+
+        {/* ── DETAILED registration (per-event) ── */}
+        {detailed&&(
+          <>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {field("Country","country",{required:true})}
+              {field("Current role","currentRole",{select:true,required:true,options:REG_ROLES,placeholder:"Select an option"})}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {field("Education level","educationLevel",{select:true,options:REG_EDU,placeholder:"Select an option"})}
+              {field("Area of interest","areaOfInterest",{required:true,placeholder:"e.g., Computer vision, NLP, MLOps"})}
+            </div>
+            {field("LinkedIn","linkedin",{placeholder:"https://linkedin.com/in/…"})}
+            {type==="team"&&(
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {field("Team name","teamName")}
+                  {field("Team size","teamSize",{type:"number",min:1,max:10})}
+                </div>
+                {field("Team members","teamMembers",{textarea:true,placeholder:"Teammate names and emails, one per line"})}
+                {field("Problem statement","problemStatementSel",{select:problemList.length>0,required:true,options:problemList,placeholder:"Select a problem statement"})}
+                {field("Problem track preference","projectTrack",{select:true,options:trackOptions,placeholder:"Select an option"})}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {field("Primary contact number","phone",{required:true})}
+                  {field("Secondary contact number","phone2")}
+                </div>
+                {field("Time zone","timezone",{required:true,placeholder:"e.g., GMT+5:30 (IST)"})}
+                {field("Project presentation link","presentationUrl",{required:true,placeholder:"https://…"})}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {field("Project video link","videoUrl",{placeholder:"https://… (if any)"})}
+                  {field("Working demo link","demoUrl",{placeholder:"https://… (if any)"})}
+                </div>
+                {field("GitHub / Portfolio","repoUrl",{placeholder:"https://github.com/…"})}
+              </>
+            )}
+            {type==="judge"&&(
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {field("Primary contact number","phone")}
+                  {field("Time zone","timezone")}
+                </div>
+                {field("Areas you can judge / expertise","message",{textarea:true,placeholder:"Your background and the domains you can evaluate."})}
+              </>
+            )}
+            <label style={{display:"flex",gap:10,alignItems:"flex-start",margin:"8px 0 14px",cursor:"pointer"}}>
+              <input type="checkbox" checked={!!form.consent} onChange={e=>setForm(p=>({...p,consent:e.target.checked}))}
+                style={{marginTop:3,accentColor:accent,width:16,height:16,flexShrink:0}}/>
+              <span style={{...FF,fontSize:12.5,color:"rgba(255,255,255,0.6)",lineHeight:1.6}}>
+                I consent to the collection and use of my registration information for organizing and communicating about this event.
+                {privacyUrl?<> I have read the <a href={privacyUrl} target="_blank" rel="noopener" style={{color:accent}}>privacy &amp; data handling notice</a>.</>:""} *
+              </span>
+            </label>
+          </>
+        )}
+
+        {!detailed&&type==="team"&&(
           <>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {field("Team Name","teamName")}
@@ -236,11 +301,11 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr}){
             </div>
           </>
         )}
-        {type==="judge"&&field("Expertise & Experience","message",{textarea:true,placeholder:"Your background and why you'd like to judge."})}
+        {!detailed&&type==="judge"&&field("Expertise & Experience","message",{textarea:true,placeholder:"Your background and why you'd like to judge."})}
         <button type="submit" disabled={busy} style={{...FF,width:"100%",background:accent,
           color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:15,
           fontWeight:700,cursor:"pointer",opacity:busy?0.7:1,marginTop:6}}>
-          {busy?"Submitting…":type==="team"?"Register & Submit Project →":"Submit Judge Application →"}
+          {busy?"Submitting…":detailed?"Complete registration →":type==="team"?"Register & Submit Project →":"Submit Judge Application →"}
         </button>
       </form>
     </>
@@ -957,7 +1022,8 @@ export default function PublicPage({hackathonId}){
                 </p>
               </div>
               <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:18,padding:28}}>
-                <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline} tracks={data.tracks}/>
+                <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline} tracks={data.tracks}
+                  detailed={data.detailedRegistration} problemStatements={data.problemStatements} privacyUrl={data.privacyUrl}/>
               </div>
             </>
           )}
