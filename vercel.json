@@ -76,6 +76,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/apply/(.*)",
+      "destination": "/index.html"
+    },
+    {
       "source": "/hackathons",
       "destination": "/index.html"
     }

@@ -21,7 +21,7 @@ import {
   SubmissionsPage, JudgeProgressPage, AnnouncementsPage, MentorsPage,
   CheckinPage, CertificatesPage, ExportPage, EmailCenterPage, QAAdminPage, TeamImportPage, TeamDashboardPage, DemoRequestsPage, ChangePasswordModal, AIStudioPage, PlatformPage,
 } from "./pages.jsx";
-import PublicPage from "./PublicPage.jsx";
+import PublicPage, { RegisterStandalone } from "./PublicPage.jsx";
 
 /* ─── PUBLIC REGISTRATION PAGE ─────────────────────────────────────────── */
 function PublicRegisterPage({ hackathonId }) {
@@ -1014,6 +1014,8 @@ export default function App() {
   if (path.startsWith("/read/"))     return <ErrorBoundary><PostReaderPage /></ErrorBoundary>;
   if (path === "/write")             return <ErrorBoundary><WritePage /></ErrorBoundary>;
   // Public event page
+  const applyMatch = path.match(/^\/apply\/([^/]+)/);
+  if (applyMatch) return <ErrorBoundary><RegisterStandalone hackathonId={applyMatch[1]} /></ErrorBoundary>;
   const regMatch = path.match(/^\/register\/([^/]+)/);
   if (regMatch) return <ErrorBoundary><PublicPage hackathonId={regMatch[1]} /></ErrorBoundary>;
   // Subdomain single-event mode
