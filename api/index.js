@@ -1097,10 +1097,13 @@ app.get(["/api/hackathons", "/hackathons"], auth, async (req, res) => {
 });
 
 app.post(["/api/hackathons", "/hackathons"], admin, async (req, res) => {
-  const { name, startDate, endDate, location, status = "upcoming", description, tagline, prizePool, maxTeams, tracks, published = false, bannerColor, sponsors, schedule, faq, category } = req.body;
+  const { name, startDate, endDate, location, status = "upcoming", description, tagline, prizePool, maxTeams, tracks, published = false, bannerColor, sponsors, schedule, faq, category, detailedRegistration } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "name required" });
   try {
     await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS category VARCHAR(40)").catch(()=>{});
+    await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS detailed_registration BOOLEAN DEFAULT false").catch(()=>{});
+    await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS privacy_url TEXT").catch(()=>{});
+    await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS problem_statements TEXT").catch(()=>{});
     // Enforce the org's plan limit on number of hackathons
     const orgId = req.user.orgId || "org_default";
     if (orgId !== "org_default") {
@@ -1114,9 +1117,11 @@ app.post(["/api/hackathons", "/hackathons"], admin, async (req, res) => {
       }
     }
     const { rows } = await q(
-      "INSERT INTO hackathons (id,name,start_date,end_date,location,status,description,tagline,prize_pool,max_teams,tracks,published,banner_color,sponsors,schedule,faq,org_id,category) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *",
-      [uid(), name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null, orgId, category||null]
+      "INSERT INTO hackathons (id,name,start_date,end_date,location,status,description,tagline,prize_pool,max_teams,tracks,published,banner_color,sponsors,schedule,faq,org_id,category,detailed_registration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *",
+      [uid(), name, startDate || null, endDate || null, location, status, description, tagline, prizePool, maxTeams || null, tracks, Boolean(published), bannerColor||'#1e3a8a', sponsors||null, schedule||null, faq||null, orgId, category||null, Boolean(detailedRegistration)]
     );
+    if (req.body.privacyUrl !== undefined) await q("UPDATE hackathons SET privacy_url=$1 WHERE id=$2", [req.body.privacyUrl||null, rows[0].id]).catch(()=>{});
+    if (req.body.problemStatements !== undefined) await q("UPDATE hackathons SET problem_statements=$1 WHERE id=$2", [req.body.problemStatements||null, rows[0].id]).catch(()=>{});
     res.status(201).json(camel(rows[0]));
 
     // Platform oversight: record + notify the owner when a tenant creates an event.
@@ -1155,10 +1160,15 @@ app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
     venueName, venueAddress, venueMapsUrl,
     socialTwitter, socialLinkedin, socialInstagram, socialFacebook,
     registrationDeadline, galleryImages, websiteTestimonials, websiteStats,
-    maxParticipants, websiteTheme, category,
+    maxParticipants, websiteTheme, category, detailedRegistration,
   } = req.body;
   try {
     await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS category VARCHAR(40)").catch(()=>{});
+    await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS detailed_registration BOOLEAN DEFAULT false").catch(()=>{});
+    await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS privacy_url TEXT").catch(()=>{});
+    await q("ALTER TABLE hackathons ADD COLUMN IF NOT EXISTS problem_statements TEXT").catch(()=>{});
+    if (req.body.privacyUrl !== undefined) await q("UPDATE hackathons SET privacy_url=$1 WHERE id=$2", [req.body.privacyUrl||null, req.params.id]).catch(()=>{});
+    if (req.body.problemStatements !== undefined) await q("UPDATE hackathons SET problem_statements=$1 WHERE id=$2", [req.body.problemStatements||null, req.params.id]).catch(()=>{});
     // Capture prior publish state so we can detect a newly-published event.
     const { rows: [prev] } = await q("SELECT published, org_id, name FROM hackathons WHERE id=$1", [req.params.id]).catch(()=>({rows:[]}));
     const { rows } = await q(
@@ -1171,8 +1181,9 @@ app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
         venue_name=$20,venue_address=$21,venue_maps_url=$22,
         social_twitter=$23,social_linkedin=$24,social_instagram=$25,social_facebook=$26,
         registration_deadline=$27,gallery_images=$28,website_testimonials=$29,
-        website_stats=$30,max_participants=$31,website_theme=$32,category=$33
-       WHERE id=$34 RETURNING *`,
+        website_stats=$30,max_participants=$31,website_theme=$32,category=$33,
+        detailed_registration=$34
+       WHERE id=$35 RETURNING *`,
       [name,startDate||null,endDate||null,location,status,
        description,tagline,prizePool,maxTeams||null,tracks,
        Boolean(published),bannerColor||'#6366f1',schedule||null,faq||null,
@@ -1182,6 +1193,7 @@ app.put(["/api/hackathons/:id", "/hackathons/:id"], admin, async (req, res) => {
        socialTwitter||null,socialLinkedin||null,socialInstagram||null,socialFacebook||null,
        registrationDeadline||null,galleryImages||null,websiteTestimonials||null,
        websiteStats||null,maxParticipants||null,websiteTheme||'dark',category||null,
+       Boolean(detailedRegistration),
        req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Not found" });
@@ -1473,22 +1485,39 @@ app.get(["/api/public/hackathons/:id/judges", "/public/hackathons/:id/judges"], 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post(["/api/public/register", "/public/register"], async (req, res) => {
+  const b = req.body;
   const { hackathonId, name, email, org, type, teamName, teamSize, message,
           projectName, tagline, problemStatement, solution, projectDesc, techStack,
-          projectTrack, repoUrl, demoUrl, videoUrl, deckUrl } = req.body;
+          projectTrack, repoUrl, demoUrl, videoUrl, deckUrl,
+          // detailed-registration fields
+          country, currentRole, educationLevel, areaOfInterest, problemStatementSel,
+          phone, phone2, timezone, linkedin, presentationUrl, teamMembers, consent } = b;
   if (!hackathonId || !name?.trim() || !email?.trim()) return res.status(400).json({ error: "hackathonId, name, email required" });
   const isJudge = type === "judge";
-  // Teams must give a project title (this is now a project submission).
-  if (!isJudge && !projectName?.trim()) return res.status(400).json({ error: "Project title is required" });
   try {
     const { rows: hackRows } = await q("SELECT * FROM hackathons WHERE id=$1 AND published=true", [hackathonId]);
     if (!hackRows.length) return res.status(404).json({ error: "Hackathon not found or not open" });
     const hack = hackRows[0];
+    const detailed = !!hack.detailed_registration;
 
-    // Self-heal project columns on the registrations table.
+    // Field requirements differ by mode.
+    if (detailed) {
+      if (!consent) return res.status(400).json({ error: "Please accept the privacy & data-handling consent to register." });
+      if (!country?.trim() || !currentRole?.trim() || !areaOfInterest?.trim())
+        return res.status(400).json({ error: "Country, current role, and area of interest are required." });
+      if (!isJudge && (!problemStatementSel?.trim() || !phone?.trim() || !timezone?.trim() || !presentationUrl?.trim()))
+        return res.status(400).json({ error: "Problem statement, contact number, time zone, and project presentation link are required." });
+    } else if (!isJudge && !projectName?.trim()) {
+      return res.status(400).json({ error: "Project title is required" });
+    }
+
+    // Self-heal all registration columns (standard + detailed).
     for (const col of ["project_name VARCHAR(200)","project_tagline VARCHAR(255)","project_problem TEXT",
         "project_solution TEXT","project_desc TEXT","project_tech TEXT","project_track VARCHAR(80)",
-        "repo_url TEXT","demo_url TEXT","video_url TEXT","deck_url TEXT"]) {
+        "repo_url TEXT","demo_url TEXT","video_url TEXT","deck_url TEXT",
+        "country VARCHAR(80)","current_role VARCHAR(80)","education_level VARCHAR(40)","area_of_interest VARCHAR(200)",
+        "problem_statement_sel VARCHAR(200)","phone VARCHAR(40)","phone2 VARCHAR(40)","timezone VARCHAR(60)",
+        "linkedin TEXT","presentation_url TEXT","team_members TEXT","consent BOOLEAN"]) {
       await q(`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS ${col}`).catch(()=>{});
     }
 
@@ -1509,15 +1538,22 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
     const { rows } = await q(
       `INSERT INTO registrations (id,hackathon_id,name,email,org,type,team_name,team_size,message,status,
                                   project_name,project_tagline,project_problem,project_solution,project_desc,
-                                  project_tech,project_track,repo_url,demo_url,video_url,deck_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+                                  project_tech,project_track,repo_url,demo_url,video_url,deck_url,
+                                  country,current_role,education_level,area_of_interest,problem_statement_sel,
+                                  phone,phone2,timezone,linkedin,presentation_url,team_members,consent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+               $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
        ON CONFLICT (hackathon_id,email) DO UPDATE SET name=$3,org=$4,type=$6,team_name=$7,team_size=$8,message=$9,status=$10,
          project_name=$11,project_tagline=$12,project_problem=$13,project_solution=$14,project_desc=$15,
-         project_tech=$16,project_track=$17,repo_url=$18,demo_url=$19,video_url=$20,deck_url=$21
+         project_tech=$16,project_track=$17,repo_url=$18,demo_url=$19,video_url=$20,deck_url=$21,
+         country=$22,current_role=$23,education_level=$24,area_of_interest=$25,problem_statement_sel=$26,
+         phone=$27,phone2=$28,timezone=$29,linkedin=$30,presentation_url=$31,team_members=$32,consent=$33
        RETURNING *`,
       [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message, status,
        projectName||null, tagline||null, problemStatement||null, solution||null, projectDesc||null,
-       techStack||null, projectTrack||null, repoUrl||null, demoUrl||null, videoUrl||null, deckUrl||null]
+       techStack||null, projectTrack||null, repoUrl||null, demoUrl||null, videoUrl||null, deckUrl||null,
+       country||null, currentRole||null, educationLevel||null, areaOfInterest||null, problemStatementSel||null,
+       phone||null, phone2||null, timezone||null, linkedin||null, presentationUrl||null, teamMembers||null, Boolean(consent)]
     );
     const reg = camel(rows[0]);
 
@@ -1540,6 +1576,13 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       try {
         const tName = reg.teamName || reg.name;
         const orgId = await orgForHackathon(reg.hackathonId);
+        // In detailed mode the title comes from team/name + problem statement; otherwise the project title.
+        const subTitle   = detailed ? (tName) : projectName;
+        const subProblem = detailed ? (problemStatementSel || problemStatement) : problemStatement;
+        const subDeck    = detailed ? (presentationUrl || deckUrl) : deckUrl;
+        const subDesc    = detailed ? (projectDesc || areaOfInterest) : projectDesc;
+        const subMembers = detailed ? (teamMembers || reg.name) : reg.name;
+
         const { rows: existingTeam } = await q(
           "SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)", [reg.hackathonId, tName]);
         let teamId;
@@ -1547,7 +1590,7 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
         else {
           teamId = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
           await q("INSERT INTO teams(id,hackathon_id,name,project,category,members) VALUES($1,$2,$3,$4,$5,$6)",
-            [teamId, reg.hackathonId, tName, projectName||null, projectTrack||null, reg.name||null]);
+            [teamId, reg.hackathonId, tName, subTitle||null, projectTrack||null, subMembers||null]);
           autoResult.teamCreated = true;
         }
 
@@ -1569,9 +1612,9 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
            ON CONFLICT(hackathon_id,team_id) DO UPDATE SET title=$4,tagline=$5,description=$6,problem_statement=$7,
              solution=$8,tech_stack=$9,github_url=$10,demo_url=$11,video_url=$12,deck_url=$13,track=$14,
              team_members=$15,status='submitted',updated_at=NOW()`,
-          [subId, reg.hackathonId, teamId, projectName, tagline||null, projectDesc||null, problemStatement||null,
-           solution||null, techStack||null, repoUrl||null, demoUrl||null, videoUrl||null, deckUrl||null,
-           projectTrack||null, reg.name||null]
+          [subId, reg.hackathonId, teamId, subTitle||tName, tagline||null, subDesc||null, subProblem||null,
+           solution||null, techStack||null, repoUrl||null, demoUrl||null, videoUrl||null, subDeck||null,
+           projectTrack||null, subMembers||null]
         ).catch(e=>console.error("auto-submission:", e.message));
         autoResult.submissionCreated = true;
         autoResult.autoApproved = true;
