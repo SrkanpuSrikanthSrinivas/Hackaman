@@ -342,18 +342,19 @@ export function RegisterStandalone({hackathonId}){
     </div>
   );
 
-  const accent=data.bannerColor||"#4f6bf6";
+  const accent=data.bannerColor||"#3b6cf6";
   const detailed=!!data.detailedRegistration;
   const privacyUrl=data.privacyUrl;
 
   return(
-    <div style={{minHeight:"100vh",background:"#f6f8fc",...FF,padding:"clamp(24px,5vw,56px) 16px"}}>
+    <div style={{minHeight:"100vh",background:"#0a0e1a",...FF,padding:"clamp(24px,5vw,64px) 16px"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
         *{box-sizing:border-box;}
+        body{background:#0a0e1a;}
       `}</style>
-      <div style={{maxWidth:680,width:"100%",margin:"0 auto",background:"#fff",borderRadius:20,
-        border:"1px solid #e6eaf0",boxShadow:"0 10px 40px -20px rgba(15,23,42,0.25)",padding:"clamp(28px,4vw,48px)"}}>
+      <div style={{maxWidth:720,width:"100%",margin:"0 auto",background:"#f6f8fc",borderRadius:24,
+        border:"1px solid rgba(255,255,255,0.08)",boxShadow:"0 30px 80px -30px rgba(0,0,0,0.6)",padding:"clamp(28px,4vw,52px)"}}>
         <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:"#64748b",marginBottom:12}}>
           {role==="judge"?"Judge Registration":"Participant Registration"}
         </div>
