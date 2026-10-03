@@ -347,60 +347,27 @@ export function RegisterStandalone({hackathonId}){
   const privacyUrl=data.privacyUrl;
 
   return(
-    <div style={{minHeight:"100vh",background:"#070b14",...FF}}>
+    <div style={{minHeight:"100vh",background:"#f6f8fc",...FF,padding:"clamp(24px,5vw,56px) 16px"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
         *{box-sizing:border-box;}
-        .rs-grid{display:grid;grid-template-columns:1fr 1.1fr;gap:0;min-height:100vh;max-width:1400px;margin:0 auto;}
-        @media(max-width:900px){.rs-grid{grid-template-columns:1fr;}.rs-left{display:none!important;}}
       `}</style>
-      <div className="rs-grid">
-        {/* Left brand panel */}
-        <div className="rs-left" style={{padding:"64px 56px",display:"flex",flexDirection:"column",justifyContent:"center",color:"#fff"}}>
-          <a href={`/register/${hackathonId}`} style={{...FF,fontSize:14,color:"rgba(255,255,255,0.6)",textDecoration:"none",marginBottom:40,display:"inline-flex",alignItems:"center",gap:8}}>← Back to {data.name}</a>
-          <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:accent,marginBottom:20}}>{data.name}</div>
-          <h1 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(34px,4vw,56px)",fontWeight:700,lineHeight:1.05,letterSpacing:"-0.02em",marginBottom:20}}>
-            {data.tagline||"Your next challenge starts here."}
-          </h1>
-          <p style={{...FF,fontSize:16,color:"rgba(255,255,255,0.55)",lineHeight:1.65,maxWidth:420,marginBottom:40}}>
-            {data.description?String(data.description).slice(0,160):"Join a global community turning ideas into solutions that matter."}
-          </p>
-          <div style={{height:1,background:"rgba(255,255,255,0.1)",maxWidth:420,marginBottom:28}}/>
-          <div style={{display:"flex",gap:14,alignItems:"flex-start",maxWidth:440,marginBottom:28}}>
-            <span style={{fontSize:20,flexShrink:0}}>🛡️</span>
-            <div>
-              <div style={{...FF,fontSize:15,fontWeight:600,marginBottom:4}}>Your information stays private.</div>
-              <div style={{...FF,fontSize:13.5,color:"rgba(255,255,255,0.5)",lineHeight:1.6}}>Registration details are accessible only to authorized organizers. No public participant directory is created.</div>
-            </div>
-          </div>
-          <div>
-            <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.4)",marginBottom:6}}>{role==="judge"?"Here to build?":"Interested in evaluating solutions?"}</div>
-            <a href={role==="judge"?`/apply/${hackathonId}`:`/apply/${hackathonId}?role=judge`}
-              style={{...FF,fontSize:15,fontWeight:600,color:"#fff",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:8}}>
-              {role==="judge"?"Participant registration":"Judge registration"} <span style={{color:accent}}>↗</span>
-            </a>
-          </div>
+      <div style={{maxWidth:680,width:"100%",margin:"0 auto",background:"#fff",borderRadius:20,
+        border:"1px solid #e6eaf0",boxShadow:"0 10px 40px -20px rgba(15,23,42,0.25)",padding:"clamp(28px,4vw,48px)"}}>
+        <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:"#64748b",marginBottom:12}}>
+          {role==="judge"?"Judge Registration":"Participant Registration"}
         </div>
-
-        {/* Right form card */}
-        <div style={{background:"#f6f8fc",padding:"48px clamp(24px,4vw,56px)",display:"flex",flexDirection:"column",justifyContent:"flex-start"}}>
-          <div style={{maxWidth:640,width:"100%",margin:"0 auto"}}>
-            <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:"#64748b",marginBottom:12}}>
-              {role==="judge"?"Judge Registration":"Participant Registration"}
-            </div>
-            <h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(26px,3vw,40px)",fontWeight:700,color:"#0f172a",letterSpacing:"-0.02em",marginBottom:12}}>
-              Register for {data.name}
-            </h2>
-            <p style={{...FF,fontSize:15,color:"#64748b",lineHeight:1.6,marginBottom:28}}>
-              {role==="judge"
-                ? "Apply to evaluate submissions. Fields marked * are required."
-                : "Register individually or as a team. Select your problem statement and form your team during registration. Fields marked * are required."}
-            </p>
-            <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline}
-              tracks={data.tracks} detailed={detailed} problemStatements={data.problemStatements}
-              privacyUrl={privacyUrl} light hideToggle initialType={role}/>
-          </div>
-        </div>
+        <h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(26px,3vw,38px)",fontWeight:700,color:"#0f172a",letterSpacing:"-0.02em",marginBottom:12}}>
+          Register for {data.name}
+        </h2>
+        <p style={{...FF,fontSize:15,color:"#64748b",lineHeight:1.6,marginBottom:28}}>
+          {role==="judge"
+            ? "Apply to evaluate submissions. Fields marked * are required."
+            : "Register individually or as a team. Select your problem statement and form your team during registration. Fields marked * are required."}
+        </p>
+        <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline}
+          tracks={data.tracks} detailed={detailed} problemStatements={data.problemStatements}
+          privacyUrl={privacyUrl} light hideToggle initialType={role}/>
       </div>
     </div>
   );
