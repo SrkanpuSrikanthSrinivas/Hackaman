@@ -4856,7 +4856,7 @@ function ShareEmbed({ url, published, name }) {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, marginBottom:14, flexWrap:"wrap" }}>
         <div>
           <div style={{ ...FONT, fontSize:14, fontWeight:600, color:C.text, marginBottom:2 }}>Share &amp; embed registration</div>
-          <div style={{ ...FONT, fontSize:12, color:C.text3 }}>Put this on your own website — participants register and submit their project here.</div>
+          <div style={{ ...FONT, fontSize:12, color:C.text3 }}>Point your website's "Register" button here — it opens a clean form-only page (no event microsite). Participants register and submit their project.</div>
         </div>
         {!published && <Chip label="Publish to activate" color="amber" />}
       </div>
@@ -5041,7 +5041,7 @@ export function PublicPageCMS({ db, reload, toast, activeHackathon }) {
       </div>
 
       <div style={{marginBottom:20}}>
-        <ShareEmbed url={pubUrl} published={!!hack.published} name={hack.name} />
+        <ShareEmbed url={`${window.location.origin}/apply/${selH}`} published={!!hack.published} name={hack.name} />
       </div>
 
       {/* Tab bar */}

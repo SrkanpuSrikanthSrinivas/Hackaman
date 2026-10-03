@@ -95,8 +95,8 @@ const REG_ROLES=["Undergraduate student","Postgraduate student","PhD scholar","R
 const REG_EDU=["Undergraduate","Postgraduate","Doctorate","Other","Prefer not to say"];
 const REG_TRACK_FALLBACK=["AI & Machine Learning","Data Science & Analytics","Generative AI","Responsible AI","Optimization & Decision Intelligence","Business Intelligence","Healthcare & Social Impact","Cybersecurity & Fraud Detection","Sustainability & Climate","Open Innovation","Undecided"];
 
-function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemStatements,privacyUrl}){
-  const[type,setType]=useState("team");
+function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemStatements,privacyUrl,hideToggle,initialType,light}){
+  const[type,setType]=useState(initialType||"team");
   const[form,setForm]=useState({});
   const[busy,setBusy]=useState(false);
   const[done,setDone]=useState(false);
@@ -106,17 +106,23 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
   const trackList=(tracksStr||"").split(",").map(t=>t.trim()).filter(Boolean);
   const problemList=(problemStatements||"").split(/\n|,/).map(s=>s.trim()).filter(Boolean);
   const trackOptions=trackList.length?trackList:REG_TRACK_FALLBACK;
-  const IS={...FF,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",
-    borderRadius:8,padding:"10px 14px",fontSize:14,color:"#fff",width:"100%",outline:"none"};
-  const lbl={...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"};
+  // Theme — dark (event microsite) or light (standalone registration page).
+  const blurBorder = light ? "#d8dee9" : "rgba(255,255,255,0.12)";
+  const IS = light
+    ? {...FF,background:"#fff",border:`1px solid ${blurBorder}`,borderRadius:10,padding:"12px 15px",fontSize:15,color:"#1e293b",width:"100%",outline:"none"}
+    : {...FF,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"10px 14px",fontSize:14,color:"#fff",width:"100%",outline:"none"};
+  const lbl = light
+    ? {...FF,fontSize:14,fontWeight:600,color:"#334155",marginBottom:7}
+    : {...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"};
+  const muted = light ? "#64748b" : "rgba(255,255,255,0.5)";
   // Plain render helper (not a component) — keeps input identity stable, no focus loss.
   const field=(label,key,opts={})=>{
     const{type:t="text",required,placeholder,textarea,min,max,select,options}=opts;
     const common={value:form[key]||"",onChange:sf(key),
       onFocus:e=>e.target.style.borderColor=accent,
-      onBlur:e=>e.target.style.borderColor="rgba(255,255,255,0.12)"};
+      onBlur:e=>e.target.style.borderColor=blurBorder};
     return(
-      <div style={{marginBottom:10}}>
+      <div style={{marginBottom:14}}>
         <div style={lbl}>{label}{required?" *":""}</div>
         {select
           ? <select {...common} style={IS}><option value="">{placeholder||"Select an option"}</option>{(options||trackList).map(t=><option key={t} value={t}>{t}</option>)}</select>
@@ -149,15 +155,16 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
     return !isNaN(d) && d < new Date();
   })();
 
+  const headColor = light ? "#0f172a" : "#fff";
   if(done)return(
     <div style={{textAlign:"center",padding:"48px 0"}}>
       <div style={{fontSize:52,marginBottom:12}}>🎉</div>
       {result?.autoApproved?(<>
-        <div style={{...FF,fontSize:20,fontWeight:700,color:"#fff",marginBottom:8}}>You're in! Project submitted.</div>
-        <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.5)",lineHeight:1.7}}>Your team is registered and your project is entered for judging. We've emailed sign-in details to <strong style={{color:"#fff"}}>{form.email}</strong> — log in anytime to update your submission.</div>
+        <div style={{...FF,fontSize:20,fontWeight:700,color:headColor,marginBottom:8}}>You're in! Project submitted.</div>
+        <div style={{...FF,fontSize:14,color:muted,lineHeight:1.7}}>Your team is registered and your project is entered for judging. We've emailed sign-in details to <strong style={{color:headColor}}>{form.email}</strong> — log in anytime to update your submission.</div>
       </>):(<>
-        <div style={{...FF,fontSize:20,fontWeight:700,color:"#fff",marginBottom:8}}>Application Received!</div>
-        <div style={{...FF,fontSize:14,color:"rgba(255,255,255,0.5)"}}>We'll be in touch at <strong style={{color:"#fff"}}>{form.email}</strong> soon.</div>
+        <div style={{...FF,fontSize:20,fontWeight:700,color:headColor,marginBottom:8}}>Registration received!</div>
+        <div style={{...FF,fontSize:14,color:muted}}>Thank you. We'll be in touch at <strong style={{color:headColor}}>{form.email}</strong>.</div>
       </>)}
     </div>
   );
@@ -182,92 +189,84 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
           ⏳ Registration closes: <strong style={{color:accent}}>{deadline}</strong>
         </div>
       )}
-      <div style={{display:"flex",gap:2,marginBottom:20,background:"rgba(255,255,255,0.05)",
-        borderRadius:10,padding:3,border:"1px solid rgba(255,255,255,0.08)"}}>
-        {["team","judge"].map(t=>(
-          <button key={t} onClick={()=>setType(t)} style={{flex:1,padding:"8px",fontSize:13,
-            fontWeight:600,borderRadius:7,border:"none",cursor:"pointer",...FF,
-            background:type===t?accent:"transparent",
-            color:type===t?"#fff":"rgba(255,255,255,0.4)"}}>
-            {t==="team"?"🚀 Register as Team":"⭐ Apply as Judge"}
-          </button>
-        ))}
-      </div>
-      {err&&<div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",
-        borderRadius:8,padding:"10px 14px",fontSize:13,color:"#f87171",marginBottom:12}}>⚠ {err}</div>}
+      {!hideToggle&&(
+        <div style={{display:"flex",gap:2,marginBottom:20,background:"rgba(255,255,255,0.05)",
+          borderRadius:10,padding:3,border:"1px solid rgba(255,255,255,0.08)"}}>
+          {["team","judge"].map(t=>(
+            <button key={t} onClick={()=>setType(t)} style={{flex:1,padding:"8px",fontSize:13,
+              fontWeight:600,borderRadius:7,border:"none",cursor:"pointer",...FF,
+              background:type===t?accent:"transparent",
+              color:type===t?"#fff":"rgba(255,255,255,0.4)"}}>
+              {t==="team"?"🚀 Register as Team":"⭐ Apply as Judge"}
+            </button>
+          ))}
+        </div>
+      )}
+      {err&&<div style={{background:light?"#fef2f2":"rgba(239,68,68,0.15)",border:`1px solid ${light?"#fecaca":"rgba(239,68,68,0.3)"}`,
+        borderRadius:8,padding:"10px 14px",fontSize:13,color:light?"#b91c1c":"#f87171",marginBottom:14}}>⚠ {err}</div>}
       <form onSubmit={submit}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-          <div>
-            <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Full Name *</div>
-            <input style={IS} value={form.name||""} onChange={sf("name")} required
-              onFocus={e=>e.target.style.borderColor=accent}
-              onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
-          </div>
-          <div>
-            <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Email *</div>
-            <input type="email" style={IS} value={form.email||""} onChange={sf("email")} required
-              onFocus={e=>e.target.style.borderColor=accent}
-              onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
-          </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          {field("Full name","name",{required:true,placeholder:"Your full name"})}
+          {field("Email","email",{type:"email",required:true,placeholder:"you@example.com"})}
         </div>
-        <div style={{marginBottom:10}}>
-          <div style={{...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"}}>Organization / University</div>
-          <input style={IS} value={form.org||""} onChange={sf("org")} placeholder="Optional"
-            onFocus={e=>e.target.style.borderColor=accent}
-            onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.12)"} />
-        </div>
+        {detailed
+          ? <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+              {field("Country","country",{required:true,placeholder:"Your country"})}
+              {field("Organization / University","org",{placeholder:"Organization or university name"})}
+            </div>
+          : field("Organization / University","org",{placeholder:"Optional"})}
 
         {/* ── DETAILED registration (per-event) ── */}
         {detailed&&(
           <>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {field("Country","country",{required:true})}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
               {field("Current role","currentRole",{select:true,required:true,options:REG_ROLES,placeholder:"Select an option"})}
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {field("Education level","educationLevel",{select:true,options:REG_EDU,placeholder:"Select an option"})}
-              {field("Area of interest","areaOfInterest",{required:true,placeholder:"e.g., Computer vision, NLP, MLOps"})}
             </div>
-            {field("LinkedIn","linkedin",{placeholder:"https://linkedin.com/in/…"})}
+            {field("Area of interest","areaOfInterest",{required:true,placeholder:"Data science, AI, analytics…"})}
             {type==="team"&&(
               <>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  {field("Team name","teamName")}
-                  {field("Team size","teamSize",{type:"number",min:1,max:10})}
+                {field("Problem statement selection","problemStatementSel",{select:problemList.length>0,required:true,options:problemList,placeholder:"Select a problem statement"})}
+                {field("Team name","teamName",{placeholder:"Optional for individual participants"})}
+                {field("Team members","teamMembers",{textarea:true,placeholder:"Full names of all team members and their roles. Please only share information with their permission."})}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                  {field("Primary contact number","phone",{required:true,placeholder:"+ Country code and phone number"})}
+                  {field("Secondary contact number","phone2",{placeholder:"+ Country code and phone number"})}
                 </div>
-                {field("Team members","teamMembers",{textarea:true,placeholder:"Teammate names and emails, one per line"})}
-                {field("Problem statement","problemStatementSel",{select:problemList.length>0,required:true,options:problemList,placeholder:"Select a problem statement"})}
-                {field("Problem track preference","projectTrack",{select:true,options:trackOptions,placeholder:"Select an option"})}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  {field("Primary contact number","phone",{required:true})}
-                  {field("Secondary contact number","phone2")}
-                </div>
-                {field("Time zone","timezone",{required:true,placeholder:"e.g., GMT+5:30 (IST)"})}
+                {field("Time zone","timezone",{required:true,placeholder:"e.g. IST (UTC+5:30), EST (UTC-5:00)"})}
                 {field("Project presentation link","presentationUrl",{required:true,placeholder:"https://…"})}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  {field("Project video link","videoUrl",{placeholder:"https://… (if any)"})}
-                  {field("Working demo link","demoUrl",{placeholder:"https://… (if any)"})}
+                {field("Project video link (if any)","videoUrl",{placeholder:"https://…"})}
+                {field("Working demo link (if any)","demoUrl",{placeholder:"https://…"})}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                  {field("GitHub / Portfolio","repoUrl",{placeholder:"https://"})}
+                  {field("LinkedIn","linkedin",{placeholder:"https://linkedin.com/in/…"})}
                 </div>
-                {field("GitHub / Portfolio","repoUrl",{placeholder:"https://github.com/…"})}
+                {field("Problem track preference","projectTrack",{select:true,options:trackOptions,placeholder:"Select an option"})}
               </>
             )}
             {type==="judge"&&(
               <>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  {field("Primary contact number","phone")}
-                  {field("Time zone","timezone")}
+                {field("LinkedIn","linkedin",{placeholder:"https://linkedin.com/in/…"})}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                  {field("Primary contact number","phone",{placeholder:"+ Country code and phone number"})}
+                  {field("Time zone","timezone",{placeholder:"e.g. IST (UTC+5:30)"})}
                 </div>
                 {field("Areas you can judge / expertise","message",{textarea:true,placeholder:"Your background and the domains you can evaluate."})}
               </>
             )}
-            <label style={{display:"flex",gap:10,alignItems:"flex-start",margin:"8px 0 14px",cursor:"pointer"}}>
-              <input type="checkbox" checked={!!form.consent} onChange={e=>setForm(p=>({...p,consent:e.target.checked}))}
-                style={{marginTop:3,accentColor:accent,width:16,height:16,flexShrink:0}}/>
-              <span style={{...FF,fontSize:12.5,color:"rgba(255,255,255,0.6)",lineHeight:1.6}}>
-                I consent to the collection and use of my registration information for organizing and communicating about this event.
-                {privacyUrl?<> I have read the <a href={privacyUrl} target="_blank" rel="noopener" style={{color:accent}}>privacy &amp; data handling notice</a>.</>:""} *
-              </span>
-            </label>
+            <div style={{background:light?"#eef2f7":"rgba(255,255,255,0.04)",border:`1px solid ${light?"#e2e8f0":"rgba(255,255,255,0.08)"}`,borderRadius:10,padding:"14px 16px",margin:"4px 0 16px"}}>
+              <label style={{display:"flex",gap:10,alignItems:"flex-start",cursor:"pointer"}}>
+                <input type="checkbox" checked={!!form.consent} onChange={e=>setForm(p=>({...p,consent:e.target.checked}))}
+                  style={{marginTop:3,accentColor:accent,width:16,height:16,flexShrink:0}}/>
+                <span style={{...FF,fontSize:13,color:muted,lineHeight:1.6}}>
+                  I consent to the collection and use of my registration information for organizing and communicating about this event.
+                  {privacyUrl?<> I have read the <a href={privacyUrl} target="_blank" rel="noopener" style={{color:accent,fontWeight:600}}>privacy &amp; data handling notice</a>.</>:""} *
+                </span>
+              </label>
+              <div style={{...FF,fontSize:12,color:muted,marginTop:8,paddingLeft:26,lineHeight:1.6}}>
+                No marketing consent is assumed. You may request correction or deletion through the organizing team once contact details are published.
+              </div>
+            </div>
           </>
         )}
 
@@ -303,12 +302,107 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
         )}
         {!detailed&&type==="judge"&&field("Expertise & Experience","message",{textarea:true,placeholder:"Your background and why you'd like to judge."})}
         <button type="submit" disabled={busy} style={{...FF,width:"100%",background:accent,
-          color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:15,
-          fontWeight:700,cursor:"pointer",opacity:busy?0.7:1,marginTop:6}}>
-          {busy?"Submitting…":detailed?"Complete registration →":type==="team"?"Register & Submit Project →":"Submit Judge Application →"}
+          color:"#fff",border:"none",borderRadius:light?12:10,padding:light?"15px":"12px",fontSize:light?16:15,
+          fontWeight:700,cursor:"pointer",opacity:busy?0.7:1,marginTop:6,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          {busy?"Submitting…":detailed?"Complete registration":type==="team"?"Register & Submit Project":"Submit Judge Application"} {!busy&&"↗"}
         </button>
+        {detailed&&<div style={{...FF,fontSize:12.5,color:muted,textAlign:"center",marginTop:14,lineHeight:1.6}}>
+          No payment is collected. Participation rules and any applicable fees will be confirmed by the organizers.
+        </div>}
       </form>
     </>
+  );
+}
+
+// ── STANDALONE REGISTRATION PAGE (form only — nothing from the microsite) ─────
+export function RegisterStandalone({hackathonId}){
+  const[data,setData]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[err,setErr]=useState("");
+  const params=typeof window!=="undefined"?new URLSearchParams(window.location.search):new URLSearchParams();
+  const role=params.get("role")==="judge"?"judge":"team";
+
+  useEffect(()=>{
+    fetch(`${BASE}/api/pubpage/${hackathonId}`)
+      .then(async r=>{const d=await r.json();if(!r.ok||d.error)setErr(d.error||`Error ${r.status}`);else setData(d);setLoading(false);})
+      .catch(e=>{setErr(e.message);setLoading(false);});
+  },[hackathonId]);
+
+  useEffect(()=>{ if(data?.name){document.title=`Register — ${data.name}`;} },[data]);
+
+  if(loading)return(
+    <div style={{minHeight:"100vh",background:"#070b14",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{width:40,height:40,border:"3px solid rgba(255,255,255,0.1)",borderTopColor:"#6366f1",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+    </div>
+  );
+  if(err||!data)return(
+    <div style={{minHeight:"100vh",background:"#070b14",display:"flex",alignItems:"center",justifyContent:"center",...FF,color:"#f87171",fontSize:14,padding:24,textAlign:"center"}}>
+      {err||"Registration is not available."}
+    </div>
+  );
+
+  const accent=data.bannerColor||"#4f6bf6";
+  const detailed=!!data.detailedRegistration;
+  const privacyUrl=data.privacyUrl;
+
+  return(
+    <div style={{minHeight:"100vh",background:"#070b14",...FF}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
+        *{box-sizing:border-box;}
+        .rs-grid{display:grid;grid-template-columns:1fr 1.1fr;gap:0;min-height:100vh;max-width:1400px;margin:0 auto;}
+        @media(max-width:900px){.rs-grid{grid-template-columns:1fr;}.rs-left{display:none!important;}}
+      `}</style>
+      <div className="rs-grid">
+        {/* Left brand panel */}
+        <div className="rs-left" style={{padding:"64px 56px",display:"flex",flexDirection:"column",justifyContent:"center",color:"#fff"}}>
+          <a href={`/register/${hackathonId}`} style={{...FF,fontSize:14,color:"rgba(255,255,255,0.6)",textDecoration:"none",marginBottom:40,display:"inline-flex",alignItems:"center",gap:8}}>← Back to {data.name}</a>
+          <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:accent,marginBottom:20}}>{data.name}</div>
+          <h1 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(34px,4vw,56px)",fontWeight:700,lineHeight:1.05,letterSpacing:"-0.02em",marginBottom:20}}>
+            {data.tagline||"Your next challenge starts here."}
+          </h1>
+          <p style={{...FF,fontSize:16,color:"rgba(255,255,255,0.55)",lineHeight:1.65,maxWidth:420,marginBottom:40}}>
+            {data.description?String(data.description).slice(0,160):"Join a global community turning ideas into solutions that matter."}
+          </p>
+          <div style={{height:1,background:"rgba(255,255,255,0.1)",maxWidth:420,marginBottom:28}}/>
+          <div style={{display:"flex",gap:14,alignItems:"flex-start",maxWidth:440,marginBottom:28}}>
+            <span style={{fontSize:20,flexShrink:0}}>🛡️</span>
+            <div>
+              <div style={{...FF,fontSize:15,fontWeight:600,marginBottom:4}}>Your information stays private.</div>
+              <div style={{...FF,fontSize:13.5,color:"rgba(255,255,255,0.5)",lineHeight:1.6}}>Registration details are accessible only to authorized organizers. No public participant directory is created.</div>
+            </div>
+          </div>
+          <div>
+            <div style={{...FF,fontSize:13,color:"rgba(255,255,255,0.4)",marginBottom:6}}>{role==="judge"?"Here to build?":"Interested in evaluating solutions?"}</div>
+            <a href={role==="judge"?`/apply/${hackathonId}`:`/apply/${hackathonId}?role=judge`}
+              style={{...FF,fontSize:15,fontWeight:600,color:"#fff",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:8}}>
+              {role==="judge"?"Participant registration":"Judge registration"} <span style={{color:accent}}>↗</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Right form card */}
+        <div style={{background:"#f6f8fc",padding:"48px clamp(24px,4vw,56px)",display:"flex",flexDirection:"column",justifyContent:"flex-start"}}>
+          <div style={{maxWidth:640,width:"100%",margin:"0 auto"}}>
+            <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:"#64748b",marginBottom:12}}>
+              {role==="judge"?"Judge Registration":"Participant Registration"}
+            </div>
+            <h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(26px,3vw,40px)",fontWeight:700,color:"#0f172a",letterSpacing:"-0.02em",marginBottom:12}}>
+              Register for {data.name}
+            </h2>
+            <p style={{...FF,fontSize:15,color:"#64748b",lineHeight:1.6,marginBottom:28}}>
+              {role==="judge"
+                ? "Apply to evaluate submissions. Fields marked * are required."
+                : "Register individually or as a team. Select your problem statement and form your team during registration. Fields marked * are required."}
+            </p>
+            <RegForm hackathonId={hackathonId} accent={accent} deadline={data.registrationDeadline}
+              tracks={data.tracks} detailed={detailed} problemStatements={data.problemStatements}
+              privacyUrl={privacyUrl} light hideToggle initialType={role}/>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
