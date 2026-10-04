@@ -176,15 +176,23 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
   })();
 
   const headColor = light ? "#0f172a" : "#fff";
+  const emailLine = result?.emailSent
+    ? <> A confirmation email has been sent to <strong style={{color:headColor}}>{form.email}</strong>.</>
+    : <> We've recorded your email as <strong style={{color:headColor}}>{form.email}</strong>.</>;
   if(done)return(
     <div style={{textAlign:"center",padding:"48px 0"}}>
-      <div style={{fontSize:52,marginBottom:12}}>🎉</div>
+      <div style={{fontSize:52,marginBottom:12}}>✅</div>
       {result?.autoApproved?(<>
-        <div style={{...FF,fontSize:20,fontWeight:700,color:headColor,marginBottom:8}}>You're in! Project submitted.</div>
-        <div style={{...FF,fontSize:14,color:muted,lineHeight:1.7}}>Your team is registered and your project is entered for judging. We've emailed sign-in details to <strong style={{color:headColor}}>{form.email}</strong> — log in anytime to update your submission.</div>
+        <div style={{...FF,fontSize:22,fontWeight:700,color:headColor,marginBottom:10}}>Registration confirmed!</div>
+        <div style={{...FF,fontSize:14.5,color:muted,lineHeight:1.7,maxWidth:460,margin:"0 auto"}}>
+          Thanks{form.name?`, ${String(form.name).split(" ")[0]}`:""} — your registration{detailed?"":" and project submission"} is complete.
+          {emailLine} You can sign in anytime to review or update your details.
+        </div>
       </>):(<>
-        <div style={{...FF,fontSize:20,fontWeight:700,color:headColor,marginBottom:8}}>Registration received!</div>
-        <div style={{...FF,fontSize:14,color:muted}}>Thank you. We'll be in touch at <strong style={{color:headColor}}>{form.email}</strong>.</div>
+        <div style={{...FF,fontSize:22,fontWeight:700,color:headColor,marginBottom:10}}>Registration received!</div>
+        <div style={{...FF,fontSize:14.5,color:muted,lineHeight:1.7,maxWidth:460,margin:"0 auto"}}>
+          Thanks{form.name?`, ${String(form.name).split(" ")[0]}`:""}!{emailLine} The organizers will review your application and be in touch with next steps.
+        </div>
       </>)}
     </div>
   );
