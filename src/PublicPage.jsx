@@ -94,6 +94,19 @@ function FAQItem({q,a,accent}){
 const REG_ROLES=["Undergraduate student","Postgraduate student","PhD scholar","Researcher","Developer","Data scientist","AI/ML practitioner","Technology professional","Independent innovator","Other"];
 const REG_EDU=["Undergraduate","Postgraduate","Doctorate","Other","Prefer not to say"];
 const REG_TRACK_FALLBACK=["AI & Machine Learning","Data Science & Analytics","Generative AI","Responsible AI","Optimization & Decision Intelligence","Business Intelligence","Healthcare & Social Impact","Cybersecurity & Fraud Detection","Sustainability & Climate","Open Innovation","Undecided"];
+const REG_PROBLEMS_FALLBACK=[
+  "DN-AI-01 — Multilingual Intelligent Document Understanding",
+  "DN-BU-01 — Customer Churn Prediction and Retention Strategy",
+  "DN-CY-01 — Network Intrusion Detection with Imbalanced Threat Data",
+  "DN-DS-01 — Urban Mobility Pattern Analysis from Transit Data",
+  "DN-ED-01 — Adaptive Learning Path Recommendation",
+  "DN-FN-01 — Real-Time Payment Fraud Detection",
+  "DN-HC-01 — Early Risk Stratification for Chronic Disease",
+  "DN-OP-01 — Open Innovation Challenge",
+  "DN-OR-01 — Last-Mile Delivery Route Optimization",
+  "DN-SI-01 — Food Bank Resource Allocation Optimization",
+  "DN-SU-01 — Solar Energy Generation Forecasting",
+];
 
 function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemStatements,privacyUrl,hideToggle,initialType,light}){
   const[type,setType]=useState(initialType||"team");
@@ -104,7 +117,8 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
   const[err,setErr]=useState("");
   function sf(k){return e=>setForm(p=>({...p,[k]:e.target.value}));}
   const trackList=(tracksStr||"").split(",").map(t=>t.trim()).filter(Boolean);
-  const problemList=(problemStatements||"").split(/\n|,/).map(s=>s.trim()).filter(Boolean);
+  const configuredProblems=(problemStatements||"").split(/\n|,/).map(s=>s.trim()).filter(Boolean);
+  const problemList=configuredProblems.length?configuredProblems:REG_PROBLEMS_FALLBACK;
   const trackOptions=trackList.length?trackList:REG_TRACK_FALLBACK;
   // Theme — dark (event microsite) or light (standalone registration page).
   const blurBorder = light ? "#d8dee9" : "rgba(255,255,255,0.12)";
@@ -232,7 +246,7 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
             {field("Area of interest","areaOfInterest",{required:true,placeholder:"Data science, AI, analytics…"})}
             {type==="team"&&(
               <>
-                {field("Problem statement selection","problemStatementSel",{select:problemList.length>0,required:true,options:problemList,placeholder:"Select a problem statement"})}
+                {field("Problem statement selection","problemStatementSel",{select:true,required:true,options:problemList,placeholder:"Select a problem statement"})}
                 {field("Team name","teamName",{placeholder:"Optional for individual participants"})}
                 {field("Team members","teamMembers",{textarea:true,placeholder:"Full names of all team members and their roles. Please only share information with their permission."})}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
