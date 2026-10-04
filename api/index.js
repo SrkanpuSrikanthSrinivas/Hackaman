@@ -3072,9 +3072,39 @@ app.post(["/api/email/test","/email/test"], admin, async (req,res)=>{
   }catch(e){res.status(500).json({error:e.message});}
 });
 
-// Check email status
+// Check email status — and diagnose the common "configured but nothing arrives" cause:
+// the `from` domain must be VERIFIED in Resend, or every send is rejected.
 app.get(["/api/email/status","/email/status"], admin, async (_req,res)=>{
-  res.json({ configured: !!process.env.RESEND_API_KEY, from: FROM_EMAIL, provider:"Resend" });
+  const configured = !!process.env.RESEND_API_KEY;
+  const fromDomain = (FROM_EMAIL.match(/@([^>\s]+)/)||[])[1] || null;
+  const out = { configured, from: FROM_EMAIL, fromDomain, provider:"Resend" };
+  if (!configured) return res.json(out);
+  try {
+    const domains = await new Promise((resolve,reject)=>{
+      const r = https.request({ hostname:"api.resend.com", path:"/domains", method:"GET",
+        headers:{ "Authorization":`Bearer ${process.env.RESEND_API_KEY}` }},
+        (rr)=>{ let d=""; rr.on("data",c=>d+=c); rr.on("end",()=>{ try{resolve(JSON.parse(d));}catch(e){reject(e);} }); });
+      r.on("error",reject); r.end();
+    });
+    const list = (domains?.data||[]).map(d=>({ name:d.name, status:d.status }));
+    out.domains = list;
+    // Resend's shared testing domain always works (owner-only delivery)
+    if (fromDomain === "resend.dev") {
+      out.fromDomainVerified = true;
+      out.diagnosis = "Using Resend's shared testing domain (resend.dev). Mail only reaches your own Resend account email — add your own verified domain to send to participants.";
+      return res.json(out);
+    }
+    const match = list.find(d=>d.name===fromDomain);
+    out.fromDomainVerified = match ? match.status==="verified" : false;
+    out.diagnosis = !list.length
+      ? "No domains added in Resend yet. Add & verify your domain, or set EMAIL_FROM to onboarding@resend.dev for testing."
+      : !match
+        ? `Your EMAIL_FROM domain "${fromDomain}" is not in Resend. Add it (or change EMAIL_FROM to a verified domain).`
+        : match.status!=="verified"
+          ? `Domain "${fromDomain}" is in Resend but status is "${match.status}" — finish DNS verification.`
+          : "Domain verified — email should send. If still missing, check spam and the recipient address.";
+  } catch(e){ out.domainsError = e.message; }
+  res.json(out);
 });
 
 

@@ -395,6 +395,7 @@ const ADMIN_NAV = [
   {id:"users",         label:"User Management",        section:"administration"},
   {id:"public-cms",    label:"Page CMS",               section:"administration"},
   {id:"public",        label:"Pages & Registrations",  section:"administration"},
+  {id:"email-center",  label:"Email Center",           section:"administration"},
   {id:"login-logs",    label:"Login Activity",         section:"administration"},
   {id:"submissions",   label:"Submissions",            section:"operations"},
   {id:"judge-progress",label:"Judge Progress",         section:"operations"},
