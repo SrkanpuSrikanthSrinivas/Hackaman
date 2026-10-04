@@ -5352,7 +5352,7 @@ export function PublicPagesAdmin({ db, reload, toast, activeHackathon }) {
     if(!list.length){toast("No registrations to export","error");return;}
     const cols=[
       ["Type","type"],["Status","status"],["Full name","name"],["Email","email"],
-      ["Country","country"],["Organization / University","org"],["Current role","currentRole"],
+      ["Country","country"],["Organization / University","org"],["Current role","participantRole"],
       ["Education level","educationLevel"],["Area of interest","areaOfInterest"],
       ["Team name","teamName"],["Team size","teamSize"],["Team members","teamMembers"],
       ["Problem statement","problemStatementSel"],["Track preference","projectTrack"],
