@@ -115,6 +115,12 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
     ? {...FF,fontSize:14,fontWeight:600,color:"#334155",marginBottom:7}
     : {...FF,fontSize:11,color:"rgba(255,255,255,0.4)",marginBottom:5,textTransform:"uppercase",letterSpacing:"0.05em"};
   const muted = light ? "#64748b" : "rgba(255,255,255,0.5)";
+  // Custom chevron so selects render consistently (not the chunky OS default).
+  const chevron = light ? "%2364748b" : "%23ffffff";
+  const selectStyle = {...IS, appearance:"none", WebkitAppearance:"none", MozAppearance:"none",
+    cursor:"pointer", paddingRight:42,
+    backgroundImage:`url("data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='${chevron}' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>")`,
+    backgroundRepeat:"no-repeat", backgroundPosition:"right 15px center", backgroundSize:"14px"};
   // Plain render helper (not a component) — keeps input identity stable, no focus loss.
   const field=(label,key,opts={})=>{
     const{type:t="text",required,placeholder,textarea,min,max,select,options}=opts;
@@ -125,7 +131,7 @@ function RegForm({hackathonId,accent,deadline,tracks:tracksStr,detailed,problemS
       <div style={{marginBottom:14}}>
         <div style={lbl}>{label}{required?" *":""}</div>
         {select
-          ? <select {...common} style={IS}><option value="">{placeholder||"Select an option"}</option>{(options||trackList).map(t=><option key={t} value={t}>{t}</option>)}</select>
+          ? <select {...common} style={selectStyle}><option value="">{placeholder||"Select an option"}</option>{(options||trackList).map(t=><option key={t} value={t}>{t}</option>)}</select>
           : textarea
             ? <textarea {...common} placeholder={placeholder} style={{...IS,resize:"vertical",minHeight:70}}/>
             : <input {...common} type={t} required={required} min={min} max={max} placeholder={placeholder} style={IS}/>}
