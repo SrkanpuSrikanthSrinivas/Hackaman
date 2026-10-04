@@ -1635,27 +1635,8 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       } catch(_) { autoResult.emailSent = false; }
     }
 
-    // Notify the organizer of every new registration.
-    try {
-      const notify = hack.contact_email || process.env.PLATFORM_OWNER_EMAIL || process.env.DEMO_NOTIFY_EMAIL;
-      if (notify) {
-        const rows2 = [
-          ["Name", reg.name], ["Email", reg.email], ["Type", reg.type||"team"],
-          ["Country", reg.country], ["Organization", reg.org], ["Role", reg.participantRole],
-          ["Team", reg.teamName], ["Problem statement", reg.problemStatementSel],
-          ["Track", reg.projectTrack], ["Phone", reg.phone], ["Time zone", reg.timezone],
-          ["Status", reg.status],
-        ].filter(([,v])=>v).map(([k,v])=>`<tr><td style="padding:5px 0;color:#6b7280;width:150px;">${k}</td><td style="font-weight:600;color:#111827;">${String(v).replace(/</g,"&lt;")}</td></tr>`).join("");
-        const ohtml = `<!DOCTYPE html><html><body style="font-family:'Segoe UI',sans-serif;background:#f4f6f8;padding:24px;">
-          <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb;">
-            <div style="background:#111827;padding:20px 26px;"><h2 style="color:#fff;font-size:16px;margin:0;">📝 New registration — ${hack.name||"your event"}</h2></div>
-            <div style="padding:22px 26px;"><table style="width:100%;font-size:14px;border-collapse:collapse;">${rows2}</table>
-              <a href="${siteUrl()}/admin" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:10px 18px;border-radius:9px;font-size:14px;font-weight:700;margin-top:16px;">View registrations →</a>
-            </div>
-          </div></body></html>`;
-        sendEmail(notify, `New registration: ${reg.name} — ${hack.name||"event"}`, ohtml).catch(()=>{});
-      }
-    } catch(_) {}
+    // (Organizer notification disabled — participants get a confirmation email only.
+    // New registrations are still visible in Admin → Pages & Registrations.)
 
     res.status(201).json({ ...reg, ...autoResult });
   } catch (e) { res.status(500).json({ error: e.message }); }
