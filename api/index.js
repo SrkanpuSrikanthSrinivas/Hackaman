@@ -1515,7 +1515,7 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
     for (const col of ["project_name VARCHAR(200)","project_tagline VARCHAR(255)","project_problem TEXT",
         "project_solution TEXT","project_desc TEXT","project_tech TEXT","project_track VARCHAR(80)",
         "repo_url TEXT","demo_url TEXT","video_url TEXT","deck_url TEXT",
-        "country VARCHAR(80)","current_role VARCHAR(80)","education_level VARCHAR(40)","area_of_interest VARCHAR(200)",
+        "country VARCHAR(80)","participant_role VARCHAR(80)","education_level VARCHAR(40)","area_of_interest VARCHAR(200)",
         "problem_statement_sel VARCHAR(200)","phone VARCHAR(40)","phone2 VARCHAR(40)","timezone VARCHAR(60)",
         "linkedin TEXT","presentation_url TEXT","team_members TEXT","consent BOOLEAN"]) {
       await q(`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS ${col}`).catch(()=>{});
@@ -1539,14 +1539,14 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       `INSERT INTO registrations (id,hackathon_id,name,email,org,type,team_name,team_size,message,status,
                                   project_name,project_tagline,project_problem,project_solution,project_desc,
                                   project_tech,project_track,repo_url,demo_url,video_url,deck_url,
-                                  country,current_role,education_level,area_of_interest,problem_statement_sel,
+                                  country,participant_role,education_level,area_of_interest,problem_statement_sel,
                                   phone,phone2,timezone,linkedin,presentation_url,team_members,consent)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
                $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
        ON CONFLICT (hackathon_id,email) DO UPDATE SET name=$3,org=$4,type=$6,team_name=$7,team_size=$8,message=$9,status=$10,
          project_name=$11,project_tagline=$12,project_problem=$13,project_solution=$14,project_desc=$15,
          project_tech=$16,project_track=$17,repo_url=$18,demo_url=$19,video_url=$20,deck_url=$21,
-         country=$22,current_role=$23,education_level=$24,area_of_interest=$25,problem_statement_sel=$26,
+         country=$22,participant_role=$23,education_level=$24,area_of_interest=$25,problem_statement_sel=$26,
          phone=$27,phone2=$28,timezone=$29,linkedin=$30,presentation_url=$31,team_members=$32,consent=$33
        RETURNING *`,
       [uid(), hackathonId, name, email.toLowerCase(), org, type || "team", teamName, teamSize || null, message, status,
