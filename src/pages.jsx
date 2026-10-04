@@ -2606,6 +2606,52 @@ export function EmailCenterPage({ db, toast, activeHackathon, currentUser }) {
         </div>
       </Card>
 
+      {/* Domain diagnosis — shows exactly why mail may not be arriving */}
+      {status?.configured && status?.fromDomainVerified === false && (
+        <Card style={{ marginBottom:20, background:C.bgAmber, border:`1px solid ${C.bdAmber}` }}>
+          <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+            <span style={{ fontSize:20 }}>🚫</span>
+            <div style={{ flex:1 }}>
+              <div style={{ ...FONT, fontSize:13, fontWeight:700, color:C.amber, marginBottom:4 }}>
+                Sending domain not verified — this is why email isn't arriving
+              </div>
+              <p style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.65, marginBottom:8 }}>
+                {status.diagnosis ||
+                  `Your API key is valid, but Resend will reject every send because the "from" domain (${status.fromDomain || "—"}) isn't verified on your Resend account. Resend only delivers mail from a domain you've added and verified with DNS records.`}
+              </p>
+              <div style={{ ...FONT, fontSize:12, color:C.text3, lineHeight:1.9 }}>
+                <div><b>From address:</b> {status.from || "—"}</div>
+                <div><b>From domain:</b> {status.fromDomain || "—"} <span style={{ color:C.amber, fontWeight:600 }}>· not verified</span></div>
+                {Array.isArray(status.domains) && (
+                  <div><b>Verified on Resend:</b> {status.domains.filter(d=>d.status==="verified").map(d=>d.name).join(", ") || "none yet"}</div>
+                )}
+              </div>
+              <div style={{ ...FONT, fontSize:12, color:C.text, marginTop:10, padding:"10px 12px",
+                background:C.bg2, borderRadius:R.sm, border:`1px solid ${C.border2}`, lineHeight:1.7 }}>
+                <b>Fix in 3 steps:</b><br/>
+                1. In Resend → <a href="https://resend.com/domains" target="_blank" rel="noopener" style={{ color:C.accent }}>Domains</a>, add <b>{status.fromDomain || "your domain"}</b> and add the DNS records it shows (at your domain registrar).<br/>
+                2. Wait for Resend to mark it <b>Verified</b> (usually minutes).<br/>
+                3. Make sure Vercel env <code>EMAIL_FROM</code> uses that exact domain, then redeploy.
+              </div>
+              <div style={{ ...FONT, fontSize:11, color:C.text3, marginTop:8 }}>
+                No domain of your own yet? Set <code>EMAIL_FROM</code> to <code>onboarding@resend.dev</code> — it works immediately but only sends to your own Resend account email (fine for testing).
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {status?.configured && status?.fromDomainVerified === true && (
+        <Card style={{ marginBottom:20, background:C.bgGreen, border:`1px solid ${C.bdGreen}` }}>
+          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+            <span style={{ fontSize:18 }}>📬</span>
+            <div style={{ ...FONT, fontSize:12, color:C.text3 }}>
+              Domain <b style={{ color:C.green }}>{status.fromDomain}</b> is verified on Resend — delivery should work. If mail still isn't arriving, check the recipient's spam folder and send a test above.
+            </div>
+          </div>
+        </Card>
+      )}
+
       {!activeHackathon && <Empty icon="✉" title="Select a hackathon" />}
 
       {activeHackathon && (
