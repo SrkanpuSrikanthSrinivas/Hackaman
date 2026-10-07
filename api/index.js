@@ -2750,13 +2750,12 @@ function emailBase(content, hackName = "HackFest Hub") {
   </style></head><body>
   <div class="wrap">
     <div class="header">
-      <h1>⚡ HackFest Hub</h1>
-      <p>${hackName}</p>
+      <h1>${hackName}</h1>
     </div>
     <div class="body">${content}</div>
     <div class="footer">
       <p>You received this because you registered for <strong>${hackName}</strong>.<br>
-      Questions? Reply to this email or visit <a href="${SITE_URL}" style="color:#4f46e5">${SITE_URL}</a></p>
+      Questions? Reply to this email or contact your coordinator for further assistance.</p>
     </div>
   </div></body></html>`;
 }
@@ -2775,7 +2774,6 @@ function emailRegReceived(reg, hack) {
       ${hack.location ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value">${hack.location}</span></div>` : ""}
     </div>
     <p class="text">We'll notify you once your application has been reviewed. Keep an eye on your inbox!</p>
-    <a href="${SITE_URL}/register/${hack.id}" class="btn">View Event Page →</a>
   `, hack.name);
 }
 
