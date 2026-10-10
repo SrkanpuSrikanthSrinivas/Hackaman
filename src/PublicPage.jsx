@@ -615,9 +615,9 @@ export function EventPortal({hackathonId}){
               {logging?"Signing in…":"Sign in →"}
             </button>
           </form>
-          <div style={{...FF,fontSize:13,textAlign:"center",marginTop:16}}>
-            <a href="/forgot-password" style={{color:accent,textDecoration:"none"}}>Forgot your password?</a>
-          </div>
+          <p style={{...FF,fontSize:12.5,textAlign:"center",marginTop:16,color:"#64748b",lineHeight:1.6}}>
+            Forgot your password? Use the one from your registration email, or ask your coordinator to reset it.
+          </p>
         </div>
         <Footer/>
       </div>

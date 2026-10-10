@@ -1595,13 +1595,18 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
         }
 
         const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+        const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
         if (!existingUser.length) {
-          const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
           const uid2 = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
           await q("INSERT INTO users(id,name,email,password_hash,role,team_id,org_id) VALUES($1,$2,LOWER($3),$4,'team',$5,$6)",
             [uid2, reg.name, reg.email, hash, teamId, orgId]);
-          autoResult.loginCreated = true;
+        } else {
+          // Re-registering with an existing account → reset to the clear password we
+          // email them, and make sure they're linked to this event's team.
+          await q("UPDATE users SET password_hash=$1, team_id=COALESCE(team_id,$2) WHERE id=$3",
+            [hash, teamId, existingUser[0].id]).catch(()=>{});
         }
+        autoResult.loginCreated = true;
 
         // ── Create the project submission (goes straight to judging) ──
         const subId = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
@@ -1624,11 +1629,8 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       // Only show the temporary password when we actually created a NEW login this
       // registration — a returning account keeps its existing password.
       try {
-        const creds = autoResult.loginCreated
-          ? { email: reg.email, password: DEFAULT_PASSWORD }
-          : { email: reg.email, existing: true };
         const r = await sendEmail(reg.email, `You're registered — ${hack.name || "the hackathon"}`,
-          emailRegApproved(reg, hack, creds));
+          emailRegApproved(reg, hack, { email: reg.email, password: DEFAULT_PASSWORD }));
         autoResult.emailSent = !!(r && !r.skipped && !r.error);
       } catch(_) { autoResult.emailSent = false; }
     } else {
@@ -2783,6 +2785,16 @@ function emailBase(content, hackName = "HackFest Hub", opts = {}) {
   </div></body></html>`;
 }
 
+// Email-safe detail rows (real <table> — flexbox collapses in Gmail, mashing
+// "Event" and its value into "EventDataNova 2026").
+function cardRows(pairs) {
+  return pairs.filter(([, v]) => v != null && v !== "").map(([k, v]) =>
+    `<tr>
+       <td style="padding:6px 16px 6px 0;font-size:13px;color:#6b7280;vertical-align:top;white-space:nowrap;">${k}</td>
+       <td style="padding:6px 0;font-size:13px;color:#111827;font-weight:600;text-align:right;vertical-align:top;">${v}</td>
+     </tr>`).join("");
+}
+
 // 1. Registration received
 function emailRegReceived(reg, hack) {
   const brandOpts = { logoUrl: hack.eventLogoUrl || hack.event_logo_url || null,
@@ -2791,14 +2803,14 @@ function emailRegReceived(reg, hack) {
     <div class="badge">📋 Application Received</div>
     <div class="greeting">Hi ${reg.name}! 👋</div>
     <p class="text">Thank you for registering for <strong>${hack.name}</strong>. We've received your ${reg.type === "judge" ? "judge application" : "team registration"} and will review it shortly.</p>
-    <div class="card">
-      <div class="card-row"><span class="card-label">Event</span><span class="card-value">${hack.name}</span></div>
-      <div class="card-row"><span class="card-label">Event site</span><span class="card-value"><a href="${brandOpts.eventSite}" style="color:#4f46e5;text-decoration:none;">${prettyUrl(brandOpts.eventSite)}</a></span></div>
-      <div class="card-row"><span class="card-label">Type</span><span class="card-value" style="text-transform:capitalize">${reg.type}</span></div>
-      ${reg.teamName ? `<div class="card-row"><span class="card-label">Team</span><span class="card-value">${reg.teamName}</span></div>` : ""}
-      ${hack.startDate ? `<div class="card-row"><span class="card-label">Date</span><span class="card-value">${new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>` : ""}
-      ${hack.location ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value">${hack.location}</span></div>` : ""}
-    </div>
+    <div class="card"><table style="width:100%;border-collapse:collapse;">${cardRows([
+      ["Event", hack.name],
+      ["Event site", `<a href="${brandOpts.eventSite}" style="color:#4f46e5;text-decoration:none;">${prettyUrl(brandOpts.eventSite)}</a>`],
+      ["Type", `<span style="text-transform:capitalize">${reg.type}</span>`],
+      ["Team", reg.teamName],
+      ["Date", hack.startDate ? new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : null],
+      ["Location", hack.location],
+    ])}</table></div>
     <p class="text">We'll notify you once your application has been reviewed. Keep an eye on your inbox!</p>
   `, hack.name, brandOpts);
 }
@@ -2825,15 +2837,12 @@ function emailRegApproved(reg, hack, creds) {
           <td style="padding:6px 0;font-size:13px;color:#6366f1;">Email</td>
           <td style="padding:6px 0;font-size:14px;color:#1e1b4b;font-weight:700;font-family:monospace;">${creds.email}</td>
         </tr>
-        ${creds.password ? `<tr>
+        <tr>
           <td style="padding:6px 0;font-size:13px;color:#6366f1;">Password</td>
-          <td style="padding:6px 0;">
+          <td style="padding:6px 0;text-align:right;">
             <code style="background:#fff;border:1px solid #c7d2fe;padding:4px 10px;border-radius:6px;font-size:14px;font-weight:700;color:#4338ca;letter-spacing:0.03em;">${creds.password}</code>
           </td>
-        </tr>` : `<tr>
-          <td style="padding:6px 0;font-size:13px;color:#6366f1;">Password</td>
-          <td style="padding:6px 0;font-size:13px;color:#1e1b4b;">Use the password from your existing account. <a href="${SITE_URL}/forgot-password" style="color:#4f46e5;">Reset it</a> if you've forgotten it.</td>
-        </tr>`}
+        </tr>
       </table>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid #c7d2fe;font-size:12px;color:#4338ca;line-height:1.6;">
         ⚠ <strong>Change your password</strong> after you sign in — use the <strong>Change your password</strong> option on the portal.
@@ -2864,13 +2873,13 @@ function emailRegApproved(reg, hack, creds) {
     <div class="greeting">Great news, ${reg.name}! 🎉</div>
     <p class="text">Your ${isJudge ? "judge application" : "team registration"} for <strong>${hack.name}</strong> has been <strong>approved</strong>. We're thrilled to have you onboard!</p>
     ${credBlock}
-    <div class="card">
-      <div class="card-row"><span class="card-label">Event</span><span class="card-value">${hack.name}</span></div>
-      <div class="card-row"><span class="card-label">Event site</span><span class="card-value"><a href="${brandOpts.eventSite}" style="color:#4f46e5;text-decoration:none;">${prettyUrl(brandOpts.eventSite)}</a></span></div>
-      ${hack.startDate ? `<div class="card-row"><span class="card-label">Date</span><span class="card-value">${new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>` : ""}
-      ${hack.location ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value">${hack.location}</span></div>` : ""}
-      ${hack.prizePool ? `<div class="card-row"><span class="card-label">Prize Pool</span><span class="card-value">${hack.prizePool}</span></div>` : ""}
-    </div>
+    <div class="card"><table style="width:100%;border-collapse:collapse;">${cardRows([
+      ["Event", hack.name],
+      ["Event site", `<a href="${brandOpts.eventSite}" style="color:#4f46e5;text-decoration:none;">${prettyUrl(brandOpts.eventSite)}</a>`],
+      ["Date", hack.startDate ? new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : null],
+      ["Location", hack.location],
+      ["Prize Pool", hack.prizePool],
+    ])}</table></div>
     ${nextSteps}
     <a href="${loginUrl}" class="btn">Sign in now →</a>
   `, hack.name, brandOpts);
