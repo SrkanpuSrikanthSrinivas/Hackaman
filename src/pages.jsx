@@ -531,6 +531,14 @@ export function JudgesPage({ db, reload, toast, activeHackathon }) {
     }catch(e){toast(e.message,"error");}setSaving(false);
   };
   const del=async id=>{try{await DEL(`/api/judges/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}};
+  const toggleActive=async(j)=>{
+    const next=!(j.active!==false);
+    try{
+      const r=await POST(`/api/judges/${j.id}/active`,{active:next});
+      if(r.error){toast(r.error,"error");return;}
+      await reload();toast(next?"Judge enabled — they can sign in":"Judge disabled — sign-in blocked");
+    }catch(e){toast(e.message,"error");}
+  };
 
   // Show judges assigned to the active hackathon (or all if a judge has no assignment yet)
   const judges = activeHackathon
@@ -582,8 +590,11 @@ export function JudgesPage({ db, reload, toast, activeHackathon }) {
             </div>
           )},
           {key:"role",label:"Role"},
-          {key:"avatarUrl",label:"Photo",render:v=><Chip label={v?"✓ Set":"No photo"} color={v?"green":"neutral"} />},
+          {key:"active",label:"Access",render:(v,r)=>r.userId
+            ? <Chip label={v!==false?"✓ Enabled":"⛔ Disabled"} color={v!==false?"green":"red"} />
+            : <Chip label="No login yet" color="neutral" />},
           {key:"id",label:"",render:(_,r)=><div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+            {r.userId && <Btn size="sm" variant="secondary" onClick={()=>toggleActive(r)}>{r.active!==false?"Disable":"Enable"}</Btn>}
             <Btn size="sm" variant="secondary" onClick={()=>open(r)}>Edit</Btn>
             <Btn size="sm" variant="danger" onClick={()=>del(r.id)}>Remove</Btn>
           </div>},

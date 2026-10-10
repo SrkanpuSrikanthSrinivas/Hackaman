@@ -629,6 +629,9 @@ app.post(["/api/auth/login", "/auth/login"], async (req, res) => {
       await logEvent("failed", user, req, "email");
       return res.status(401).json({ error: "Invalid email or password" });
     }
+    // Organizer can disable an account (e.g. a judge) without deleting it.
+    if (user.active === false)
+      return res.status(403).json({ error: "Your access has been disabled by the organizer. Please contact them." });
     await logEvent("login", user, req, "email");
     const payload = await buildUserPayload(user);
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "12h" });
@@ -1277,6 +1280,7 @@ app.get(["/api/judges", "/judges"], auth, async (req, res) => {
   try {
     // Self-heal: ensure the tenant column exists + is backfilled from linked users.
     await q("ALTER TABLE judges ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
+    await q("ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true").catch(()=>{});
     await q(`UPDATE judges j SET org_id = u.org_id FROM users u
              WHERE u.judge_id = j.id AND j.org_id IS NULL AND u.org_id IS NOT NULL`).catch(()=>{});
 
@@ -1304,12 +1308,21 @@ app.get(["/api/judges", "/judges"], auth, async (req, res) => {
       if (!byJudge[l.judge_id]) byJudge[l.judge_id] = { hacks:new Set(), email:l.email };
       byJudge[l.judge_id].hacks.add(l.hackathon_id);
     });
+    // Linked user id + active flag (independent of hackathon link).
+    const { rows: ju } = scoped
+      ? await q("SELECT judge_id, id AS user_id, active FROM users WHERE judge_id IS NOT NULL AND org_id=$1", [orgId]).catch(()=>({rows:[]}))
+      : await q("SELECT judge_id, id AS user_id, active FROM users WHERE judge_id IS NOT NULL").catch(()=>({rows:[]}));
+    const userByJudge = {};
+    ju.forEach(u => { if (!userByJudge[u.judge_id]) userByJudge[u.judge_id] = { userId: u.user_id, active: u.active !== false }; });
     const enriched = rows.map(j => {
       const link = byJudge[j.id];
+      const u = userByJudge[j.id];
       return {
         ...camel(j),
         email: link?.email || null,
         hackathonIds: link ? [...link.hacks] : [],
+        userId: u?.userId || null,
+        active: u ? u.active : true,
       };
     });
     res.json(enriched);
@@ -1325,6 +1338,16 @@ app.post(["/api/judges", "/judges"], admin, async (req, res) => {
 app.put(["/api/judges/:id", "/judges/:id"], admin, async (req, res) => {
   const { name, org, role, avatarUrl } = req.body;
   try { const { rows } = await q("UPDATE judges SET name=$1,org=$2,role=$3,avatar_url=$4 WHERE id=$5 RETURNING *", [name, org, role, avatarUrl||null, req.params.id]); if (!rows.length) return res.status(404).json({ error: "Not found" }); res.json(camel(rows[0])); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Enable / disable a judge's sign-in (keeps the record, just blocks/allows login).
+app.post(["/api/judges/:id/active", "/judges/:id/active"], admin, async (req, res) => {
+  const active = req.body.active !== false; // default to enabling
+  try {
+    await q("ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true").catch(()=>{});
+    const { rowCount } = await q("UPDATE users SET active=$1 WHERE judge_id=$2", [active, req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "This judge has no login account yet." });
+    res.json({ active });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete(["/api/judges/:id", "/judges/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM judges WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1521,10 +1544,11 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       await q(`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS ${col}`).catch(()=>{});
     }
 
-    // Teams are auto-approved (self-serve). Judges still await organizer review.
-    // If the org's participant cap is reached, a team is held as 'pending' instead.
-    let autoApprove = !isJudge;
-    if (autoApprove) {
+    // Both teams and judges are auto-approved (default). Judges can later be
+    // disabled/enabled by the organizer. Only teams count against the participant
+    // cap — if it's reached, a team is held as 'pending' instead.
+    let autoApprove = true;
+    if (!isJudge) {
       const { rows: [cap] } = await q(
         `SELECT o.max_participants AS cap,
            (SELECT count(*)::int FROM registrations r JOIN hackathons h ON h.id=r.hackathon_id
@@ -1571,7 +1595,46 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
     let autoResult = { autoApproved:false, teamCreated:false, loginCreated:false, submissionCreated:false };
     const DEFAULT_PASSWORD = "hackfest123";
 
-    if (autoApprove) {
+    if (autoApprove && isJudge) {
+      // ── Provision the judge record + judge login + hackathon link ──
+      try {
+        const orgId = await orgForHackathon(reg.hackathonId);
+        let judgeId = null;
+        const { rows: linkedUser } = await q(
+          "SELECT judge_id FROM users WHERE LOWER(email)=LOWER($1) AND judge_id IS NOT NULL LIMIT 1", [reg.email]
+        ).catch(()=>({rows:[]}));
+        if (linkedUser.length) judgeId = linkedUser[0].judge_id;
+        if (!judgeId) {
+          judgeId = "j" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+          await q("ALTER TABLE judges ADD COLUMN IF NOT EXISTS org_id VARCHAR(20)").catch(()=>{});
+          await q("INSERT INTO judges(id,name,org,role,org_id) VALUES($1,$2,$3,$4,$5)",
+            [judgeId, reg.name, reg.org || null, "Judge", orgId]);
+        }
+        const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+        const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+        let judgeUserId;
+        if (!existingUser.length) {
+          judgeUserId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+          await q("INSERT INTO users(id,name,email,password_hash,role,judge_id,org_id) VALUES($1,$2,LOWER($3),$4,'judge',$5,$6)",
+            [judgeUserId, reg.name, reg.email, hash, judgeId, orgId]);
+        } else {
+          judgeUserId = existingUser[0].id;
+          await q("UPDATE users SET password_hash=$1, role='judge', judge_id=COALESCE(judge_id,$2) WHERE id=$3",
+            [hash, judgeId, judgeUserId]).catch(()=>{});
+        }
+        await q("INSERT INTO hackathon_judges(user_id,hackathon_id) VALUES($1,$2) ON CONFLICT DO NOTHING",
+          [judgeUserId, reg.hackathonId]).catch(()=>{});
+        autoResult.loginCreated = true;
+        autoResult.autoApproved = true;
+      } catch(autoErr) { console.error("Auto-provision judge on register:", autoErr.message); }
+
+      // Judge confirmation email with sign-in details (clear password).
+      try {
+        const r = await sendEmail(reg.email, `You're a judge — ${hack.name || "the hackathon"}`,
+          emailRegApproved(reg, hack, { email: reg.email, password: DEFAULT_PASSWORD }));
+        autoResult.emailSent = !!(r && !r.skipped && !r.error);
+      } catch(_) { autoResult.emailSent = false; }
+    } else if (autoApprove) {
       // ── Provision the team, its login, and a project submission ──
       try {
         const tName = reg.teamName || reg.name;
@@ -1634,7 +1697,7 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
         autoResult.emailSent = !!(r && !r.skipped && !r.error);
       } catch(_) { autoResult.emailSent = false; }
     } else {
-      // Judge, or a team held for review because the cap is full.
+      // A team held for review because the participant cap is full.
       try {
         const r = await sendEmail(reg.email, `Registration received — ${hack.name || "HackFest Hub"}`,
           emailRegReceived(reg, hack));
@@ -1719,23 +1782,25 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
             autoResult.judgeCreated = true;
           }
 
-          // ── Auto-create judge user login + assign to this hackathon ──
+          // ── Auto-create / refresh judge user login + assign to this hackathon ──
           const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+          const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
           let judgeUserId;
           if (!existingUser.length) {
-            const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
             judgeUserId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
             await q(
               "INSERT INTO users(id,name,email,password_hash,role,judge_id,org_id) VALUES($1,$2,LOWER($3),$4,'judge',$5,$6)",
               [judgeUserId, reg.name, reg.email, hash, judgeId, await orgForHackathon(reg.hackathonId)]
             );
-            autoResult.loginCreated = true;
-            autoResult.tempPassword = DEFAULT_PASSWORD;
           } else {
             judgeUserId = existingUser[0].id;
-            // Ensure the existing user is linked to the judge record
-            await q("UPDATE users SET judge_id=$1 WHERE id=$2 AND judge_id IS NULL", [judgeId, judgeUserId]).catch(()=>{});
+            // Make sure this account can sign in AS A JUDGE with the emailed password:
+            // set the clear password, switch the role to judge, and link the judge record.
+            await q("UPDATE users SET password_hash=$1, role='judge', judge_id=COALESCE(judge_id,$2) WHERE id=$3",
+              [hash, judgeId, judgeUserId]).catch(()=>{});
           }
+          autoResult.loginCreated = true;
+          autoResult.tempPassword = DEFAULT_PASSWORD;
 
           // Assign this judge-user to the hackathon (so they appear + can judge)
           await q(
@@ -2929,20 +2994,24 @@ function emailRegApproved(reg, hack, creds) {
 
 // 3. Judge credentials
 function emailJudgeCredentials(judge, hack, email, password) {
+  const brandOpts = { logoUrl: hack.eventLogoUrl || hack.event_logo_url || null,
+                      eventSite: hack.websiteUrl || hack.website_url || EVENT_SITE_URL };
+  const loginUrl = `${SITE_URL}/portal/${hack.id}`;
+  const start = hack.startDate || hack.start_date;
   return emailBase(`
     <div class="badge" style="background:#7c3aed">⭐ Judge Invitation</div>
     <div class="greeting">Welcome aboard, ${judge.name}! 🌟</div>
     <p class="text">You've been selected as a judge for <strong>${hack.name}</strong>. We're honoured to have your expertise on our panel.</p>
-    <div class="card">
-      <div class="card-row"><span class="card-label">Event</span><span class="card-value">${hack.name}</span></div>
-      ${hack.startDate ? `<div class="card-row"><span class="card-label">Date</span><span class="card-value">${new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>` : ""}
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0">
-      <div class="card-row"><span class="card-label">Login Email</span><span class="card-value">${email}</span></div>
-      <div class="card-row"><span class="card-label">Password</span><span class="card-value" style="font-family:monospace;background:#f1f5f9;padding:2px 8px;border-radius:4px">${password}</span></div>
-    </div>
-    <p class="text" style="color:#dc2626">⚠ Please log in and change your password immediately.</p>
-    <a href="${SITE_URL}" class="btn">Sign in to Judge Portal →</a>
-  `, hack.name);
+    <div class="card"><table style="width:100%;border-collapse:collapse;">${cardRows([
+      ["Event", hack.name],
+      ["Event site", `<a href="${brandOpts.eventSite}" style="color:#4f46e5;text-decoration:none;">${prettyUrl(brandOpts.eventSite)}</a>`],
+      ["Date", start ? new Date(start).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : null],
+      ["Login email", email],
+      ["Password", `<code style="background:#eef2ff;border:1px solid #c7d2fe;padding:3px 9px;border-radius:5px;font-weight:700;color:#4338ca;">${password}</code>`],
+    ])}</table></div>
+    <p class="text" style="color:#dc2626">⚠ Please sign in and change your password from the portal.</p>
+    <a href="${loginUrl}" class="btn">Sign in to judge →</a>
+  `, hack.name, brandOpts);
 }
 
 // 4. Event reminder
@@ -3057,9 +3126,15 @@ app.post(["/api/email/judge-credentials","/email/judge-credentials"], admin, asy
     const{rows:[u]}=await q("SELECT u.*,j.name as judge_name FROM users u LEFT JOIN judges j ON j.id=u.judge_id WHERE u.id=$1",[userId]);
     const{rows:[h]}=await q("SELECT * FROM hackathons WHERE id=$1",[hackathonId]);
     if(!u||!u.email)return res.json({skipped:"no email"});
+    // Reset to a known password so the emailed credentials ALWAYS work, and make sure
+    // this account is a judge linked to the event.
+    const pw = (tempPassword && tempPassword.trim()) || "hackfest123";
+    const hash = await bcrypt.hash(pw,10);
+    await q("UPDATE users SET password_hash=$1, role='judge' WHERE id=$2",[hash,userId]).catch(()=>{});
+    if(hackathonId) await q("INSERT INTO hackathon_judges(user_id,hackathon_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[userId,hackathonId]).catch(()=>{});
     const name=u.judge_name||u.name;
-    await sendEmail(u.email,`You're a judge at ${h.name} — login details inside`,emailJudgeCredentials({name},h,u.email,tempPassword||"[see your welcome message]"));
-    res.json({sent:true});
+    const r=await sendEmail(u.email,`You're a judge at ${h.name} — login details inside`,emailJudgeCredentials({name},h,u.email,pw));
+    res.json({sent: !(r && (r.skipped || r.error)), password: pw});
   }catch(e){res.status(500).json({error:e.message});}
 });
 
