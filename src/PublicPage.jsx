@@ -1528,8 +1528,6 @@ function TeamFormationBoard({ hackathonId, accent }) {
         <SecHead eyebrow="Find your people" title="Team Formation Board" accent={accent}
           sub="Looking for teammates, or want to join a team? Post here and connect." />
 
-        <AIMatchmaker hackathonId={hackathonId} accent={accent} />
-
         {/* Filters + post button */}
         <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap",
           alignItems:"center" }}>
