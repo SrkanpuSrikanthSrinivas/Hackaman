@@ -436,14 +436,20 @@ export function EventPortal({hackathonId}){
 
   useEffect(()=>{ fetch(`${BASE}/api/pubpage/${hackathonId}`).then(r=>r.json()).then(d=>{ if(d&&!d.error) setTheme(d); }).catch(()=>{}); },[hackathonId]);
 
+  const [loadErr,setLoadErr] = useState("");
   function loadMe(tok){
+    setLoadErr("");
     fetch(`${BASE}/api/portal/my?hackathonId=${hackathonId}`,{headers:{Authorization:`Bearer ${tok}`}})
-      .then(async r=>{ const d=await r.json(); if(!r.ok||d.error){ // token invalid/expired → back to login
+      .then(async r=>{
+        const d=await r.json().catch(()=>({}));
+        if(r.status===401){ // token genuinely invalid/expired → back to login
           try{localStorage.removeItem(PKEY);}catch(_){}
           setToken(""); setMe(null);
+        } else if(!r.ok||d.error){ // server/data error — stay signed in, show message
+          setLoadErr(d.error||`Couldn't load your event (error ${r.status}).`);
         } else { setMe(d); setProj(d.submission||{}); }
         setLoading(false);
-      }).catch(()=>{ setLoading(false); });
+      }).catch(e=>{ setLoadErr(e.message||"Network error"); setLoading(false); });
   }
   useEffect(()=>{ if(token){ setLoading(true); loadMe(token); } else { setLoading(false); } },[token]);
 
@@ -562,6 +568,26 @@ export function EventPortal({hackathonId}){
       input:focus,textarea:focus,select:focus{border-color:${accent}!important;box-shadow:0 0 0 3px ${accent}22;}
     `}</style>
   );
+
+  // ── SIGNED IN but event failed to load → error (don't bounce to login) ──
+  if(token && !me && loadErr){
+    return (
+      <div style={page}>
+        {styleTag}
+        <div style={card}>
+          <Brand/>
+          <div style={{...FF,fontSize:14,color:"#9a3412",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:11,padding:"14px 16px",marginBottom:18}}>
+            {loadErr}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>{setLoading(true);loadMe(token);}} style={{...btn(),width:"auto",padding:"11px 20px"}}>Try again</button>
+            <button onClick={logout} style={{...FF,fontSize:14,fontWeight:600,color:"#64748b",background:"none",border:"1px solid #d7deea",borderRadius:11,padding:"11px 20px",cursor:"pointer"}}>Sign out</button>
+          </div>
+        </div>
+        <Footer/>
+      </div>
+    );
+  }
 
   // ── NOT SIGNED IN → login ──
   if(!token || !me){

@@ -1621,9 +1621,14 @@ app.post(["/api/public/register", "/public/register"], async (req, res) => {
       } catch(autoErr) { console.error("Auto-provision team on register:", autoErr.message); }
 
       // Confirmation email (with sign-in details) to the participant.
+      // Only show the temporary password when we actually created a NEW login this
+      // registration — a returning account keeps its existing password.
       try {
+        const creds = autoResult.loginCreated
+          ? { email: reg.email, password: DEFAULT_PASSWORD }
+          : { email: reg.email, existing: true };
         const r = await sendEmail(reg.email, `You're registered — ${hack.name || "the hackathon"}`,
-          emailRegApproved(reg, hack, { email: reg.email, password: DEFAULT_PASSWORD }));
+          emailRegApproved(reg, hack, creds));
         autoResult.emailSent = !!(r && !r.skipped && !r.error);
       } catch(_) { autoResult.emailSent = false; }
     } else {
@@ -2788,6 +2793,7 @@ function emailRegReceived(reg, hack) {
     <p class="text">Thank you for registering for <strong>${hack.name}</strong>. We've received your ${reg.type === "judge" ? "judge application" : "team registration"} and will review it shortly.</p>
     <div class="card">
       <div class="card-row"><span class="card-label">Event</span><span class="card-value">${hack.name}</span></div>
+      <div class="card-row"><span class="card-label">Event site</span><span class="card-value"><a href="${brandOpts.eventSite}" style="color:#4f46e5;text-decoration:none;">${prettyUrl(brandOpts.eventSite)}</a></span></div>
       <div class="card-row"><span class="card-label">Type</span><span class="card-value" style="text-transform:capitalize">${reg.type}</span></div>
       ${reg.teamName ? `<div class="card-row"><span class="card-label">Team</span><span class="card-value">${reg.teamName}</span></div>` : ""}
       ${hack.startDate ? `<div class="card-row"><span class="card-label">Date</span><span class="card-value">${new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>` : ""}
@@ -2819,15 +2825,18 @@ function emailRegApproved(reg, hack, creds) {
           <td style="padding:6px 0;font-size:13px;color:#6366f1;">Email</td>
           <td style="padding:6px 0;font-size:14px;color:#1e1b4b;font-weight:700;font-family:monospace;">${creds.email}</td>
         </tr>
-        <tr>
+        ${creds.password ? `<tr>
           <td style="padding:6px 0;font-size:13px;color:#6366f1;">Password</td>
           <td style="padding:6px 0;">
             <code style="background:#fff;border:1px solid #c7d2fe;padding:4px 10px;border-radius:6px;font-size:14px;font-weight:700;color:#4338ca;letter-spacing:0.03em;">${creds.password}</code>
           </td>
-        </tr>
+        </tr>` : `<tr>
+          <td style="padding:6px 0;font-size:13px;color:#6366f1;">Password</td>
+          <td style="padding:6px 0;font-size:13px;color:#1e1b4b;">Use the password from your existing account. <a href="${SITE_URL}/forgot-password" style="color:#4f46e5;">Reset it</a> if you've forgotten it.</td>
+        </tr>`}
       </table>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid #c7d2fe;font-size:12px;color:#4338ca;line-height:1.6;">
-        ⚠ <strong>Change your password</strong> after your first sign-in — click your name in the top-right, then <strong>Change password</strong>.
+        ⚠ <strong>Change your password</strong> after you sign in — use the <strong>Change your password</strong> option on the portal.
       </div>
     </div>` : "";
 
@@ -2857,6 +2866,7 @@ function emailRegApproved(reg, hack, creds) {
     ${credBlock}
     <div class="card">
       <div class="card-row"><span class="card-label">Event</span><span class="card-value">${hack.name}</span></div>
+      <div class="card-row"><span class="card-label">Event site</span><span class="card-value"><a href="${brandOpts.eventSite}" style="color:#4f46e5;text-decoration:none;">${prettyUrl(brandOpts.eventSite)}</a></span></div>
       ${hack.startDate ? `<div class="card-row"><span class="card-label">Date</span><span class="card-value">${new Date(hack.startDate).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span></div>` : ""}
       ${hack.location ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value">${hack.location}</span></div>` : ""}
       ${hack.prizePool ? `<div class="card-row"><span class="card-label">Prize Pool</span><span class="card-value">${hack.prizePool}</span></div>` : ""}
@@ -3962,11 +3972,8 @@ app.get(["/api/portal/my","/portal/my"], async (req,res)=>{
     const{hackathonId}=req.query;
     if(!hackathonId) return res.status(400).json({error:"hackathonId required"});
 
-    // Event (public-safe fields + theme/logo for co-branding)
-    const{rows:[h]}=await q(
-      `SELECT id,name,status,start_date,end_date,tracks,submissions_open,submission_deadline,
-              prize_pool,banner_color,event_logo_url,website_url,problem_statements,detailed_registration
-       FROM hackathons WHERE id=$1`,[hackathonId]).catch(()=>({rows:[]}));
+    // Event — SELECT * so a not-yet-migrated optional column can never break the load.
+    const{rows:[h]}=await q(`SELECT * FROM hackathons WHERE id=$1`,[hackathonId]).catch(()=>({rows:[]}));
     if(!h) return res.status(404).json({error:"Event not found"});
 
     // Partners (for co-brand logos), tolerant if the table isn't migrated
