@@ -495,8 +495,20 @@ export function TeamsPage({ db, reload, toast, activeHackathon }) {
 
 export function JudgesPage({ db, reload, toast, activeHackathon }) {
   const [modal,setModal]=useState(null);const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [uploading,setUploading]=useState(false);
+  const [distributing,setDistributing]=useState(false);const [dist,setDist]=useState(null);
   const f=k=>e=>setForm(p=>({...p,[k]:e.target.value}));
   const fileRef=useRef(null);
+
+  const autoDistribute=async()=>{
+    if(!activeHackathon)return toast("Select a hackathon first","error");
+    setDistributing(true);setDist(null);
+    try{
+      const r=await POST("/api/judge-teams/auto-distribute",{hackathonId:activeHackathon});
+      if(r.error){toast(r.error,"error");}
+      else{ setDist(r); await reload(); toast(`✓ ${r.teams} teams split across ${r.judges} judges`); }
+    }catch(e){toast(e.message,"error");}
+    setDistributing(false);
+  };
 
   const open=j=>{setForm(j?{...j}:{});setModal(j||"new");};
   const close=()=>setModal(null);
@@ -527,7 +539,37 @@ export function JudgesPage({ db, reload, toast, activeHackathon }) {
 
   return (
     <div>
-      <SectionHeader title="Judges" count={`${judges.length} for this hackathon`} action={<Btn onClick={()=>open(null)}>+ Add Judge</Btn>} />
+      <SectionHeader title="Judges" count={`${judges.length} for this hackathon`} action={
+        <div style={{display:"flex",gap:8}}>
+          <Btn variant="secondary" disabled={distributing||!activeHackathon} onClick={autoDistribute}>
+            {distributing?<><Spinner size={12}/> Distributing…</>:"⚖ Auto-distribute to judges"}
+          </Btn>
+          <Btn onClick={()=>open(null)}>+ Add Judge</Btn>
+        </div>
+      } />
+
+      {/* How assignment works + last distribution result */}
+      <Card style={{marginBottom:16,background:C.bg2,border:`1px solid ${C.border}`}}>
+        <div style={{...FONT,fontSize:12.5,color:C.text3,lineHeight:1.65}}>
+          <strong style={{color:C.text}}>Review assignments.</strong> By default every judge can review all teams.
+          Use <strong>Auto-distribute to judges</strong> to split teams <strong>equally</strong> across all judges
+          (e.g. 10 teams + 2 judges → 5 each). Re-run it any time more teams register to re-balance.
+          To fine-tune, open a judge in <strong>User Management → Team Assignments</strong> and assign or remove specific teams.
+        </div>
+        {dist&&(
+          <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+            <div style={{...FONT,fontSize:12,fontWeight:600,color:C.text,marginBottom:8}}>
+              Distributed {dist.teams} teams across {dist.judges} judges:
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {dist.perJudge.map(p=>(
+                <Chip key={p.userId} label={`${p.name}: ${p.count}`} color="blue" />
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
       {judges.length===0?<Empty icon="👨‍⚖️" title="No judges yet" sub="Approve judge registrations or add judges manually." action={<Btn onClick={()=>open(null)}>Add Judge</Btn>} />
         :<DataTable cols={[
           {key:"name",label:"Name",render:(v,r)=>(

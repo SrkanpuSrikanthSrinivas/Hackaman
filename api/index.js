@@ -2020,6 +2020,48 @@ app.delete(["/api/judge-teams/:userId/:teamId", "/judge-teams/:userId/:teamId"],
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Equally distribute all teams across all judges of a hackathon (round-robin).
+// Clears existing assignments for the hackathon first, so re-running after more
+// registrations re-balances everything evenly. Admins can then fine-tune with the
+// per-judge assign/unassign controls.
+app.post(["/api/judge-teams/auto-distribute", "/judge-teams/auto-distribute"], admin, async (req, res) => {
+  const { hackathonId } = req.body;
+  if (!hackathonId) return res.status(400).json({ error: "hackathonId required" });
+  try {
+    // Judges linked to this hackathon (users table, via hackathon_judges)
+    const { rows: judges } = await q(
+      `SELECT u.id, u.name FROM users u
+       JOIN hackathon_judges hj ON hj.user_id = u.id
+       WHERE hj.hackathon_id = $1 AND u.role = 'judge'
+       ORDER BY u.name, u.id`, [hackathonId]).catch(() => ({ rows: [] }));
+    if (!judges.length)
+      return res.status(400).json({ error: "No judges are assigned to this hackathon yet. Add or approve judges first." });
+
+    const { rows: teams } = await q(
+      "SELECT id FROM teams WHERE hackathon_id=$1 ORDER BY id", [hackathonId]);
+    if (!teams.length)
+      return res.status(400).json({ error: "There are no team submissions to distribute yet." });
+
+    // Reset this hackathon's assignments, then round-robin.
+    await q("DELETE FROM judge_team_assignments WHERE hackathon_id=$1", [hackathonId]);
+    const counts = {};
+    judges.forEach(j => { counts[j.id] = 0; });
+    for (let i = 0; i < teams.length; i++) {
+      const j = judges[i % judges.length];
+      await q("INSERT INTO judge_team_assignments (user_id,team_id,hackathon_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+        [j.id, teams[i].id, hackathonId]);
+      counts[j.id]++;
+    }
+    res.json({
+      distributed: true, judges: judges.length, teams: teams.length,
+      perJudge: judges.map(j => ({ userId: j.id, name: j.name, count: counts[j.id] })),
+    });
+  } catch (e) {
+    if (e.message.includes("does not exist")) return res.status(503).json({ error: "Run migration_v6.sql first" });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── GET users with team assignments included ─────────────────────────────────
 // Patch the existing /api/users GET to also include assignedTeams
 // (already included via buildUserPayload above)
