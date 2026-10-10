@@ -407,53 +407,22 @@ export function RegisterStandalone({hackathonId}){
 // event; the only HackFest Hub mention is a discreet partnership line in the
 // footer. Authenticates against the users table (/api/auth/login), so it works
 // with the credentials emailed on approval.
+// ── EVENT PORTAL (sign-in only) ────────────────────────────────────────────
+// A clean, co-branded front door for one event. It ONLY handles sign-in and a
+// link to register — authentication happens against the users table
+// (/api/auth/login, the account the emailed credentials belong to). On success
+// it stores the standard token and hands off to the existing management app,
+// where judges review projects and teams manage their submission exactly as
+// before. The only white-labeled surfaces are this login and the registration page.
 export function EventPortal({hackathonId}){
-  const PKEY = `hf_portal_token_${hackathonId}`;
   const [theme,setTheme]   = useState(null);
-  const [token,setToken]   = useState(()=>{ try{return localStorage.getItem(PKEY)||"";}catch(_){return "";} });
-  const [me,setMe]         = useState(null);
-  const [loading,setLoading]= useState(true);
-
-  // login
   const [email,setEmail]   = useState("");
   const [pw,setPw]         = useState("");
   const [logging,setLogging]= useState(false);
   const [loginErr,setLoginErr]= useState("");
 
-  // project form
-  const [proj,setProj]     = useState({});
-  const [saving,setSaving] = useState(false);
-  const [saveMsg,setSaveMsg]= useState("");
-  const [saveErr,setSaveErr]= useState("");
-
-  // change password
-  const [showPwForm,setShowPwForm]= useState(false);
-  const [curPw,setCurPw]   = useState("");
-  const [newPw,setNewPw]   = useState("");
-  const [pwMsg,setPwMsg]   = useState("");
-  const [pwErr,setPwErr]   = useState("");
-  const [pwSaving,setPwSaving]= useState(false);
-
   useEffect(()=>{ fetch(`${BASE}/api/pubpage/${hackathonId}`).then(r=>r.json()).then(d=>{ if(d&&!d.error) setTheme(d); }).catch(()=>{}); },[hackathonId]);
-
-  const [loadErr,setLoadErr] = useState("");
-  function loadMe(tok){
-    setLoadErr("");
-    fetch(`${BASE}/api/portal/my?hackathonId=${hackathonId}`,{headers:{Authorization:`Bearer ${tok}`}})
-      .then(async r=>{
-        const d=await r.json().catch(()=>({}));
-        if(r.status===401){ // token genuinely invalid/expired → back to login
-          try{localStorage.removeItem(PKEY);}catch(_){}
-          setToken(""); setMe(null);
-        } else if(!r.ok||d.error){ // server/data error — stay signed in, show message
-          setLoadErr(d.error||`Couldn't load your event (error ${r.status}).`);
-        } else { setMe(d); setProj(d.submission||{}); }
-        setLoading(false);
-      }).catch(e=>{ setLoadErr(e.message||"Network error"); setLoading(false); });
-  }
-  useEffect(()=>{ if(token){ setLoading(true); loadMe(token); } else { setLoading(false); } },[token]);
-
-  useEffect(()=>{ if(theme?.name){ document.title = `${theme.name} — Project Portal`; } },[theme]);
+  useEffect(()=>{ if(theme?.name){ document.title = `${theme.name} — Sign in`; } },[theme]);
 
   const accent = theme?.bannerColor || "#3b6cf6";
   const logo   = theme?.eventLogoUrl;
@@ -468,267 +437,88 @@ export function EventPortal({hackathonId}){
         body:JSON.stringify({email:email.trim(),password:pw})});
       const d = await r.json();
       if(!r.ok||d.error){ setLoginErr(d.error||"Sign-in failed"); setLogging(false); return; }
-      try{localStorage.setItem(PKEY,d.token);}catch(_){}
-      setToken(d.token);
-    }catch(ex){ setLoginErr(ex.message); }
-    setLogging(false);
-  }
-  function logout(){ try{localStorage.removeItem(PKEY);}catch(_){} setToken(""); setMe(null); setProj({}); }
-
-  async function saveProject(e){
-    e.preventDefault(); setSaving(true); setSaveMsg(""); setSaveErr("");
-    try{
-      const r = await fetch(`${BASE}/api/portal/submit`,{method:"POST",
-        headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},
-        body:JSON.stringify({hackathonId,...proj})});
-      const d = await r.json();
-      if(!r.ok||d.error){ setSaveErr(d.error||"Could not save"); }
-      else { setSaveMsg("✓ Project saved. You can update it until the submission deadline."); setProj(d); }
-    }catch(ex){ setSaveErr(ex.message); }
-    setSaving(false);
+      // Hand off to the existing management app — it reads this token and routes
+      // by role (admin → dashboard, judge → review, team → team home).
+      try{ localStorage.setItem("hf_token", d.token); }catch(_){}
+      window.location.href = "/admin";
+    }catch(ex){ setLoginErr(ex.message); setLogging(false); }
   }
 
-  async function changePassword(e){
-    e.preventDefault(); setPwSaving(true); setPwMsg(""); setPwErr("");
-    try{
-      const r = await fetch(`${BASE}/api/auth/change-password`,{method:"POST",
-        headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},
-        body:JSON.stringify({currentPassword:curPw,newPassword:newPw})});
-      const d = await r.json();
-      if(!r.ok||d.error){ setPwErr(d.error||"Could not change password"); }
-      else { setPwMsg("✓ Password updated."); setCurPw(""); setNewPw(""); setTimeout(()=>setShowPwForm(false),1200); }
-    }catch(ex){ setPwErr(ex.message); }
-    setPwSaving(false);
-  }
-
-  // ── shared styles ──
-  const page = {minHeight:"100vh",background:"#0a0e1a",...FF,padding:"clamp(24px,5vw,56px) 16px"};
-  const card = {maxWidth:720,width:"100%",margin:"0 auto",background:"#f6f8fc",borderRadius:24,
-    boxShadow:"0 30px 80px -30px rgba(0,0,0,0.6)",padding:"clamp(28px,4vw,48px)"};
+  const page = {minHeight:"100vh",background:"#0a0e1a",...FF,padding:"clamp(24px,5vw,56px) 16px",display:"flex",flexDirection:"column",justifyContent:"center"};
+  const card = {maxWidth:460,width:"100%",margin:"0 auto",background:"#f6f8fc",borderRadius:24,
+    boxShadow:"0 30px 80px -30px rgba(0,0,0,0.6)",padding:"clamp(28px,4vw,44px)"};
   const lbl  = {...FF,display:"block",fontSize:13,fontWeight:600,color:"#334155",marginBottom:6};
   const inp  = {...FF,width:"100%",padding:"11px 13px",fontSize:14,color:"#0f172a",background:"#fff",
     border:"1px solid #d7deea",borderRadius:10,marginBottom:16,outline:"none"};
-  const btn  = (bg)=>({...FF,width:"100%",padding:"13px",fontSize:15,fontWeight:700,color:"#fff",
-    background:bg||accent,border:"none",borderRadius:11,cursor:"pointer"});
-
-  // plain render helper (NOT a component) — avoids focus loss on re-render
-  function fld(label,key,opts={}){
-    const{area,type="text",ph,req,half}=opts;
-    const common={style:inp,value:proj[key]||"",placeholder:ph||"",
-      onChange:e=>setProj(p=>({...p,[key]:e.target.value}))};
-    return (
-      <div style={{marginBottom:0,...(half?{}:{})}}>
-        <label style={lbl}>{label}{req?<span style={{color:"#ef4444"}}> *</span>:null}</label>
-        {area ? <textarea {...common} rows={opts.rows||3} style={{...inp,resize:"vertical",minHeight:opts.rows?opts.rows*22:72}}/>
-              : <input {...common} type={type}/>}
-      </div>
-    );
-  }
-
-  const Brand = () => (
-    <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:28}}>
-      {logo ? <img src={logo} alt={evName} style={{height:40,maxWidth:200,objectFit:"contain"}}/>
-            : <div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:22,fontWeight:700,color:"#0f172a"}}>{evName}</div>}
-    </div>
-  );
-
-  const Footer = () => (
-    <div style={{maxWidth:720,margin:"22px auto 0",textAlign:"center"}}>
-      {partners.length>0 && (
-        <div style={{display:"flex",flexWrap:"wrap",gap:18,justifyContent:"center",alignItems:"center",marginBottom:16,opacity:0.85}}>
-          {partners.filter(p=>p.logoUrl).slice(0,6).map((p,i)=>(
-            <img key={i} src={p.logoUrl} alt={p.name||"partner"} title={p.name||""}
-              style={{height:26,maxWidth:120,objectFit:"contain",filter:"grayscale(0.2)"}}/>
-          ))}
-        </div>
-      )}
-      <div style={{...FF,fontSize:12,color:"#64748b",lineHeight:1.7}}>
-        <strong style={{color:"#94a3b8"}}>{evName}</strong>
-        <span style={{color:"#475569"}}> &nbsp;×&nbsp; </span>
-        <strong style={{color:"#94a3b8"}}>HackFest Hub</strong>
-        <div style={{marginTop:6,color:"#5b6675"}}>
-          {evName} has partnered with HackFest Hub to manage project submissions and judging.
-          {evSite ? <> &nbsp;·&nbsp; <a href={evSite} style={{color:accent,textDecoration:"none",fontWeight:600}}>Visit event site</a></> : null}
-        </div>
-      </div>
-    </div>
-  );
-
-  if(loading) return (
-    <div style={{minHeight:"100vh",background:"#0a0e1a",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{width:40,height:40,border:"3px solid rgba(255,255,255,0.1)",borderTopColor:accent,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
-    </div>
-  );
+  const btn  = {...FF,width:"100%",padding:"13px",fontSize:15,fontWeight:700,color:"#fff",
+    background:accent,border:"none",borderRadius:11,cursor:"pointer"};
 
   const styleTag = (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
       *{box-sizing:border-box;} body{background:#0a0e1a;}
-      input:focus,textarea:focus,select:focus{border-color:${accent}!important;box-shadow:0 0 0 3px ${accent}22;}
+      input:focus{border-color:${accent}!important;box-shadow:0 0 0 3px ${accent}22;}
     `}</style>
   );
-
-  // ── SIGNED IN but event failed to load → error (don't bounce to login) ──
-  if(token && !me && loadErr){
-    return (
-      <div style={page}>
-        {styleTag}
-        <div style={card}>
-          <Brand/>
-          <div style={{...FF,fontSize:14,color:"#9a3412",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:11,padding:"14px 16px",marginBottom:18}}>
-            {loadErr}
-          </div>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>{setLoading(true);loadMe(token);}} style={{...btn(),width:"auto",padding:"11px 20px"}}>Try again</button>
-            <button onClick={logout} style={{...FF,fontSize:14,fontWeight:600,color:"#64748b",background:"none",border:"1px solid #d7deea",borderRadius:11,padding:"11px 20px",cursor:"pointer"}}>Sign out</button>
-          </div>
-        </div>
-        <Footer/>
-      </div>
-    );
-  }
-
-  // ── NOT SIGNED IN → login ──
-  if(!token || !me){
-    return (
-      <div style={page}>
-        {styleTag}
-        <div style={card}>
-          <Brand/>
-          <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:"#64748b",marginBottom:10}}>Team sign-in</div>
-          <h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(24px,3vw,32px)",fontWeight:700,color:"#0f172a",letterSpacing:"-0.02em",marginBottom:10}}>
-            Sign in to submit your project
-          </h2>
-          <p style={{...FF,fontSize:14,color:"#64748b",lineHeight:1.6,marginBottom:24}}>
-            Use the email and password from your registration confirmation. You can change your password after signing in.
-          </p>
-          <form onSubmit={doLogin}>
-            <label style={lbl}>Email</label>
-            <input style={inp} type="email" value={email} autoComplete="username"
-              onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required/>
-            <label style={lbl}>Password</label>
-            <input style={inp} type="password" value={pw} autoComplete="current-password"
-              onChange={e=>setPw(e.target.value)} placeholder="Your password" required/>
-            {loginErr && <div style={{...FF,fontSize:13,color:"#b91c1c",background:"#fee2e2",border:"1px solid #fecaca",borderRadius:9,padding:"9px 12px",marginBottom:14}}>{loginErr}</div>}
-            <button type="submit" disabled={logging} style={{...btn(),opacity:logging?0.7:1}}>
-              {logging?"Signing in…":"Sign in →"}
-            </button>
-          </form>
-          <p style={{...FF,fontSize:12.5,textAlign:"center",marginTop:16,color:"#64748b",lineHeight:1.6}}>
-            Forgot your password? Use the one from your registration email, or ask your coordinator to reset it.
-          </p>
-        </div>
-        <Footer/>
-      </div>
-    );
-  }
-
-  // ── SIGNED IN → dashboard ──
-  const win = me.submissionWindow || {open:true};
-  const deadlineStr = win.deadline ? fmt(win.deadline) : (me.hackathon?.endDate ? fmt(me.hackathon.endDate) : null);
-  const lockMsg = {
-    NOT_STARTED:`Submissions open when the event starts${win.startDate?` on ${fmt(win.startDate)}`:""}.`,
-    ENDED:"The submission window has closed.",
-    CLOSED:"Submissions are currently closed by the organizer.",
-    DEADLINE:`The submission deadline${deadlineStr?` (${deadlineStr})`:""} has passed.`,
-  }[win.reason] || "Submissions are not open right now.";
-
-  const trackOpts = (() => {
-    const t = me.hackathon?.tracks;
-    if(Array.isArray(t)) return t;
-    if(typeof t==="string" && t.trim()) return t.split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
-    return REG_TRACK_FALLBACK;
-  })();
 
   return (
     <div style={page}>
       {styleTag}
       <div style={card}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
-          <Brand/>
-          <button onClick={logout} style={{...FF,fontSize:13,fontWeight:600,color:"#64748b",background:"none",border:"1px solid #d7deea",borderRadius:9,padding:"7px 13px",cursor:"pointer",flexShrink:0}}>Sign out</button>
+        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:26}}>
+          {logo ? <img src={logo} alt={evName} style={{height:40,maxWidth:200,objectFit:"contain"}}/>
+                : <div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:22,fontWeight:700,color:"#0f172a"}}>{evName}</div>}
         </div>
 
-        <h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(22px,3vw,30px)",fontWeight:700,color:"#0f172a",letterSpacing:"-0.02em",marginBottom:6}}>
-          Welcome, {me.user?.name || "team"}
+        <div style={{...FF,fontSize:12,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:"#64748b",marginBottom:10}}>Sign in</div>
+        <h2 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:"clamp(23px,3vw,30px)",fontWeight:700,color:"#0f172a",letterSpacing:"-0.02em",marginBottom:10}}>
+          Welcome back
         </h2>
-        <p style={{...FF,fontSize:14,color:"#64748b",marginBottom:20}}>
-          {me.team?.name ? <>Team <strong style={{color:"#0f172a"}}>{me.team.name}</strong> · </> : null}{evName}
+        <p style={{...FF,fontSize:14,color:"#64748b",lineHeight:1.6,marginBottom:24}}>
+          Participants and judges sign in here with the email and password from your confirmation email.
         </p>
 
-        {/* Deadline banner */}
-        <div style={{...FF,fontSize:13,borderRadius:11,padding:"12px 15px",marginBottom:22,
-          background: win.open ? "#ecfdf5" : "#fff7ed",
-          border:`1px solid ${win.open ? "#a7f3d0" : "#fed7aa"}`,
-          color: win.open ? "#065f46" : "#9a3412"}}>
-          {win.open
-            ? <>✍ Submissions are open{deadlineStr?<> — you can edit your project until <strong>{deadlineStr}</strong></>:""}.</>
-            : <>🔒 {lockMsg}</>}
-        </div>
-
-        {/* Change-password toggle */}
-        <div style={{marginBottom:22}}>
-          <button onClick={()=>setShowPwForm(s=>!s)} style={{...FF,fontSize:13,fontWeight:600,color:accent,background:"none",border:"none",cursor:"pointer",padding:0}}>
-            {showPwForm?"▾ Hide password settings":"▸ Change your password"}
+        <form onSubmit={doLogin}>
+          <label style={lbl}>Email</label>
+          <input style={inp} type="email" value={email} autoComplete="username"
+            onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required/>
+          <label style={lbl}>Password</label>
+          <input style={inp} type="password" value={pw} autoComplete="current-password"
+            onChange={e=>setPw(e.target.value)} placeholder="Your password" required/>
+          {loginErr && <div style={{...FF,fontSize:13,color:"#b91c1c",background:"#fee2e2",border:"1px solid #fecaca",borderRadius:9,padding:"9px 12px",marginBottom:14}}>{loginErr}</div>}
+          <button type="submit" disabled={logging} style={{...btn,opacity:logging?0.7:1}}>
+            {logging?"Signing in…":"Sign in →"}
           </button>
-          {showPwForm && (
-            <form onSubmit={changePassword} style={{marginTop:14,padding:"18px 18px 4px",background:"#fff",border:"1px solid #e2e8f0",borderRadius:12}}>
-              <label style={lbl}>Current password</label>
-              <input style={inp} type="password" value={curPw} onChange={e=>setCurPw(e.target.value)} required/>
-              <label style={lbl}>New password <span style={{color:"#94a3b8",fontWeight:400}}>(min 8 characters)</span></label>
-              <input style={inp} type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} required/>
-              {pwErr && <div style={{...FF,fontSize:13,color:"#b91c1c",marginBottom:10}}>{pwErr}</div>}
-              {pwMsg && <div style={{...FF,fontSize:13,color:"#065f46",marginBottom:10}}>{pwMsg}</div>}
-              <button type="submit" disabled={pwSaving} style={{...btn(),width:"auto",padding:"10px 18px",fontSize:14,opacity:pwSaving?0.7:1}}>
-                {pwSaving?"Saving…":"Update password"}
-              </button>
-            </form>
-          )}
-        </div>
-
-        <hr style={{border:"none",borderTop:"1px solid #e2e8f0",margin:"6px 0 24px"}}/>
-
-        {/* Project submission */}
-        <h3 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:20,fontWeight:700,color:"#0f172a",marginBottom:4}}>
-          {me.submission ? "Your project submission" : "Submit your project"}
-        </h3>
-        <p style={{...FF,fontSize:13,color:"#64748b",marginBottom:20}}>
-          {win.open ? "Fields marked * are required. Save as often as you like before the deadline."
-                    : "Submissions are locked — your entry is shown below in read-only mode."}
-        </p>
-
-        <form onSubmit={saveProject} style={{display:"grid",gap:16,opacity:win.open?1:0.7,pointerEvents:win.open?"auto":"none"}}>
-          {fld("Project title","title",{req:true,ph:"Your project name"})}
-          {fld("Tagline","tagline",{ph:"One-line summary"})}
-          {fld("Problem statement","problemStatement",{area:true,rows:3,ph:"What problem does it solve?"})}
-          {fld("Solution","solution",{area:true,rows:3,ph:"How does it solve the problem?"})}
-          {fld("Description","description",{area:true,rows:4,ph:"Full project description"})}
-          {fld("Tech stack","techStack",{ph:"e.g. React, Node, Postgres"})}
-          <div>
-            <label style={lbl}>Track</label>
-            <select value={proj.track||""} onChange={e=>setProj(p=>({...p,track:e.target.value}))}
-              style={{...inp,marginBottom:0,appearance:"none",cursor:"pointer"}}>
-              <option value="">Select a track…</option>
-              {trackOpts.map((t,i)=><option key={i} value={t}>{t}</option>)}
-            </select>
-          </div>
-          {fld("GitHub URL","githubUrl",{type:"url",ph:"https://github.com/..."})}
-          {fld("Live demo URL","demoUrl",{type:"url",ph:"https://..."})}
-          {fld("Video URL","videoUrl",{type:"url",ph:"YouTube / Vimeo link"})}
-          {fld("Pitch deck URL","deckUrl",{type:"url",ph:"Slides / PDF link"})}
-
-          {saveErr && <div style={{...FF,fontSize:13,color:"#b91c1c",background:"#fee2e2",border:"1px solid #fecaca",borderRadius:9,padding:"9px 12px"}}>{saveErr}</div>}
-          {saveMsg && <div style={{...FF,fontSize:13,color:"#065f46",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:9,padding:"9px 12px"}}>{saveMsg}</div>}
-
-          {win.open && (
-            <button type="submit" disabled={saving} style={{...btn(),opacity:saving?0.7:1}}>
-              {saving ? "Saving…" : (me.submission ? "Update project" : "Submit project")}
-            </button>
-          )}
         </form>
+
+        <p style={{...FF,fontSize:13,textAlign:"center",marginTop:18,color:"#64748b"}}>
+          New here? <a href={`/apply/${hackathonId}`} style={{color:accent,textDecoration:"none",fontWeight:600}}>Register for {evName}</a>
+        </p>
+        <p style={{...FF,fontSize:12.5,textAlign:"center",marginTop:10,color:"#94a3b8",lineHeight:1.6}}>
+          Forgot your password? Use the one from your registration email, or ask your coordinator to reset it.
+        </p>
       </div>
-      <Footer/>
+
+      {/* Co-brand footer */}
+      <div style={{maxWidth:460,margin:"22px auto 0",textAlign:"center"}}>
+        {partners.filter(p=>p.logoUrl).length>0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:18,justifyContent:"center",alignItems:"center",marginBottom:16,opacity:0.85}}>
+            {partners.filter(p=>p.logoUrl).slice(0,6).map((p,i)=>(
+              <img key={i} src={p.logoUrl} alt={p.name||"partner"} title={p.name||""}
+                style={{height:24,maxWidth:110,objectFit:"contain"}}/>
+            ))}
+          </div>
+        )}
+        <div style={{...FF,fontSize:12,color:"#64748b",lineHeight:1.7}}>
+          <strong style={{color:"#94a3b8"}}>{evName}</strong>
+          <span style={{color:"#475569"}}> &nbsp;×&nbsp; </span>
+          <strong style={{color:"#94a3b8"}}>HackFest Hub</strong>
+          <div style={{marginTop:6,color:"#5b6675"}}>
+            {evName} has partnered with HackFest Hub to manage project submissions and judging.
+            {evSite ? <> &nbsp;·&nbsp; <a href={evSite} style={{color:accent,textDecoration:"none",fontWeight:600}}>Visit event site</a></> : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
