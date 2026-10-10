@@ -2696,6 +2696,11 @@ app.get(["/api/leaderboard/:hackathonId","/leaderboard/:hackathonId"], async (re
 const FROM_EMAIL = process.env.EMAIL_FROM || "HackFest Hub <noreply@hackfesthub.com>";
 const SITE_URL   = siteUrl();
 
+// Co-branding: the event's own public site, shown in participant emails.
+// Overridable per-deployment via EVENT_SITE_URL; defaults to the DataNova site.
+const EVENT_SITE_URL = process.env.EVENT_SITE_URL || "https://datanovathon.com/";
+const prettyUrl = (u) => String(u || "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
+
 
 async function sendEmail(to, subject, html) {
   if (!process.env.RESEND_API_KEY) {
@@ -2718,7 +2723,9 @@ async function sendEmail(to, subject, html) {
 }
 
 // ── Email templates ─────────────────────────────────────────────────────────
-function emailBase(content, hackName = "HackFest Hub") {
+function emailBase(content, hackName = "HackFest Hub", opts = {}) {
+  const { logoUrl = null, eventSite = EVENT_SITE_URL } = opts;
+  const siteLabel = prettyUrl(eventSite);
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2750,10 +2757,21 @@ function emailBase(content, hackName = "HackFest Hub") {
   </style></head><body>
   <div class="wrap">
     <div class="header">
-      <h1>${hackName}</h1>
+      ${logoUrl ? `<img src="${logoUrl}" alt="${hackName}" style="max-height:48px;max-width:220px;margin-bottom:8px;">` : `<h1>${hackName}</h1>`}
     </div>
     <div class="body">${content}</div>
     <div class="footer">
+      <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #e5e7eb;">
+        <div style="display:inline-block;font-size:11px;color:#9ca3af;line-height:1.7;">
+          <span style="font-weight:700;color:#4b5563;">${hackName}</span>
+          <span style="color:#d1d5db;">&nbsp;×&nbsp;</span>
+          <span style="font-weight:700;color:#4b5563;">⚡ HackFest Hub</span>
+        </div>
+        <div style="font-size:12px;color:#6b7280;line-height:1.7;margin-top:8px;">
+          ${hackName} has partnered with <strong>HackFest Hub</strong> to manage project submissions and judging.
+          Learn more at <a href="${eventSite}" style="color:#4f46e5;font-weight:600;text-decoration:none;">${siteLabel}</a>.
+        </div>
+      </div>
       <p>You received this because you registered for <strong>${hackName}</strong>.<br>
       Questions? Reply to this email or contact your coordinator for further assistance.</p>
     </div>
@@ -2762,6 +2780,8 @@ function emailBase(content, hackName = "HackFest Hub") {
 
 // 1. Registration received
 function emailRegReceived(reg, hack) {
+  const brandOpts = { logoUrl: hack.eventLogoUrl || hack.event_logo_url || null,
+                      eventSite: hack.websiteUrl || hack.website_url || EVENT_SITE_URL };
   return emailBase(`
     <div class="badge">📋 Application Received</div>
     <div class="greeting">Hi ${reg.name}! 👋</div>
@@ -2774,13 +2794,15 @@ function emailRegReceived(reg, hack) {
       ${hack.location ? `<div class="card-row"><span class="card-label">Location</span><span class="card-value">${hack.location}</span></div>` : ""}
     </div>
     <p class="text">We'll notify you once your application has been reviewed. Keep an eye on your inbox!</p>
-  `, hack.name);
+  `, hack.name, brandOpts);
 }
 
 // 2. Registration approved (with login credentials)
 function emailRegApproved(reg, hack, creds) {
   const isJudge = reg.type === "judge";
-  const loginUrl = `${SITE_URL}/register/${hack.id}`;
+  const loginUrl = `${SITE_URL}/portal/${hack.id}`;
+  const brandOpts = { logoUrl: hack.eventLogoUrl || hack.event_logo_url || null,
+                      eventSite: hack.websiteUrl || hack.website_url || EVENT_SITE_URL };
   const credBlock = creds ? `
     <div style="background:#eef2ff;border:1.5px solid #c7d2fe;border-radius:12px;padding:20px 24px;margin:22px 0;">
       <div style="font-size:12px;font-weight:700;color:#4338ca;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;">
@@ -2841,7 +2863,7 @@ function emailRegApproved(reg, hack, creds) {
     </div>
     ${nextSteps}
     <a href="${loginUrl}" class="btn">Sign in now →</a>
-  `, hack.name);
+  `, hack.name, brandOpts);
 }
 
 // 3. Judge credentials
@@ -3927,6 +3949,72 @@ app.post(["/api/portal/submit","/portal/submit"], async (req,res)=>{
     );
     res.json(camel(sub));
   }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── White-labeled portal: load theme + team + existing submission ──────────
+// Uses the users table (the account the registration email credentials belong to),
+// so it works seamlessly with the credentials emailed on approval.
+app.get(["/api/portal/my","/portal/my"], async (req,res)=>{
+  const token=(req.headers.authorization||"").replace("Bearer ","");
+  if(!token) return res.status(401).json({error:"Unauthorized"});
+  try{
+    const payload=jwt.verify(token,process.env.JWT_SECRET||JWT_SECRET);
+    const{hackathonId}=req.query;
+    if(!hackathonId) return res.status(400).json({error:"hackathonId required"});
+
+    // Event (public-safe fields + theme/logo for co-branding)
+    const{rows:[h]}=await q(
+      `SELECT id,name,status,start_date,end_date,tracks,submissions_open,submission_deadline,
+              prize_pool,banner_color,event_logo_url,website_url,problem_statements,detailed_registration
+       FROM hackathons WHERE id=$1`,[hackathonId]).catch(()=>({rows:[]}));
+    if(!h) return res.status(404).json({error:"Event not found"});
+
+    // Partners (for co-brand logos), tolerant if the table isn't migrated
+    const{rows:partners}=await q(
+      "SELECT name,logo_url,website_url,tier FROM page_partners WHERE hackathon_id=$1 ORDER BY sort_order,name",
+      [hackathonId]).catch(()=>({rows:[]}));
+
+    // Their account + team + submission (users table)
+    const{rows:[u]}=await q("SELECT id,name,email,team_id FROM users WHERE id=$1",[payload.id]);
+    if(!u) return res.status(404).json({error:"Account not found"});
+
+    let team=null, submission=null;
+    if(u.team_id){
+      const{rows:[t]}=await q("SELECT * FROM teams WHERE id=$1 AND hackathon_id=$2",[u.team_id,hackathonId]);
+      team=t||null;
+    }
+    if(!team){
+      const{rows:[reg]}=await q("SELECT team_name FROM registrations WHERE LOWER(email)=LOWER($1) AND hackathon_id=$2",[u.email,hackathonId]);
+      if(reg?.team_name){
+        const{rows:[t]}=await q("SELECT * FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)",[hackathonId,reg.team_name]);
+        team=t||null;
+      }
+    }
+    if(team){
+      const{rows:[s]}=await q("SELECT * FROM submissions WHERE team_id=$1 AND hackathon_id=$2",[team.id,hackathonId]);
+      if(s) submission=camel(s);
+    }
+
+    // Compute submission window so the UI can lock the form
+    const now=new Date();
+    const startDate=h.start_date?new Date(h.start_date):null;
+    const endDate=h.end_date?new Date(h.end_date):null;
+    const deadline=h.submission_deadline?new Date(h.submission_deadline):null;
+    let window={open:true,reason:null,deadline:deadline?deadline.toISOString():null};
+    if(startDate && now<startDate){ window={open:false,reason:"NOT_STARTED",deadline:window.deadline,startDate:startDate.toISOString()}; }
+    else if(endDate && now>endDate){ window={open:false,reason:"ENDED",deadline:window.deadline}; }
+    else if(h.submissions_open===false){ window={open:false,reason:"CLOSED",deadline:window.deadline}; }
+    else if(deadline && deadline<now){ window={open:false,reason:"DEADLINE",deadline:window.deadline}; }
+
+    res.json({
+      user:{id:u.id,name:u.name,email:u.email},
+      hackathon:camel(h),
+      partners:partners.map(camel),
+      team:team?camel(team):null,
+      submission,
+      submissionWindow:window,
+    });
+  }catch(e){ res.status(401).json({error:"Invalid session"}); }
 });
 
 // ── Judge: get assigned teams with submissions ─────────────────────────────
