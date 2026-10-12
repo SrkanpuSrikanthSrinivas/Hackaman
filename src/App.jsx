@@ -452,7 +452,10 @@ function AppShell() {
       return p.exp * 1000 > Date.now() ? p : (localStorage.removeItem("hf_token"), null);
     } catch { return null; }
   });
-  const [page, setPage] = useState(currentUser?.role==="team"?"team-home":"dashboard");
+  const [page, setPage] = useState(
+    currentUser?.role==="team" ? "team-home"
+    : currentUser?.role==="judge" ? "feedback"
+    : "dashboard");
   const [showPwModal, setShowPwModal] = useState(false);
   // Collapsible sidebar sections — persisted per user
   const [collapsed, setCollapsed] = useState(() => {
@@ -511,7 +514,8 @@ function AppShell() {
 
   const logout = () => {
     const role   = currentUser?.role;
-    const hackId = activeHackathon;
+    const hackId = activeHackathon || currentUser?.hackathonId
+      || (currentUser?.assignedHackathons && currentUser.assignedHackathons[0]);
     const token  = localStorage.getItem("hf_token");
     if (token) {
       fetch("/api/auth/logout", { method:"POST",
@@ -519,9 +523,9 @@ function AppShell() {
     }
     localStorage.removeItem("hf_token");
     setCurrentUser(null);
-    // Judge and team return to their hackathon page; admin goes to root
+    // Judge and team return to the event sign-in (portal) page; admin goes to root.
     if ((role === "judge" || role === "team") && hackId) {
-      window.location.href = `/register/${hackId}`;
+      window.location.href = `/portal/${hackId}`;
     } else {
       window.location.href = "/";
     }
