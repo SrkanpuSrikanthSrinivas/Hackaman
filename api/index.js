@@ -1378,6 +1378,46 @@ app.delete(["/api/teams/:id", "/teams/:id"], admin, async (req, res) => {
   try { await q("DELETE FROM teams WHERE id=$1", [req.params.id]); res.json({ deleted: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Repair: link any team-role user whose team_id is missing (or points to a
+// deleted team) to the right team, based on their registration. Creates the
+// team if it doesn't exist. Fixes "⚠ No team linked" rows.
+app.post(["/api/teams/relink", "/teams/relink"], admin, async (req, res) => {
+  const { hackathonId } = req.body;
+  if (!hackathonId) return res.status(400).json({ error: "hackathonId required" });
+  try {
+    // Team-role users tied to this hackathon's registrations whose team_id is
+    // null or dangling.
+    const { rows: broken } = await q(
+      `SELECT u.id AS user_id, u.name AS user_name, u.email,
+              r.team_name, r.name AS reg_name
+       FROM users u
+       JOIN registrations r ON LOWER(r.email)=LOWER(u.email) AND r.hackathon_id=$1
+       WHERE u.role='team'
+         AND (u.team_id IS NULL OR u.team_id NOT IN (SELECT id FROM teams WHERE hackathon_id=$1))`,
+      [hackathonId]
+    ).catch(() => ({ rows: [] }));
+
+    let fixed = 0, createdTeams = 0;
+    for (const b of broken) {
+      const tName = (b.team_name && b.team_name.trim()) || b.reg_name || b.user_name;
+      if (!tName) continue;
+      let teamId;
+      const { rows: [t] } = await q(
+        "SELECT id FROM teams WHERE hackathon_id=$1 AND LOWER(name)=LOWER($2)", [hackathonId, tName]);
+      if (t) { teamId = t.id; }
+      else {
+        teamId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        await q("INSERT INTO teams(id,hackathon_id,name,members) VALUES($1,$2,$3,$4)",
+          [teamId, hackathonId, tName, b.user_name || null]);
+        createdTeams++;
+      }
+      await q("UPDATE users SET team_id=$1 WHERE id=$2", [teamId, b.user_id]);
+      fixed++;
+    }
+    res.json({ fixed, createdTeams, scanned: broken.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get(["/api/criteria", "/criteria"], auth, async (req, res) => {
   try {
     const { hackathonId } = req.query;
@@ -1827,18 +1867,23 @@ app.put(["/api/registrations/:id", "/registrations/:id"], admin, async (req, res
             autoResult.teamCreated = true;
           }
 
-          // ── Auto-create team user login ──
+          // ── Auto-create / link team user login ──
           const { rows: existingUser } = await q("SELECT id FROM users WHERE LOWER(email)=LOWER($1)", [reg.email]);
+          const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
           if (!existingUser.length) {
-            const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
             const uid2 = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
             await q(
               "INSERT INTO users(id,name,email,password_hash,role,team_id,org_id) VALUES($1,$2,LOWER($3),$4,'team',$5,$6)",
               [uid2, reg.name, reg.email, hash, teamId, await orgForHackathon(reg.hackathonId)]
             );
-            autoResult.loginCreated = true;
-            autoResult.tempPassword = DEFAULT_PASSWORD;
+          } else {
+            // Existing account → reset to the clear password AND link to this team
+            // (this is the fix for "No team linked" on re-approval / teammates).
+            await q("UPDATE users SET password_hash=$1, role='team', team_id=$2 WHERE id=$3",
+              [hash, teamId, existingUser[0].id]).catch(()=>{});
           }
+          autoResult.loginCreated = true;
+          autoResult.tempPassword = DEFAULT_PASSWORD;
         }
       } catch(autoErr) {
         console.error("Auto-provision on approve:", autoErr.message);

@@ -468,8 +468,25 @@ function CrudPage({ title, icon, items, hackId, emptyMsg, renderRow, saveItem, d
 export function TeamsPage({ db, reload, toast, activeHackathon }) {
   const hack=db.hackathons.find(h=>h.id===activeHackathon);
   const teams=db.teams.filter(t=>t.hackathonId===activeHackathon);
+  const [repairing,setRepairing]=useState(false);
   if (!activeHackathon) return <Empty icon="👥" title="Select a hackathon" />;
-  return <CrudPage title="Teams" icon="👥" items={teams} hackId={activeHackathon} emptyMsg="No teams yet"
+  const repair=async()=>{
+    setRepairing(true);
+    try{
+      const r=await POST("/api/teams/relink",{hackathonId:activeHackathon});
+      if(r.error){toast(r.error,"error");}
+      else{ await reload();
+        toast(r.fixed?`✓ Linked ${r.fixed} member${r.fixed!==1?"s":""} to their team${r.createdTeams?` (${r.createdTeams} team${r.createdTeams!==1?"s":""} created)`:""}`:"All team members are already linked"); }
+    }catch(e){toast(e.message,"error");}
+    setRepairing(false);
+  };
+  return <>
+  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+    <Btn variant="secondary" size="sm" disabled={repairing} onClick={repair}>
+      {repairing?<><Spinner size={12}/> Repairing…</>:"🔗 Repair team links"}
+    </Btn>
+  </div>
+  <CrudPage title="Teams" icon="👥" items={teams} hackId={activeHackathon} emptyMsg="No teams yet"
     initForm={{hackathonId:activeHackathon}}
     saveItem={async(id,form)=>{try{const body={...form,hackathonId:form.hackathonId||activeHackathon};id?await PUT(`/api/teams/${id}`,body):await POST("/api/teams",body);await reload();toast(id?"Updated":"Team added");}catch(e){toast(e.message,"error");throw e;}}}
     delItem={async id=>{try{await DEL(`/api/teams/${id}`);await reload();toast("Removed");}catch(e){toast(e.message,"error");}}}
@@ -490,7 +507,8 @@ export function TeamsPage({ db, reload, toast, activeHackathon }) {
       <Field label="Category"><select style={IN} value={form.category||""} onChange={f("category")}><option value="">Select...</option>{["AI/ML","Sustainability","Security","Social Impact","EdTech","FinTech","Health","Other"].map(c=><option key={c}>{c}</option>)}</select></Field>
       <Field label="Members" hint="Comma-separated"><input style={IN} value={form.members||""} onChange={f("members")} placeholder="Alice, Bob, Carol" /></Field>
     </>}
-  />;
+  />
+  </>;
 }
 
 export function JudgesPage({ db, reload, toast, activeHackathon }) {
